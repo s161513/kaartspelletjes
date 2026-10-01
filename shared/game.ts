@@ -25,12 +25,33 @@ export interface Game<State = unknown, Move = unknown> {
 
   /** Whether the game is over and, if so, who won. */
   result(state: State): { over: boolean; winner?: string | "draw" };
-  /** Optional projection for games with private hands; omitted = public state. */
-  getViewForPlayer?(state: State, playerId: string): unknown;
-  /** Optional server-driven transition. Delay in ms, or null for no timer. */
+
+  /**
+   * Optional: what `playerId` is allowed to see (e.g. hide other players'
+   * cards and the deck). Without it every player receives the full state.
+   */
+  playerView?(state: State, playerId: string): unknown;
+
+  /**
+   * Optional: a player left the room mid-game (e.g. fold their hand and drop
+   * them). Return the new state; `result` is checked afterwards. Without it the
+   * game ends, and if only one player remains they win.
+   */
+  playerLeft?(state: State, playerId: string): State;
+
+  /**
+   * Optional: server-driven transitions (e.g. deal the next round after a
+   * pause). `nextUpdateIn` returns a delay in ms, or null for no timer; when it
+   * fires the server calls `advance` and sends the new state to everyone.
+   */
   nextUpdateIn?(state: State): number | null;
   advance?(state: State): State;
-  /** Recompute game participation when existing room members connect/leave. */
+
+  /**
+   * Optional: room members connected, disconnected or left. `connectedIds` are
+   * online now, `memberIds` are still in the room (e.g. pause while fewer than
+   * two players are online). Called alongside `playerLeft` when someone leaves.
+   */
   playersChanged?(state: State, connectedIds: string[], memberIds: string[]): State;
 }
 
@@ -43,8 +64,11 @@ export interface GameContext {
   container: HTMLElement;
   /** This client's player id. */
   playerId: string;
-  /** Existing room information, supplied by the common host. */
+  /** Nickname of a player in the room (falls back to "Player"). */
+  nickname(playerId: string): string;
+  /** Players in the room (with online status), supplied by the host page. */
   players?: readonly PlayerPublic[];
+  /** Whether the socket is currently open. */
   connected?: boolean;
   /** Send a move payload (validated server-side). */
   sendMove(move: unknown): void;

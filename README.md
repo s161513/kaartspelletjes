@@ -107,14 +107,36 @@ The template is a small working card game ("highest card wins"); read its
 comments first. Card helpers (`createDeck`, `shuffle`, `deal`, `sortHand`, …)
 come from `@app/shared`.
 
+Optional extras in your folder:
+
+- **HTML + CSS for the layout.** Put the static markup in `view.html` and your
+  styles in `style.css`, and load them from `view.ts`:
+  ```ts
+  import html from "./view.html?raw";
+  import "./style.css";
+  // in mount(): ctx.container.innerHTML = html;
+  ```
+  Prefix your CSS classes with your game id (e.g. `.pesten-hand`) so they
+  don't clash with other games.
+- **Hidden information.** Add `playerView(state, playerId)` to `logic.ts` to
+  decide what each player receives (e.g. replace other players' cards with
+  `null`, leave out the deck). Without it everyone gets the full state.
+- **Players leaving.** Every game page has a "Leave game" button. Add
+  `playerLeft(state, playerId)` to `logic.ts` to keep the game going without
+  them (e.g. fold their hand). Without it the game ends when someone leaves,
+  and if only one player remains they win.
+- **Player names.** `ctx.nickname(playerId)` in `view.ts`.
+- **Tests.** Any `games/<id>/*.test.ts` file runs with `npm test`
+  (Node's built-in test runner; see `games/tictactoe/tictactoe.test.ts`).
+
 Good to know:
 
 - **The server decides.** Check everything in `validateMove` (whose turn,
   is the move allowed); never trust what the browser sends.
 - **Keep state plain JSON**: objects, arrays, strings, numbers. No `Map`,
   `Set` or classes — the state is sent over the WebSocket.
-- **Every player receives the full state**, including other players' hands.
-  Fine among friends; just don't show them in `view.ts`.
+- **Every player receives the full state** unless you add `playerView`
+  (see above) — without it, other players' hands are visible in devtools.
 - Restart `npm run dev` after creating a new game folder, then test with two
   browser tabs (see [Develop](#develop)).
 
@@ -130,7 +152,7 @@ git merge origin/main
 ### 5. Get it merged
 
 ```bash
-npm run build                        # must succeed
+npm test && npm run build            # must succeed
 git push -u origin game/<id>
 ```
 

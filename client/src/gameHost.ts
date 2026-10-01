@@ -9,7 +9,7 @@ import { setupChat } from "./chat.js";
  * Called by client/src/game.ts with the view and meta of the game in the URL.
  *
  * Expected DOM ids: #status, #gameRoot, #back, #error, #chatLog, #chatForm,
- * #chatInput, and optionally #gameTitle.
+ * #chatInput, and optionally #gameTitle and #leaveGame.
  */
 export function setupGamePage<State>(
   page: GamePage<State>,
@@ -37,11 +37,16 @@ export function setupGamePage<State>(
     document.getElementById("chatInput") as HTMLInputElement,
   );
 
+  // Latest player list from roomState (sent before gameStarted on every join).
+  const nicknames = new Map<string, string>();
+
   const ctx: GameContext = {
     container: containerEl,
     playerId: session.playerId,
+    nickname: (id) => nicknames.get(id) ?? "Player",
     players: [],
     get connected() { return socket.connected; },
+    // Drop moves while offline instead of queueing stale, time-sensitive input.
     sendMove: (move) => {
       if (socket.connected) socket.send({ type: "move", move });
     },
@@ -73,6 +78,7 @@ export function setupGamePage<State>(
   });
 
   socket.on("gameState", (msg) => {
+    errEl.textContent = "";
     ensureMounted();
     page.update(msg.state as State, ctx);
   });
@@ -100,6 +106,7 @@ export function setupGamePage<State>(
   // Landed here with no active game (e.g. direct nav / game already ended) and
   // nothing rendered yet → go back to the lobby.
   socket.on("roomState", (msg) => {
+    for (const p of msg.players) nicknames.set(p.id, p.nickname);
     ctx.players = msg.players;
     page.onRoomState?.(ctx);
     if (msg.currentGameId === null && !gameOver && !mounted) {
@@ -109,5 +116,13 @@ export function setupGamePage<State>(
 
   backBtn.addEventListener("click", () => {
     location.href = "/lobby.html";
+  });
+
+  document.getElementById("leaveGame")?.addEventListener("click", () => {
+    if (mounted && !gameOver && !confirm("Leave the game? You can't rejoin it.")) return;
+    socket.send({ type: "leave" });
+    session.clearRoom();
+    socket.close();
+    location.href = "/";
   });
 }

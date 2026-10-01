@@ -19,6 +19,41 @@ function err(ws: WebSocket, code: string, message: string): void {
   send(ws, { type: "error", code, message });
 }
 
+/** Store a new game state and send it out, ending the game if it is over. */
+function publish(manager: RoomManager, room: Room, next: unknown): void {
+  const runtime = room.runtime!;
+  runtime.state = next;
+  if (runtime.game.result(next).over) {
+    clearTimeout(runtime.timer);
+    manager.sendGame(room, "gameOver");
+    room.runtime = null;
+    sendRoomState(manager, room);
+  } else {
+    manager.sendGame(room, "gameState");
+    manager.scheduleGame(room);
+  }
+}
+
+/**
+ * A player left mid-game. `playerLeft` decides what happens to the game; a game
+ * with only `playersChanged` already heard about it via removePlayer. A game
+ * with neither cannot continue: end it, and a lone remaining player wins.
+ */
+function playerLeftGame(manager: RoomManager, room: Room, playerId: string): void {
+  const runtime = room.runtime!;
+  if (runtime.game.playerLeft) {
+    return publish(manager, room, runtime.game.playerLeft(runtime.state, playerId));
+  }
+  if (runtime.game.playersChanged) return;
+
+  const remaining = [...room.players.values()];
+  clearTimeout(runtime.timer);
+  manager.sendGame(room, "gameOver", {
+    winner: remaining.length === 1 ? remaining[0].id : "draw",
+  });
+  room.runtime = null;
+}
+
 /** Broadcast the current room snapshot to everyone in it. */
 function sendRoomState(manager: RoomManager, room: Room): void {
   manager.broadcast(room, {
@@ -54,7 +89,10 @@ export function attachConnection(ws: WebSocket, manager: RoomManager): void {
   ws.on("close", () => {
     if (!conn.roomCode || !conn.playerId) return;
     const room = manager.getRoom(conn.roomCode);
-    if (!room || room.players.get(conn.playerId)?.ws !== ws) return;
+    if (!room) return;
+    // A newer socket may already own this seat (page navigation or a reload
+    // whose rejoin arrived before this close). Then this close means nothing.
+    if (room.players.get(conn.playerId)?.ws !== ws) return;
     manager.disconnect(room, conn.playerId);
     // Room may have been pruned; only broadcast if it still exists.
     if (manager.getRoom(conn.roomCode)) sendRoomState(manager, room);
@@ -106,7 +144,7 @@ function handle(conn: Conn, manager: RoomManager, msg: ClientMessage): void {
       sendRoomState(manager, room);
       // Re-sync any game in progress for the returning player.
       if (room.runtime) {
-        manager.sendGame(room, "gameStarted", player.id);
+        manager.sendGame(room, "gameStarted", { only: player.id });
       }
       return;
     }
@@ -163,27 +201,25 @@ function handle(conn: Conn, manager: RoomManager, msg: ClientMessage): void {
         return err(ws, "bad_move", validated.error);
       }
 
-      const next = game.applyMove(state, conn.playerId!, validated.move);
-      room.runtime.state = next;
-
-      const outcome = game.result(next);
-      if (outcome.over) {
-        clearTimeout(room.runtime.timer);
-        manager.sendGame(room, "gameOver");
-        room.runtime = null;
-        sendRoomState(manager, room);
-      } else {
-        manager.sendGame(room, "gameState");
-        manager.scheduleGame(room);
-      }
+      publish(manager, room, game.applyMove(state, conn.playerId!, validated.move));
       return;
     }
 
     case "leave": {
       const room = manager.getRoom(conn.roomCode ?? "");
       if (room && conn.playerId) {
+        const nickname = room.players.get(conn.playerId)?.nickname ?? "A player";
         manager.removePlayer(room, conn.playerId);
-        if (manager.getRoom(room.code)) sendRoomState(manager, room);
+        if (manager.getRoom(room.code)) {
+          manager.broadcast(room, {
+            type: "chat",
+            from: "🚪",
+            text: `${nickname} left the room`,
+            ts: Date.now(),
+          });
+          if (room.runtime) playerLeftGame(manager, room, conn.playerId);
+          sendRoomState(manager, room);
+        }
       }
       conn.roomCode = null;
       conn.playerId = null;

@@ -21,7 +21,7 @@ test("57 cards, 8 distinct symbols each, all 1,596 intersections and symbol asse
 test("2–8 players, distinct private hands and no private metadata on the wire",()=>{
   assert.throws(()=>dobble.init(["a"])); assert.throws(()=>dobble.init(Array.from({length:9},(_,i)=>String(i))));
   const state=dobble.init(Array.from({length:8},(_,i)=>String(i)));
-  const views=state.playerIds.map(id=>dobble.getViewForPlayer!(state,id)) as import("../types.js").DobbleView[];
+  const views=state.playerIds.map(id=>dobble.playerView!(state,id)) as import("../types.js").DobbleView[];
   assert.equal(new Set(views.map(v=>[...v.round.own].sort((a,b)=>a-b).join(","))).size,8);
   for(const view of views) {assert.deepEqual(view.round.center,views[0].round.center);assert.equal(view.round.own.filter(s=>view.round.center.includes(s)).length,1);assert.ok(!JSON.stringify(view).includes("hands"));assert.ok(!JSON.stringify(view).includes("blockedUntil"));}
 });
@@ -71,6 +71,6 @@ test("Tic-Tac-Toe regression: invalid turn, win, draw and unchanged public shape
 });
 test("generic projection: explicit null never falls back to private server state",()=>{
   const manager=new RoomManager();const room=manager.createRoom();
-  room.runtime={gameId:"test",game:{...ticTacToe,getViewForPlayer:()=>null} as import("@app/shared").Game,state:{secret:"private"}};
+  room.runtime={gameId:"test",game:{...ticTacToe,playerView:()=>null} as import("@app/shared").Game,state:{secret:"private"}};
   assert.equal(manager.gameView(room,"a"),null);manager.dispose();
 });

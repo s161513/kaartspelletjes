@@ -140,22 +140,31 @@ export class RoomManager {
   /** One projection path for initial state, updates, results and reconnects. */
   gameView(room: Room, playerId: string): GameState {
     const runtime = room.runtime!;
-    return runtime.game.getViewForPlayer
-      ? runtime.game.getViewForPlayer(runtime.state, playerId)
+    return runtime.game.playerView
+      ? runtime.game.playerView(runtime.state, playerId)
       : runtime.state;
   }
 
-  sendGame(room: Room, type: "gameStarted" | "gameState" | "gameOver", onlyPlayerId?: string): void {
+  /**
+   * Send a game message to every connected player (or only `opts.only`), each
+   * with their own view of the state. `opts.winner` overrides the game result
+   * for a game that ends because a player left.
+   */
+  sendGame(
+    room: Room,
+    type: "gameStarted" | "gameState" | "gameOver",
+    opts: { only?: string; winner?: string } = {},
+  ): void {
     const runtime = room.runtime;
     if (!runtime) return;
     for (const player of room.players.values()) {
-      if (onlyPlayerId && player.id !== onlyPlayerId) continue;
+      if (opts.only && player.id !== opts.only) continue;
       if (!player.connected || player.ws?.readyState !== 1) continue;
       const state = this.gameView(room, player.id);
       const msg: ServerMessage = type === "gameStarted"
         ? { type, gameId: runtime.gameId, state }
         : type === "gameOver"
-          ? { type, winner: runtime.game.result(runtime.state).winner ?? "draw", state }
+          ? { type, winner: opts.winner ?? runtime.game.result(runtime.state).winner ?? "draw", state }
           : { type, state };
       player.ws.send(JSON.stringify(msg));
     }

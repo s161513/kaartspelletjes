@@ -56,7 +56,7 @@ const dobble: Game<DobbleState, DobbleMove> = {
     };
   },
   result: state => ({ over: state.winnerId !== null, ...(state.winnerId ? { winner: state.winnerId } : {}) }),
-  getViewForPlayer(state, playerId): DobbleView {
+  playerView(state, playerId): DobbleView {
     return {
       playerIds: [...state.playerIds], scores: { ...state.scores }, target: state.target,
       paused: state.paused, winnerId: state.winnerId,

@@ -121,6 +121,10 @@ Optional extras in your folder:
 - **Hidden information.** Add `playerView(state, playerId)` to `logic.ts` to
   decide what each player receives (e.g. replace other players' cards with
   `null`, leave out the deck). Without it everyone gets the full state.
+- **Players leaving.** Every game page has a "Leave game" button. Add
+  `playerLeft(state, playerId)` to `logic.ts` to keep the game going without
+  them (e.g. fold their hand). Without it the game ends when someone leaves,
+  and if only one player remains they win.
 - **Player names.** `ctx.nickname(playerId)` in `view.ts`.
 - **Tests.** Any `games/<id>/*.test.ts` file runs with `npm test`
   (Node's built-in test runner; see `games/tictactoe/tictactoe.test.ts`).

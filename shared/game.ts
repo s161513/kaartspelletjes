@@ -30,6 +30,13 @@ export interface Game<State = unknown, Move = unknown> {
    * cards and the deck). Without it every player receives the full state.
    */
   playerView?(state: State, playerId: string): unknown;
+
+  /**
+   * Optional: a player left the room mid-game (e.g. fold their hand and drop
+   * them). Return the new state; `result` is checked afterwards. Without it the
+   * game ends, and if only one player remains they win.
+   */
+  playerLeft?(state: State, playerId: string): State;
 }
 
 /**

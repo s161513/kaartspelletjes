@@ -1,0 +1,29 @@
+/* Scoped game presentation; shared panels, buttons, players and chat stay intact. */
+.bs-game { margin-top: 1rem; }
+.bs-players { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: .5rem; }
+.bs-players li { gap: .7rem; margin: 0; font-size: .85rem; min-width: 0; }
+.bs-players li > span:first-child { overflow-wrap: anywhere; }
+.bs-players .badge { flex-shrink: 0; }
+.bs-active { outline: 2px solid var(--accent-2); }
+.bs-table { background: radial-gradient(ellipse, #215e43, #143d2d); border: 5px solid #365946; border-radius: 35px; padding: 1.5rem; margin: 1rem 0; text-align: center; min-height: 270px; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.bs-pile { display: flex; align-items: center; gap: 1rem; }
+.bs-pile-count { font-size: 1rem; }
+.bs-claim { color: #d3e8d8; margin-bottom: .5rem; }
+.bs-feedback { font-size: .9rem; max-width: 560px; min-height: 2.7em; line-height: 1.5; }
+.bs-lie { color: #ffb19e; font-weight: 600; }
+.bs-truth, .bs-winner { color: #b6f7c5; font-weight: 600; }
+.bs-winner { font-size: 1.2rem; animation: bs-celebrate .4s ease-out; }
+.bs-reveal { display: flex; gap: .4rem; flex-wrap: wrap; justify-content: center; max-height: 240px; overflow-y: auto; }
+.bs-reveal .bs-played .face-down { animation: bs-deal .3s ease-out; }
+@keyframes bs-deal { from { transform: translateY(60px) rotate(20deg); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes bs-flip { from { transform: rotateY(90deg); } to { transform: rotateY(0); } }
+@keyframes bs-pulse { 50% { filter: brightness(1.1); } }
+@keyframes bs-celebrate { from { transform: scale(.8); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+@media (max-width: 600px) {
+  .bs-table { padding: 1rem; border-radius: 24px; }
+  .bs-players { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .bs-players li { flex-direction: column; gap: .3rem; }
+  .bs-hand-heading { gap: 1rem; }
+  .playing-card { width: 60px; height: 88px; }
+}
+@media (prefers-reduced-motion: reduce) { .bs-game *, .playing-card { animation: none !important; transition: none !important; } }

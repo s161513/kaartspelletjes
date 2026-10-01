@@ -1,0 +1,20 @@
+.playing-card { animation: bs-flip .4s ease-out; }
+.bs-challenge { min-height: 60px; display: flex; align-items: center; justify-content: center; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem; }
+.bs-call { background: #f89b66; color: #412309; font-size: 1.3rem; animation: bs-pulse 1.1s infinite; }
+.bs-challenge progress { width: 120px; height: 8px; accent-color: #f89b66; }
+.bs-challenge [hidden] { display: none; }
+.bs-countdown, .bs-help { color: var(--muted); font-size: .85rem; }
+.bs-hand-heading { justify-content: space-between; align-items: center; }
+.bs-hand-heading strong { font-size: .9rem; color: var(--muted); }
+.bs-hand { display: flex; gap: .6rem; overflow-x: auto; padding: 20px 4px 12px; }
+.bs-card-button { background: transparent; border: none; padding: 0; flex-shrink: 0; }
+.bs-card-button:disabled { opacity: 1; }
+.bs-card-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+.playing-card { width: 70px; height: 100px; display: inline-flex; position: relative; background: #fffaf0; color: #1b2634; border: 1px solid #eee0ce; border-radius: 7px; box-shadow: 0 3px 7px #0004; transition: transform .16s, outline .16s; }
+.playing-card.red-suit { color: #bd343a; }
+.card-corner { position: absolute; top: 6px; left: 6px; font-size: .9rem; font-weight: 700; }
+.card-corner.bottom { top: auto; left: auto; bottom: 6px; right: 6px; transform: rotate(180deg); }
+.card-symbol { margin: auto; font-size: 2rem; }
+.playing-card.selected { transform: translateY(-12px); outline: 3px solid var(--accent-2); }
+.bs-card-button:not(:disabled):hover .playing-card:not(.selected) { transform: translateY(-5px); }
+.playing-card.face-down { justify-content: center; align-items: center; background: repeating-linear-gradient(45deg, #254d46 0 5px, #1c3c37 5px 10px); color: #a6cdb9; font-size: 2rem; border: 4px solid #e2dbc9; }

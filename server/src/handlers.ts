@@ -3,6 +3,7 @@ import type { WebSocket } from "ws";
 import type { ClientMessage, ServerMessage } from "@app/shared";
 import { RoomManager, type Player, type Room } from "./rooms.js";
 import { games } from "./games/loader.js";
+import { advanceGame, publishGame, sendRoomState, syncGame } from "./gameRuntime.js";
 
 /** Per-connection state: which room/player this socket is bound to. */
 interface Conn {
@@ -17,16 +18,6 @@ function send(ws: WebSocket, msg: ServerMessage): void {
 
 function err(ws: WebSocket, code: string, message: string): void {
   send(ws, { type: "error", code, message });
-}
-
-/** Broadcast the current room snapshot to everyone in it. */
-function sendRoomState(manager: RoomManager, room: Room): void {
-  manager.broadcast(room, {
-    type: "roomState",
-    players: manager.publicPlayers(room),
-    hostId: room.hostId ?? "",
-    currentGameId: manager.currentGameId(room),
-  });
 }
 
 export function attachConnection(ws: WebSocket, manager: RoomManager): void {
@@ -102,15 +93,10 @@ function handle(conn: Conn, manager: RoomManager, msg: ClientMessage): void {
         players: manager.publicPlayers(room),
         hostId: room.hostId ?? "",
       });
+      // Rejoin uses the same private projection as start/update/end.
+      const snapshot = syncGame(manager, room, player.id);
+      if (snapshot) send(ws, snapshot);
       sendRoomState(manager, room);
-      // Re-sync any game in progress for the returning player.
-      if (room.runtime) {
-        send(ws, {
-          type: "gameStarted",
-          gameId: room.runtime.gameId,
-          state: room.runtime.state,
-        });
-      }
       return;
     }
 
@@ -149,11 +135,8 @@ function handle(conn: Conn, manager: RoomManager, msg: ClientMessage): void {
       const playerIds = seated.map((p) => p.id);
       room.runtime = { gameId: meta.id, game, state: game.init(playerIds) };
 
-      manager.broadcast(room, {
-        type: "gameStarted",
-        gameId: meta.id,
-        state: room.runtime.state,
-      });
+      room.lastGame = undefined;
+      publishGame(manager, room, true);
       sendRoomState(manager, room);
       return;
     }
@@ -163,27 +146,19 @@ function handle(conn: Conn, manager: RoomManager, msg: ClientMessage): void {
       if (!room) return;
       if (!room.runtime) return err(ws, "no_game", "No game in progress");
 
+      const now = Date.now();
+      advanceGame(manager, room, now);
+      if (!room.runtime) return err(ws, "no_game", "No game in progress");
       const { game, state } = room.runtime;
-      const validated = game.validateMove(state, conn.playerId!, msg.move);
+      const validated = game.validateMove(state, conn.playerId!, msg.move, now);
       if (!validated.ok) {
         return err(ws, "bad_move", validated.error);
       }
 
-      const next = game.applyMove(state, conn.playerId!, validated.move);
+      const next = game.applyMove(state, conn.playerId!, validated.move, now);
       room.runtime.state = next;
 
-      const outcome = game.result(next);
-      if (outcome.over) {
-        manager.broadcast(room, {
-          type: "gameOver",
-          winner: outcome.winner ?? "draw",
-          state: next,
-        });
-        room.runtime = null;
-        sendRoomState(manager, room);
-      } else {
-        manager.broadcast(room, { type: "gameState", state: next });
-      }
+      publishGame(manager, room);
       return;
     }
 

@@ -9,7 +9,7 @@ export type MoveResult<Move> =
 /**
  * Game rules, run authoritatively on the server (games/<id>/logic.ts).
  *
- * `State` is the serializable state broadcast to clients.
+ * `State` is internal; private games provide getViewForPlayer for wire payloads.
  * `Move` is the validated move type the game acts on.
  */
 export interface Game<State = unknown, Move = unknown> {
@@ -17,10 +17,17 @@ export interface Game<State = unknown, Move = unknown> {
   init(playerIds: string[]): State;
 
   /** Validate a raw client move before it is applied. */
-  validateMove(state: State, playerId: string, move: unknown): MoveResult<Move>;
+  validateMove(state: State, playerId: string, move: unknown, now?: number): MoveResult<Move>;
 
   /** Apply a validated move, returning the next state. */
-  applyMove(state: State, playerId: string, move: Move): State;
+  applyMove(state: State, playerId: string, move: Move, now?: number): State;
+
+  /** Optional private projection. Omit only for games with entirely public state. */
+  getViewForPlayer?(state: State, playerId: string): unknown;
+
+  /** Optional server-time transitions. Return the same state when nothing changes. */
+  tick?(state: State, now: number): State;
+  nextDeadline?(state: State): number | null;
 
   /** Whether the game is over and, if so, who won. */
   result(state: State): { over: boolean; winner?: string | "draw" };
@@ -35,6 +42,8 @@ export interface GameContext {
   container: HTMLElement;
   /** This client's player id. */
   playerId: string;
+  /** Public room players, supplied by the shared host. */
+  players?: readonly { id: string; nickname: string; connected: boolean }[];
   /** Send a move payload (validated server-side). */
   sendMove(move: unknown): void;
   /** Set the status line text (turn indicator, etc.). */

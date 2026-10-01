@@ -48,6 +48,9 @@ export function setupGamePage<State>(
 
   let mounted = false;
   let gameOver = false;
+  let lastState: State | undefined;
+  const update = (state: State) => { lastState = state; page.update(state, ctx); };
+  socket.on("joined", msg => { ctx.players = msg.players; });
 
   const ensureMounted = () => {
     if (!mounted) {
@@ -57,22 +60,30 @@ export function setupGamePage<State>(
   };
 
   socket.on("gameStarted", (msg) => {
+    if (msg.gameId !== meta.id) {
+      location.href = `/game.html?game=${encodeURIComponent(msg.gameId)}`;
+      return;
+    }
     gameOver = false;
     backBtn.style.display = "none";
     errEl.textContent = "";
     ensureMounted();
-    page.update(msg.state as State, ctx);
+    update(msg.state as State);
   });
 
   socket.on("gameState", (msg) => {
     ensureMounted();
-    page.update(msg.state as State, ctx);
+    update(msg.state as State);
   });
 
   socket.on("gameOver", (msg) => {
+    if (msg.gameId && msg.gameId !== meta.id) {
+      location.href = `/game.html?game=${encodeURIComponent(msg.gameId)}`;
+      return;
+    }
     gameOver = true;
     ensureMounted();
-    page.update(msg.state as State, ctx);
+    update(msg.state as State);
     page.onGameOver?.(msg.winner, msg.state as State, ctx);
     if (msg.winner === "draw") {
       ctx.setStatus("It's a draw! 🤝");
@@ -91,6 +102,8 @@ export function setupGamePage<State>(
   // Landed here with no active game (e.g. direct nav / game already ended) and
   // nothing rendered yet → go back to the lobby.
   socket.on("roomState", (msg) => {
+    ctx.players = msg.players;
+    if (mounted && lastState !== undefined) page.update(lastState, ctx);
     if (msg.currentGameId === null && !gameOver && !mounted) {
       location.href = "/lobby.html";
     }

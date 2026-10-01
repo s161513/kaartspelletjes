@@ -121,6 +121,8 @@ export interface GameStateMsg {
 
 export interface GameOverMsg {
   type: "gameOver";
+  /** Optional for older servers; identifies retained finished snapshots on rejoin. */
+  gameId?: GameId;
   winner: string | "draw"; // playerId of the winner, or "draw"
   state: GameState;
 }

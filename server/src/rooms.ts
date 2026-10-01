@@ -25,6 +25,8 @@ export interface Room {
   players: Map<string, Player>;
   hostId: string | null;
   runtime: GameRuntime | null;
+  /** Finished state retained only for reconnect, cleared on the next start. */
+  lastGame?: GameRuntime;
   /** Pending deletion timer while the room sits empty (see GRACE_MS). */
   pruneTimer: ReturnType<typeof setTimeout> | null;
 }
@@ -131,11 +133,10 @@ export class RoomManager {
     return room.runtime ? room.runtime.gameId : null;
   }
 
-  broadcast(room: Room, msg: ServerMessage): void {
-    const data = JSON.stringify(msg);
+  broadcast(room: Room, msg: ServerMessage | ((playerId: string) => ServerMessage)): void {
     for (const p of room.players.values()) {
       if (p.connected && p.ws && p.ws.readyState === 1 /* OPEN */) {
-        p.ws.send(data);
+        p.ws.send(JSON.stringify(typeof msg === "function" ? msg(p.id) : msg));
       }
     }
   }

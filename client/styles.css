@@ -198,6 +198,19 @@ button.secondary {
   cursor: default;
 }
 
+/* Game page header: title + leave button */
+.game-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.game-header h1 {
+  margin: 0;
+}
+
 .status {
   text-align: center;
   font-size: 1.1rem;

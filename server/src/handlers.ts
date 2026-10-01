@@ -35,6 +35,38 @@ function sendGame(
   }
 }
 
+/** Store a new game state and send it out, ending the game if it is over. */
+function publish(manager: RoomManager, room: Room, next: unknown): void {
+  const runtime = room.runtime!;
+  runtime.state = next;
+  const outcome = runtime.game.result(next);
+  if (outcome.over) {
+    sendGame(room, runtime.game, next, (view) => ({
+      type: "gameOver",
+      winner: outcome.winner ?? "draw",
+      state: view,
+    }));
+    room.runtime = null;
+    sendRoomState(manager, room);
+  } else {
+    sendGame(room, runtime.game, next, (view) => ({ type: "gameState", state: view }));
+  }
+}
+
+/** A player left mid-game: let the game handle it, or end the game. */
+function playerLeftGame(manager: RoomManager, room: Room, playerId: string): void {
+  const { game, state } = room.runtime!;
+  if (game.playerLeft) return publish(manager, room, game.playerLeft(state, playerId));
+
+  const remaining = [...room.players.values()];
+  sendGame(room, game, state, (view) => ({
+    type: "gameOver",
+    winner: remaining.length === 1 ? remaining[0].id : "draw",
+    state: view,
+  }));
+  room.runtime = null;
+}
+
 /** Broadcast the current room snapshot to everyone in it. */
 function sendRoomState(manager: RoomManager, room: Room): void {
   manager.broadcast(room, {
@@ -189,29 +221,25 @@ function handle(conn: Conn, manager: RoomManager, msg: ClientMessage): void {
         return err(ws, "bad_move", validated.error);
       }
 
-      const next = game.applyMove(state, conn.playerId!, validated.move);
-      room.runtime.state = next;
-
-      const outcome = game.result(next);
-      if (outcome.over) {
-        sendGame(room, game, next, (view) => ({
-          type: "gameOver",
-          winner: outcome.winner ?? "draw",
-          state: view,
-        }));
-        room.runtime = null;
-        sendRoomState(manager, room);
-      } else {
-        sendGame(room, game, next, (view) => ({ type: "gameState", state: view }));
-      }
+      publish(manager, room, game.applyMove(state, conn.playerId!, validated.move));
       return;
     }
 
     case "leave": {
       const room = manager.getRoom(conn.roomCode ?? "");
       if (room && conn.playerId) {
+        const nickname = room.players.get(conn.playerId)?.nickname ?? "A player";
         manager.removePlayer(room, conn.playerId);
-        if (manager.getRoom(room.code)) sendRoomState(manager, room);
+        if (manager.getRoom(room.code)) {
+          manager.broadcast(room, {
+            type: "chat",
+            from: "🚪",
+            text: `${nickname} left the room`,
+            ts: Date.now(),
+          });
+          if (room.runtime) playerLeftGame(manager, room, conn.playerId);
+          sendRoomState(manager, room);
+        }
       }
       conn.roomCode = null;
       conn.playerId = null;

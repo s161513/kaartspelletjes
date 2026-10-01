@@ -9,7 +9,7 @@ import { setupChat } from "./chat.js";
  * Called by client/src/game.ts with the view and meta of the game in the URL.
  *
  * Expected DOM ids: #status, #gameRoot, #back, #error, #chatLog, #chatForm,
- * #chatInput, and optionally #gameTitle.
+ * #chatInput, and optionally #gameTitle and #leaveGame.
  */
 export function setupGamePage<State>(
   page: GamePage<State>,
@@ -104,5 +104,13 @@ export function setupGamePage<State>(
 
   backBtn.addEventListener("click", () => {
     location.href = "/lobby.html";
+  });
+
+  document.getElementById("leaveGame")?.addEventListener("click", () => {
+    if (mounted && !gameOver && !confirm("Leave the game? You can't rejoin it.")) return;
+    socket.send({ type: "leave" });
+    session.clearRoom();
+    socket.close();
+    location.href = "/";
   });
 }

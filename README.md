@@ -167,3 +167,7 @@ game branch once it's in. That way every change to shared code gets seen by
 everyone.
 
 Folders starting with `_` are ignored by the server and the lobby.
+`games/_ui/` holds shared view helpers for games, e.g. `renderCard()` from
+`games/_ui/cards.ts` for good-looking playing cards (size them with the
+`--ui-card-w` CSS variable). Card *data* (`Card`, `createDeck`, …) comes from
+`@app/shared`.

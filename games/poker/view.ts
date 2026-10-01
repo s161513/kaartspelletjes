@@ -1,18 +1,12 @@
 import type { Card, GameContext, GamePage } from "@app/shared";
 import { raiseBounds } from "./logic.js";
 import type { PokerState, Seat } from "./types.js";
+import { renderCard, renderSlot } from "../_ui/cards.js";
 import html from "./view.html?raw";
 import "./style.css";
 
 // Poker table renderer. Static layout lives in view.html, all styling in
 // style.css; this file fills in the parts that change with every state.
-
-const SUIT_SYMBOL: Record<Card["suit"], string> = {
-  clubs: "♣",
-  diamonds: "♦",
-  hearts: "♥",
-  spades: "♠",
-};
 
 let root: HTMLElement;
 const $ = <T extends HTMLElement>(sel: string) => root.querySelector(sel) as T;
@@ -33,22 +27,11 @@ function el(tag: string, className: string, text?: string): HTMLElement {
   return node;
 }
 
+/** A card element; animates in only the first time this key is shown this hand. */
 function cardEl(card: Card | null, key: string): HTMLElement {
-  const node = el("div", "poker-card");
-  if (!seenCards.has(key)) {
-    node.classList.add("is-new");
-    seenCards.add(key);
-  }
-  if (!card) {
-    node.classList.add("is-back");
-    return node;
-  }
-  const symbol = SUIT_SYMBOL[card.suit];
-  if (card.suit === "hearts" || card.suit === "diamonds") node.classList.add("is-red");
-  const corner = el("span", "poker-card-corner");
-  corner.append(el("span", "poker-card-rank", card.rank), el("span", "poker-card-suit", symbol));
-  node.append(corner, el("span", "poker-card-pip", symbol));
-  return node;
+  const isNew = !seenCards.has(key);
+  seenCards.add(key);
+  return renderCard(card, { isNew });
 }
 
 function chips(amount: number): string {
@@ -136,7 +119,7 @@ function renderCenter(state: PokerState, ctx: GameContext): void {
   board.innerHTML = "";
   for (let k = 0; k < 5; k++) {
     const card = state.board[k];
-    board.append(card ? cardEl(card, `board-${card.id}`) : el("div", "poker-card is-slot"));
+    board.append(card ? cardEl(card, `board-${card.id}`) : renderSlot());
   }
 
   const pot = potSize(state);

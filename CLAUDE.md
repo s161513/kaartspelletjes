@@ -63,6 +63,8 @@ A game is `games/<id>/` with `meta.ts`, `types.ts`, `logic.ts`, `view.ts`
   browser and must not import Node-only modules.
 - Never send secrets to every player: if other players must not see something
   (hands, deck), implement `playerView`.
+- Render playing cards with `renderCard()` from `games/_ui/cards.ts` (shared
+  look, sized via `--ui-card-w`) instead of building your own.
 - Prefix a game's CSS classes with its id (`.poker-…`). `.card` is already the
   page's panel class. Use `body.<id>-…` classes for page-level overrides.
 - Framework UI text is English; a game's own texts are up to its owner.

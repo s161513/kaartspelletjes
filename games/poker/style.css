@@ -1,8 +1,48 @@
 /* Texas Hold'em table. Every class is prefixed with `poker-` so nothing leaks
    into other games or the shared page chrome. */
 
+/* ------------------------------------------------------------------ page
+   Make the whole game fit on one screen: compact chrome, and on wide screens
+   the chat moves to a column next to the table. */
+
 body.poker-wide .wrap {
-  max-width: 1100px;
+  max-width: 1320px;
+  padding: 0.75rem 1rem;
+}
+
+body.poker-wide .game-header {
+  margin-bottom: 0.6rem;
+}
+
+body.poker-wide h1 {
+  font-size: 1.5rem;
+}
+
+body.poker-wide .wrap > .card {
+  padding: 0.75rem 1rem;
+  margin-bottom: 0.75rem;
+}
+
+body.poker-wide #error {
+  margin: 0.25rem 0 0;
+}
+
+@media (min-width: 1000px) {
+  body.poker-wide .wrap {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 300px;
+    column-gap: 1rem;
+    align-items: start;
+  }
+
+  body.poker-wide .game-header {
+    grid-column: 1 / -1;
+  }
+
+  body.poker-wide .chat-log {
+    height: calc(100dvh - 210px);
+    min-height: 200px;
+  }
 }
 
 .poker {
@@ -17,6 +57,13 @@ body.poker-wide .wrap {
   --poker-card-w: 46px;
   --poker-hole-w: 40px;
   --poker-my-hole-w: 54px;
+  /* where seats and bets sit, as a fraction of the table size */
+  --poker-seat-rx: 46%;
+  --poker-seat-ry: 43%;
+  --poker-bet-rx: 29%;
+  --poker-bet-ry: 26%;
+  /* your own bet sits next to your cards instead of on top of them */
+  --poker-my-bet-dx: 14%;
 
   display: flex;
   flex-direction: column;
@@ -32,9 +79,11 @@ body.poker-wide .wrap {
 
 .poker-table {
   position: relative;
-  width: 100%;
+  /* as wide as possible while the whole page still fits the screen height */
+  width: min(100%, calc((100dvh - 390px) * 16 / 9.5));
+  min-width: min(100%, 520px);
   aspect-ratio: 16 / 9.5;
-  margin: 1.5rem 0 2.5rem;
+  margin: 1.9rem auto 2.9rem;
 }
 
 .poker-rail {
@@ -84,13 +133,6 @@ body.poker-wide .wrap {
   justify-content: center;
   gap: 0.6rem;
   z-index: 1;
-}
-
-.poker-blinds {
-  font-size: 0.72rem;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.55);
 }
 
 .poker-board {
@@ -213,6 +255,8 @@ body.poker-wide .wrap {
 
 .poker-seat {
   position: absolute;
+  left: calc(50% + var(--x) * var(--poker-seat-rx));
+  top: calc(50% + var(--y) * var(--poker-seat-ry));
   transform: translate(-50%, -50%);
   display: flex;
   flex-direction: column;
@@ -380,6 +424,8 @@ body.poker-wide .wrap {
 
 .poker-bet {
   position: absolute;
+  left: calc(50% + var(--x) * var(--poker-bet-rx));
+  top: calc(50% + var(--y) * var(--poker-bet-ry));
   transform: translate(-50%, -50%);
   display: flex;
   align-items: center;
@@ -391,6 +437,11 @@ body.poker-wide .wrap {
   font-size: 0.8rem;
   font-weight: 700;
   animation: poker-pop 0.25s ease-out;
+}
+
+.poker-bet.is-me {
+  left: calc(50% + var(--poker-my-bet-dx));
+  top: calc(50% + var(--poker-seat-ry) - 4%);
 }
 
 .poker-chip {
@@ -487,27 +538,35 @@ body.poker-wide .wrap {
   font-weight: 700;
 }
 
-.poker-raise-row {
+.poker-stepper {
   display: flex;
-  align-items: center;
-  gap: 0.6rem;
+  align-items: stretch;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--poker-line);
+  background: var(--bg, #0f172a);
 }
 
-.poker-slider {
-  flex: 1;
-  accent-color: var(--poker-gold);
+.poker .poker-step {
+  width: 48px;
+  padding: 0;
+  border-radius: 0;
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  font-size: 1.4rem;
+  line-height: 1;
+  touch-action: manipulation;
+  user-select: none;
 }
 
 .poker-amount {
-  width: 90px;
-  padding: 0.4rem 0.5rem;
-  border-radius: 8px;
-  border: 1px solid var(--poker-line);
-  background: var(--bg, #0f172a);
-  color: #fff;
-  font: inherit;
-  font-weight: 700;
-  text-align: right;
+  flex: 1;
+  display: grid;
+  place-items: center;
+  padding: 0.45rem 0.5rem;
+  color: var(--poker-gold);
+  font-size: 1.15rem;
+  font-weight: 800;
 }
 
 /* ------------------------------------------------------------------ log */
@@ -583,9 +642,26 @@ body.poker-wide .wrap {
     --poker-my-hole-w: 42px;
   }
 
+  .poker {
+    --poker-bet-rx: 23%;
+    --poker-bet-ry: 30%;
+    --poker-seat-rx: 42%;
+  }
+
   .poker-table {
+    width: 100%;
+    min-width: 0;
     aspect-ratio: 3 / 4;
-    margin: 1rem 0 2rem;
+    margin: 1.5rem 0 2.5rem;
+  }
+
+  .poker {
+    --poker-my-bet-dx: 24%;
+  }
+
+  .poker .poker-btn {
+    padding: 0.65rem 0.5rem;
+    font-size: 0.9rem;
   }
 
   .poker-rail {

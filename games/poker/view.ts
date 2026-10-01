@@ -76,8 +76,8 @@ function renderSeats(state: PokerState, ctx: GameContext): void {
     const y = Math.sin(angle);
 
     const node = el("div", "poker-seat");
-    node.style.left = `${50 + 46 * x}%`;
-    node.style.top = `${50 + 43 * y}%`;
+    node.style.setProperty("--x", x.toFixed(4));
+    node.style.setProperty("--y", y.toFixed(4));
     node.classList.toggle("is-me", seat.id === ctx.playerId);
     node.classList.toggle("is-turn", state.toAct === i);
     node.classList.toggle("is-folded", seat.folded && !seat.out);
@@ -105,9 +105,9 @@ function renderSeats(state: PokerState, ctx: GameContext): void {
     seatsEl.append(node);
 
     if (seat.bet > 0) {
-      const bet = el("div", "poker-bet");
-      bet.style.left = `${50 + 29 * x}%`;
-      bet.style.top = `${50 + 25 * y}%`;
+      const bet = el("div", seat.id === ctx.playerId ? "poker-bet is-me" : "poker-bet");
+      bet.style.setProperty("--x", x.toFixed(4));
+      bet.style.setProperty("--y", y.toFixed(4));
       bet.append(el("span", "poker-chip"), el("span", "poker-bet-amount", chips(seat.bet)));
       seatsEl.append(bet);
     }
@@ -132,9 +132,6 @@ function seatTag(
 }
 
 function renderCenter(state: PokerState, ctx: GameContext): void {
-  $(".poker-blinds").textContent =
-    `Hand #${state.handNumber} · Blinds ${state.blinds.small}/${state.blinds.big}`;
-
   const board = $(".poker-board");
   board.innerHTML = "";
   for (let k = 0; k < 5; k++) {
@@ -174,6 +171,9 @@ function renderLog(state: PokerState, ctx: GameContext): void {
 // Action bar
 // ---------------------------------------------------------------------------
 
+/** Current raise-to amount shown in the stepper. */
+let raiseTo = 0;
+
 function raiseTarget(preset: string, state: PokerState, seat: Seat): number {
   const { min, max } = raiseBounds(state, seat);
   const toCall = state.currentBet - seat.bet;
@@ -186,15 +186,32 @@ function raiseTarget(preset: string, state: PokerState, seat: Seat): number {
   return Math.max(min, Math.min(max, target));
 }
 
-function setRaise(value: number): void {
-  const slider = $<HTMLInputElement>(".poker-slider");
-  const amount = $<HTMLInputElement>(".poker-amount");
-  const clamped = Math.max(Number(slider.min), Math.min(Number(slider.max), Math.round(value)));
-  slider.value = String(clamped);
-  amount.value = String(clamped);
-  const isAllIn = clamped === Number(slider.max);
-  const verb = latest && latest.currentBet === 0 ? "Bet" : "Raise to";
-  $(".poker-btn-raise").textContent = isAllIn ? `All-in ${chips(clamped)}` : `${verb} ${chips(clamped)}`;
+/** Set the raise amount, snapped to a step of the small blind (or all-in). */
+function setRaise(value: number, ctx: GameContext): void {
+  const seat = latest?.seats.find((s) => s.id === ctx.playerId);
+  if (!latest || !seat) return;
+  const { min, max, step } = raiseBounds(latest, seat);
+  raiseTo = value >= max ? max : Math.max(min, Math.floor(value / step) * step);
+
+  $(".poker-amount").textContent = chips(raiseTo);
+  $<HTMLButtonElement>("[data-step='-1']").disabled = raiseTo <= min;
+  $<HTMLButtonElement>("[data-step='1']").disabled = raiseTo >= max;
+  const verb = latest.currentBet === 0 ? "Bet" : "Raise to";
+  $(".poker-btn-raise").textContent =
+    raiseTo === max ? `All-in ${chips(raiseTo)}` : `${verb} ${chips(raiseTo)}`;
+}
+
+/** One click on − or +: move a small blind, landing on whole steps. */
+function stepRaise(direction: number, ctx: GameContext): void {
+  const seat = latest?.seats.find((s) => s.id === ctx.playerId);
+  if (!latest || !seat) return;
+  const { step } = raiseBounds(latest, seat);
+  const onStep = raiseTo % step === 0;
+  const next =
+    direction > 0 ? Math.floor(raiseTo / step) * step + step
+    : onStep ? raiseTo - step
+    : Math.floor(raiseTo / step) * step; // from an off-step all-in back to a whole step
+  setRaise(next, ctx);
 }
 
 function renderActions(state: PokerState, ctx: GameContext): void {
@@ -217,7 +234,7 @@ function renderActions(state: PokerState, ctx: GameContext): void {
     : toCall >= seat.chips ? `Call ${chips(seat.chips)} · all-in`
     : `Call ${chips(toCall)}`;
 
-  const { min, max } = raiseBounds(state, seat);
+  const { max } = raiseBounds(state, seat);
   const canRaise = myTurn && !seat.acted && max > state.currentBet;
   for (const btn of actions.querySelectorAll<HTMLButtonElement>(".poker-buttons button")) {
     btn.disabled = !myTurn;
@@ -230,11 +247,7 @@ function renderActions(state: PokerState, ctx: GameContext): void {
   }
 
   $(".poker-raise").hidden = false;
-  const slider = $<HTMLInputElement>(".poker-slider");
-  slider.min = String(min);
-  slider.max = String(max);
-  slider.step = "1"; // any amount, so the slider can always reach all-in exactly
-  setRaise(min);
+  setRaise(0, ctx); // clamps up to the minimum raise
 }
 
 function wireActions(ctx: GameContext): void {
@@ -245,20 +258,38 @@ function wireActions(ctx: GameContext): void {
     const seat = latest.seats.find((s) => s.id === ctx.playerId);
     send({ type: seat && latest.currentBet > seat.bet ? "call" : "check" });
   });
-  $(".poker-btn-raise").addEventListener("click", () => {
-    send({ type: "raise", to: Number($<HTMLInputElement>(".poker-amount").value) });
-  });
+  $(".poker-btn-raise").addEventListener("click", () => send({ type: "raise", to: raiseTo }));
   $(".poker-btn-next").addEventListener("click", () => send({ type: "nextHand" }));
 
-  const slider = $<HTMLInputElement>(".poker-slider");
-  slider.addEventListener("input", () => setRaise(Number(slider.value)));
-  const amount = $<HTMLInputElement>(".poker-amount");
-  amount.addEventListener("change", () => setRaise(Number(amount.value)));
+  for (const btn of root.querySelectorAll<HTMLButtonElement>("[data-step]")) {
+    const direction = Number(btn.dataset.step);
+    // Holding the button keeps stepping; a plain click steps once.
+    let hold: number | undefined;
+    let repeated = false;
+    const stop = () => {
+      clearTimeout(hold);
+      clearInterval(hold);
+    };
+    btn.addEventListener("pointerdown", () => {
+      repeated = false;
+      hold = window.setTimeout(() => {
+        hold = window.setInterval(() => {
+          repeated = true;
+          stepRaise(direction, ctx);
+        }, 70);
+      }, 350);
+    });
+    for (const ev of ["pointerup", "pointerleave", "pointercancel"]) btn.addEventListener(ev, stop);
+    btn.addEventListener("click", () => {
+      if (!repeated) stepRaise(direction, ctx);
+      repeated = false;
+    });
+  }
 
   for (const btn of root.querySelectorAll<HTMLButtonElement>("[data-preset]")) {
     btn.addEventListener("click", () => {
       const seat = latest?.seats.find((s) => s.id === ctx.playerId);
-      if (latest && seat) setRaise(raiseTarget(btn.dataset.preset!, latest, seat));
+      if (latest && seat) setRaise(raiseTarget(btn.dataset.preset!, latest, seat), ctx);
     });
   }
 }
@@ -286,9 +317,10 @@ function update(state: PokerState, ctx: GameContext): void {
   renderLog(state, ctx);
 
   const turn = state.toAct === null ? null : state.seats[state.toAct];
-  if (state.phase === "showdown") ctx.setStatus("Hand finished — deal the next one when ready");
-  else if (turn?.id === ctx.playerId) ctx.setStatus("Your turn");
-  else if (turn) ctx.setStatus(`Waiting for ${ctx.nickname(turn.id)}…`);
+  const hand = `Hand #${state.handNumber} · Blinds ${state.blinds.small}/${state.blinds.big}`;
+  if (state.phase === "showdown") ctx.setStatus(`${hand} · Finished`);
+  else if (turn?.id === ctx.playerId) ctx.setStatus(`${hand} · Your turn`);
+  else if (turn) ctx.setStatus(`${hand} · Waiting for ${ctx.nickname(turn.id)}…`);
 }
 
 function onGameOver(winner: string | "draw", _state: PokerState, ctx: GameContext): void {

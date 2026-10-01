@@ -210,10 +210,18 @@ function showdown(state: PokerState): void {
 // Game
 // ---------------------------------------------------------------------------
 
-/** Lowest legal raise-to amount and the all-in amount for a seat. */
-export function raiseBounds(state: PokerState, seat: Seat): { min: number; max: number } {
+/**
+ * Legal raise-to amounts for a seat: from `min` up to `max` (all-in) in steps
+ * of the small blind. Going all-in is always allowed, even off-step.
+ */
+export function raiseBounds(
+  state: PokerState,
+  seat: Seat,
+): { min: number; max: number; step: number } {
+  const step = state.blinds.small;
   const max = seat.bet + seat.chips;
-  return { min: Math.min(state.currentBet + state.minRaise, max), max };
+  const min = Math.ceil((state.currentBet + state.minRaise) / step) * step;
+  return { min: Math.min(min, max), max, step };
 }
 
 const poker: Game<PokerState, PokerMove> = {
@@ -279,10 +287,13 @@ const poker: Game<PokerState, PokerMove> = {
         }
         // Having acted already means only a short all-in raised since: no re-raise.
         if (seat.acted) return { ok: false, error: "You can only call or fold" };
-        const { min, max } = raiseBounds(state, seat);
+        const { min, max, step } = raiseBounds(state, seat);
         if (max <= state.currentBet) return { ok: false, error: "Not enough chips to raise" };
         if (to > max) return { ok: false, error: `You only have ${max}` };
         if (to < min) return { ok: false, error: `Minimum is ${min}` };
+        if (to !== max && to % step !== 0) {
+          return { ok: false, error: `Bets go up in steps of ${step}` };
+        }
         return { ok: true, move: { type, to } };
       }
       default:
@@ -336,6 +347,23 @@ const poker: Game<PokerState, PokerMove> = {
     if (state.phase !== "showdown") return { over: false };
     const left = state.seats.filter((s) => s.chips > 0);
     return left.length === 1 ? { over: true, winner: left[0].id } : { over: false };
+  },
+
+  playerLeft(prev, playerId) {
+    const state = structuredClone(prev);
+    const i = state.seats.findIndex((s) => s.id === playerId);
+    const seat = state.seats[i];
+    if (!seat || seat.out) return state;
+
+    // Their chips leave with them; whatever they already bet stays in the pot.
+    const wasInHand = state.phase !== "showdown" && inHand(seat);
+    Object.assign(seat, { chips: 0, out: true, folded: true });
+    log(state, playerId, "left the table");
+    if (wasInHand) {
+      if (state.toAct === i) advance(state, i);
+      else if (state.seats.filter(inHand).length === 1) winUncontested(state);
+    }
+    return state;
   },
 
   playerView(state, playerId) {

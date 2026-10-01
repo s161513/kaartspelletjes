@@ -215,8 +215,8 @@ test("random games never create or lose chips and always finish", () => {
     const players = ["a", "b", "c", "d", "e"].slice(0, 2 + (g % 4));
     const total = players.length * STARTING_CHIPS;
     let s = game.init(players);
-    for (let step = 0; !game.result(s).over; step++) {
-      assert.ok(step < 20000, "game should finish");
+    for (let turn = 0; !game.result(s).over; turn++) {
+      assert.ok(turn < 20000, "game should finish");
       const inPlay = s.seats.reduce((sum, seat) => sum + seat.chips + seat.totalBet, 0);
       assert.equal(s.phase === "showdown" ? s.seats.reduce((x, seat) => x + seat.chips, 0) : inPlay, total);
 
@@ -228,9 +228,10 @@ test("random games never create or lose chips and always finish", () => {
       assert.equal(seat.out || seat.folded || seat.allIn, false, "only active players get the turn");
       const toCall = s.currentBet - seat.bet;
       const r = Math.random();
-      const { min, max } = raiseBounds(s, seat);
+      const { min, max, step } = raiseBounds(s, seat);
       if (r < 0.15 && !seat.acted && max > s.currentBet) {
-        s = move(s, { type: "raise", to: min + Math.floor(Math.random() * (max - min + 1)) });
+        const to = min + step * Math.floor(Math.random() * ((max - min) / step + 1));
+        s = move(s, { type: "raise", to: Math.random() < 0.2 ? max : Math.min(to, max) });
       } else if (r < 0.3 && toCall > 0) {
         s = move(s, { type: "fold" });
       } else {
@@ -239,4 +240,25 @@ test("random games never create or lose chips and always finish", () => {
     }
     assert.equal(s.seats.reduce((sum, seat) => sum + seat.chips, 0), total);
   }
+});
+
+test("raises go in steps of the small blind, except all-in", () => {
+  let s = game.init(["a", "b", "c"]);
+  assert.equal(game.validateMove(s, "a", { type: "raise", to: 45 }).ok, false);
+  assert.equal(game.validateMove(s, "a", { type: "raise", to: 50 }).ok, true);
+  s.seats[0].chips = 73;
+  assert.equal(game.validateMove(s, "a", { type: "raise", to: 73 }).ok, true, "all-in");
+});
+
+test("a player leaving folds their hand and keeps the game going", () => {
+  let s = game.init(["a", "b", "c"]);
+  assert.equal(s.seats[s.toAct!].id, "a");
+  s = game.playerLeft!(s, "a"); // leaves on their turn
+  assert.equal(s.seats[0].out, true);
+  assert.equal(s.seats[s.toAct!].id, "b");
+  assert.deepEqual(game.result(s), { over: false });
+
+  s = game.playerLeft!(s, "c"); // big blind leaves: b wins the hand and the game
+  assert.equal(s.phase, "showdown");
+  assert.deepEqual(game.result(s), { over: true, winner: "b" });
 });

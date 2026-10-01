@@ -3,12 +3,11 @@
     <div class="poker-rail">
       <div class="poker-felt">
         <div class="poker-center">
-          <div class="poker-blinds"></div>
-          <div class="poker-board"></div>
           <div class="poker-pot">
             <span class="poker-chip poker-chip-gold"></span>
             <span class="poker-pot-amount"></span>
           </div>
+          <div class="poker-board"></div>
           <div class="poker-banner" hidden></div>
         </div>
       </div>
@@ -29,9 +28,10 @@
         <button type="button" data-preset="pot">Pot</button>
         <button type="button" data-preset="allin">All-in</button>
       </div>
-      <div class="poker-raise-row">
-        <input type="range" class="poker-slider" aria-label="Raise amount" />
-        <input type="number" class="poker-amount" inputmode="numeric" aria-label="Raise to" />
+      <div class="poker-stepper">
+        <button type="button" class="poker-step" data-step="-1" aria-label="Lower">−</button>
+        <output class="poker-amount" aria-label="Raise to"></output>
+        <button type="button" class="poker-step" data-step="1" aria-label="Higher">+</button>
       </div>
     </div>
     <button type="button" class="poker-btn poker-btn-next" hidden>Next hand</button>

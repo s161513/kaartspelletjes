@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Tic-tac-toe · Classroom Games</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="wrap">
+      <h1 id="gameTitle">Tic-tac-toe</h1>
+
+      <div class="card">
+        <div class="status" id="status">Loading…</div>
+        <div id="gameRoot"></div>
+        <div class="row" style="justify-content: center">
+          <button id="back" class="secondary" style="display: none">Back to lobby</button>
+        </div>
+        <p id="error" class="error" style="text-align: center"></p>
+      </div>
+
+      <div class="card">
+        <label>Chat</label>
+        <div class="chat-log" id="chatLog"></div>
+        <form class="chat-form" id="chatForm">
+          <input id="chatInput" type="text" placeholder="Say something…" maxlength="500" autocomplete="off" />
+          <button type="submit">Send</button>
+        </form>
+      </div>
+    </div>
+    <script type="module" src="/src/games/tictactoe.ts"></script>
+  </body>
+</html>

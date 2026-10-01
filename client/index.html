@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Classroom Games</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>🎮 Classroom Games</h1>
+      <div class="card">
+        <label for="nickname">Your nickname</label>
+        <input id="nickname" type="text" placeholder="e.g. Alice" maxlength="24" autocomplete="off" />
+
+        <div class="row">
+          <button id="create">Create a room</button>
+        </div>
+
+        <hr style="border-color: var(--panel-2); margin: 1.5rem 0" />
+
+        <label for="roomCode">Join an existing room</label>
+        <input id="roomCode" type="text" placeholder="Room code (e.g. QK4R)" maxlength="8" autocomplete="off" style="text-transform: uppercase" />
+        <div class="row">
+          <button id="join" class="secondary">Join room</button>
+        </div>
+
+        <p id="error" class="error"></p>
+      </div>
+    </div>
+    <script type="module" src="/src/landing.ts"></script>
+  </body>
+</html>

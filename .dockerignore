@@ -1,0 +1,14 @@
+# Keep the build context small and prevent COPY . . from shadowing the freshly
+# installed node_modules or copying stale build output.
+node_modules
+**/node_modules
+dist
+**/dist
+.git
+.gitignore
+*.log
+.env
+.DS_Store
+Dockerfile
+.dockerignore
+README.md

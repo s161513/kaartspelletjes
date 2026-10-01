@@ -15,71 +15,67 @@ let claimButtons: HTMLButtonElement[] = [];
 
 const htmlTemplate = `
 <style>
+.liegen-layout { display: flex; flex-direction: row; gap: 1.5rem; width: 100%; color: white; }
+@media (max-width: 768px) { .liegen-layout { flex-direction: column; } }
+.liegen-players { display: flex; flex-direction: column; gap: 0.5rem; width: 100%; max-width: 16rem; }
+.liegen-center { flex-grow: 1; display: flex; flex-direction: column; gap: 1rem; align-items: center; }
+.liegen-log { width: 100%; max-width: 16rem; display: flex; flex-direction: column; gap: 0.5rem; font-family: monospace; font-size: 0.75rem; overflow-y: auto; max-height: 16rem; border-left: 1px solid #334155; padding-left: 1rem; }
+.log-item { background: rgba(30, 41, 59, 0.5); padding: 0.25rem; border-radius: 0.25rem; border-left: 2px solid #475569; color: #cbd5e1; }
+.player-card { display: flex; align-items: center; justify-content: space-between; padding: 0.5rem; border-radius: 0.5rem; background: rgba(30, 41, 59, 0.5); border: 1px solid transparent; }
+.player-card.active-turn { background: rgba(20, 83, 45, 0.5); border-color: #22c55e; }
+.player-card.eliminated { background: rgba(127, 29, 29, 0.2); opacity: 0.5; }
+#cup-container { position: relative; width: 8rem; height: 10rem; }
+#cup { width: 100%; height: 100%; background: linear-gradient(to bottom, #dc2626, #991b1b); border-radius: 0.5rem 0.5rem 1.5rem 1.5rem; border: 4px solid #7f1d1d; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25); transition: transform 0.5s; transform-origin: bottom; }
+#secret-roll { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 3rem; font-weight: 900; color: white; text-shadow: 0 2px 4px rgba(0,0,0,0.5); pointer-events: none; }
+.actions-container { display: flex; flex-direction: column; gap: 0.75rem; width: 100%; max-width: 24rem; margin-top: 1rem; }
+.action-btn { padding: 0.75rem; border-radius: 0.75rem; font-weight: bold; cursor: pointer; border: none; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); color: white; }
+.btn-blue { background: #2563eb; } .btn-blue:hover { background: #3b82f6; }
+.btn-red { background: #dc2626; } .btn-red:hover { background: #ef4444; }
+.btn-purple { background: #9333ea; } .btn-purple:hover { background: #a855f7; }
+.claim-grid-container { display: flex; flex-direction: column; gap: 0.5rem; width: 100%; max-width: 24rem; margin-top: 1rem; border-top: 1px solid #334155; padding-top: 1rem; }
+.claim-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 0.5rem; }
+.claim-btn { padding: 0.5rem; border-radius: 0.25rem; background: rgba(51, 65, 85, 0.5); border: 1px solid #475569; font-weight: bold; color: white; cursor: pointer; }
+.claim-btn:hover { background: #475569; }
+.claim-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+.claim-btn.text-yellow { color: #facc15; border-color: rgba(202, 138, 4, 0.5); }
+.claim-btn.text-green { color: #4ade80; }
 .hidden { display: none !important; }
-.glass {
-    background: rgba(30, 41, 59, 0.7);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-}
-.claim-btn:disabled {
-    opacity: 0.3;
-    cursor: not-allowed;
-    transform: none !important;
-}
-#cup-container {
-    position: relative;
-    width: 8rem;
-    height: 10rem;
-}
-#cup {
-    width: 100%;
-    height: 100%;
-    background: linear-gradient(to bottom, #dc2626, #991b1b);
-    border-top-left-radius: 0.5rem;
-    border-top-right-radius: 0.5rem;
-    border-bottom-left-radius: 1.5rem;
-    border-bottom-right-radius: 1.5rem;
-    border: 4px solid #7f1d1d;
-    box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25);
-    transition: transform 0.5s;
-    transform-origin: bottom;
-}
-.active-turn {
-    background: rgba(20, 83, 45, 0.5) !important;
-    border: 2px solid #22c55e !important;
-}
+#turn-banner { font-size: 1.25rem; font-weight: bold; color: #4ade80; margin-bottom: 1rem; text-align: center; background: rgba(20, 83, 45, 0.5); padding: 0.5rem 1rem; border-radius: 0.5rem; border: 1px solid #22c55e; width: 100%; max-width: 24rem; }
+.current-claim-box { text-align: center; margin-top: 1rem; }
+.current-claim-label { font-size: 0.875rem; color: #94a3b8; text-transform: uppercase; font-weight: bold; }
+.current-claim-value { font-size: 2.25rem; font-weight: 900; color: white; text-shadow: 0 0 15px rgba(34,197,94,0.5); }
+.cancel-btn { color: #94a3b8; background: transparent; border: none; font-size: 0.875rem; cursor: pointer; margin-top: 0.5rem; }
+.cancel-btn:hover { color: white; }
 </style>
-<div class="flex flex-col md:flex-row gap-6 w-full h-full text-white">
-    <div class="flex flex-col gap-2 w-full md:w-64" id="liegen-players">
+<div class="liegen-layout">
+    <div class="liegen-players" id="liegen-players"></div>
+
+    <div class="liegen-center">
+        <div id="turn-banner" class="hidden"></div>
+        <div id="cup-container">
+            <div id="cup"></div>
+            <div id="secret-roll">??</div>
+        </div>
+
+        <div class="current-claim-box">
+            <p class="current-claim-label">Huidige Claim</p>
+            <div id="current-claim" class="current-claim-value">--</div>
+        </div>
+
+        <div id="actions" class="actions-container hidden">
+            <button id="btn-shake" class="action-btn btn-blue hidden">🎲 Schudden</button>
+            <button id="btn-call" class="action-btn btn-red hidden">👀 Bluf Callen</button>
+            <button id="btn-blind" class="action-btn btn-purple hidden">🙈 Blind Doorgeven</button>
+        </div>
+
+        <div id="claim-grid-container" class="claim-grid-container hidden">
+            <span style="font-size: 0.875rem; font-weight: 500; color: #cbd5e1;" id="claim-title">Select Claim</span>
+            <div id="claim-grid" class="claim-grid"></div>
+            <button id="btn-cancel-claim" class="cancel-btn">Cancel</button>
+        </div>
     </div>
 
-    <div class="flex-grow flex flex-col gap-4 items-center">
-        <div id="cup-container" class="relative group cursor-pointer w-32 h-40">
-            <div id="cup" class="w-full h-full bg-gradient-to-b from-red-600 to-red-800 rounded-t-lg rounded-b-3xl border-4 border-red-900 shadow-2xl relative transition-transform duration-500 origin-bottom"></div>
-            <div id="secret-roll" class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-5xl font-black text-white drop-shadow-md transition-opacity duration-300 pointer-events-none">??</div>
-        </div>
-
-        <div class="mt-4 text-center">
-            <p class="text-sm text-slate-400 uppercase font-semibold">Current Claim</p>
-            <div id="current-claim" class="text-4xl font-black text-white drop-shadow-[0_0_15px_rgba(34,197,94,0.5)]">--</div>
-        </div>
-
-        <div id="actions" class="flex flex-col gap-3 w-full max-w-sm mt-4">
-            <button id="btn-shake" class="bg-blue-600 hover:bg-blue-500 py-3 rounded-xl font-bold shadow-lg hidden">🎲 Schudden</button>
-            <button id="btn-call" class="bg-red-600 hover:bg-red-500 py-3 rounded-xl font-bold shadow-lg hidden">👀 Bluf Callen</button>
-            <button id="btn-blind" class="bg-purple-600 hover:bg-purple-500 py-3 rounded-xl font-bold shadow-lg hidden">🙈 Blind Doorgeven</button>
-        </div>
-
-        <div id="claim-grid-container" class="hidden flex-col gap-2 w-full max-w-sm mt-4 border-t border-slate-700 pt-4">
-            <span class="text-sm font-medium text-slate-300" id="claim-title">Select Claim</span>
-            <div id="claim-grid" class="grid grid-cols-5 gap-2"></div>
-            <button id="btn-cancel-claim" class="text-slate-400 hover:text-white text-sm mt-2">Cancel</button>
-        </div>
-    </div>
-
-    <div class="w-full md:w-64 flex flex-col gap-2 font-mono text-xs overflow-y-auto max-h-64 border-l border-slate-700 pl-4" id="liegen-log">
-    </div>
+    <div class="liegen-log" id="liegen-log"></div>
 </div>
 `;
 
@@ -90,27 +86,13 @@ const page: GamePage<LiegenState> = {
     mount(ctx) {
         ctx.container.innerHTML = htmlTemplate;
 
-        // Ensure tailwind is loaded globally since we injected it via client/game.html in the old setup
-        // But wait, the new setup uses game.html for ALL games. We shouldn't inject Tailwind globally if it breaks others.
-        // Tailwind via CDN works fine though. Let's just inject the script programmatically if it doesn't exist.
-        if (!document.getElementById("tailwind-script")) {
-            const config = document.createElement("script");
-            config.innerHTML = "window.tailwind = { config: { theme: { extend: { colors: { brand: { 400: '#4ade80', 500: '#22c55e', 900: '#14532d' } } } } } };";
-            document.head.appendChild(config);
-
-            const script = document.createElement("script");
-            script.id = "tailwind-script";
-            script.src = "https://cdn.tailwindcss.com";
-            document.head.appendChild(script);
-        }
-
         const claimGrid = document.getElementById("claim-grid")!;
         RANKS.forEach(val => {
             const btn = document.createElement("button");
-            btn.className = "claim-btn py-2 rounded bg-slate-700/50 hover:bg-slate-600 border border-slate-600 font-bold transition-colors";
+            btn.className = "claim-btn";
             btn.innerText = String(val);
-            if (val === 21) btn.classList.add('text-yellow-400', 'border-yellow-600/50');
-            else if (val % 11 === 0) btn.classList.add('text-brand-400');
+            if (val === 21) btn.classList.add('text-yellow');
+            else if (val % 11 === 0) btn.classList.add('text-green');
             
             btn.onclick = () => {
                 if (currentPendingAction) {
@@ -137,6 +119,7 @@ const page: GamePage<LiegenState> = {
             document.getElementById("actions")!.classList.add("hidden");
             document.getElementById("claim-grid-container")!.classList.remove("hidden");
             document.getElementById("claim-title")!.innerText = "Blind Claim";
+            document.getElementById("btn-cancel-claim")!.classList.remove("hidden");
         };
 
         document.getElementById("btn-cancel-claim")!.onclick = () => {
@@ -144,12 +127,26 @@ const page: GamePage<LiegenState> = {
             document.getElementById("claim-grid-container")!.classList.add("hidden");
             document.getElementById("actions")!.classList.remove("hidden");
         };
-
     },
 
     update(state, ctx) {
         const isMyTurn = state.turn === ctx.playerId;
         const playersDiv = document.getElementById("liegen-players")!;
+        const banner = document.getElementById("turn-banner")!;
+        
+        if (state.turn) {
+            banner.classList.remove("hidden");
+            banner.innerText = isMyTurn ? "Jij bent aan de beurt!" : ctx.nickname(state.turn) + " is aan de beurt";
+            if (isMyTurn) {
+                banner.style.color = "white";
+                banner.style.background = "#22c55e";
+            } else {
+                banner.style.color = "#4ade80";
+                banner.style.background = "rgba(20, 83, 45, 0.5)";
+            }
+        } else {
+            banner.classList.add("hidden");
+        }
         
         playersDiv.innerHTML = "";
         state.playerOrder.forEach(pid => {
@@ -158,15 +155,15 @@ const page: GamePage<LiegenState> = {
             const name = isMe ? "You" : ctx.nickname(pid);
             const activeTurn = state.turn === pid;
             
-            let bg = p.status === 'eliminated' ? 'bg-red-900/20 opacity-50' : 'bg-slate-800/50';
-            let border = 'border border-transparent';
-            let activeClass = activeTurn ? 'active-turn' : '';
+            let pClass = "player-card";
+            if (p.status === "eliminated") pClass += " eliminated";
+            else if (activeTurn) pClass += " active-turn";
             
             const strikesHtml = p.status === 'eliminated' ? '💀' : '❌'.repeat(p.strikes) + '⚪'.repeat(3 - p.strikes);
 
-            playersDiv.innerHTML += "<div class='flex items-center justify-between p-2 rounded-lg " + bg + " " + border + " " + activeClass + "'>" +
-                "<span class='font-medium " + (isMe ? 'text-brand-400' : '') + "'>" + name + "</span>" +
-                "<span class='text-xs tracking-widest'>" + strikesHtml + "</span>" +
+            playersDiv.innerHTML += "<div class='" + pClass + "'>" +
+                "<span style='font-weight: 500; " + (isMe ? "color: #4ade80;" : "") + "'>" + name + "</span>" +
+                "<span style='font-size: 0.75rem; letter-spacing: 0.1em;'>" + strikesHtml + "</span>" +
                 "</div>";
         });
 
@@ -175,7 +172,7 @@ const page: GamePage<LiegenState> = {
         const logDiv = document.getElementById("liegen-log")!;
         logDiv.innerHTML = "";
         [...state.logs].reverse().forEach(l => {
-            logDiv.innerHTML += "<div class='bg-slate-800/50 p-1 rounded text-slate-300 border-l-2 border-slate-600'>" + l + "</div>";
+            logDiv.innerHTML += "<div class='log-item'>" + l + "</div>";
         });
 
         const btnShake = document.getElementById("btn-shake")!;
@@ -210,7 +207,7 @@ const page: GamePage<LiegenState> = {
             } else if (state.gameState === "WAITING_FOR_CLAIM") {
                 actionsContainer.classList.add("hidden");
                 gridContainer.classList.remove("hidden");
-                document.getElementById("claim-title")!.innerText = "Make a Claim";
+                document.getElementById("claim-title")!.innerText = "Maak een Claim";
                 currentPendingAction = "claim";
                 document.getElementById("btn-cancel-claim")!.classList.add("hidden");
             }
@@ -220,11 +217,9 @@ const page: GamePage<LiegenState> = {
         }
 
         if (state.secretRoll) {
-            currentSecret = state.secretRoll;
             document.getElementById("secret-roll")!.innerText = String(state.secretRoll);
             document.getElementById("cup")!.style.transform = 'translateY(-40px) rotate(15deg)';
         } else {
-            currentSecret = null;
             document.getElementById("secret-roll")!.innerText = "??";
             document.getElementById("cup")!.style.transform = 'translateY(0) rotate(0)';
         }
@@ -236,14 +231,22 @@ const page: GamePage<LiegenState> = {
         });
 
         if (state.turn !== null) {
-            ctx.setStatus(isMyTurn ? "Your turn!" : "Waiting for other player...");
+            ctx.setStatus(isMyTurn ? "Jij bent aan de beurt!" : "Wachten op " + ctx.nickname(state.turn) + "...");
         }
     },
 
     onGameOver(winner, state, ctx) {
         document.getElementById("actions")!.classList.add("hidden");
         document.getElementById("claim-grid-container")!.classList.add("hidden");
-        ctx.setStatus(winner === "draw" ? "It's a draw!" : (winner === ctx.playerId ? "You won!" : ctx.nickname(winner) + " won!"));
+        const msg = winner === "draw" ? "Gelijkspel!" : (winner === ctx.playerId ? "Jij hebt gewonnen!" : ctx.nickname(winner) + " heeft gewonnen!");
+        ctx.setStatus(msg);
+        
+        const banner = document.getElementById("turn-banner")!;
+        banner.classList.remove("hidden");
+        banner.innerText = msg;
+        banner.style.background = "#2563eb";
+        banner.style.color = "white";
+        banner.style.borderColor = "#1d4ed8";
     }
 };
 

@@ -1,0 +1,42 @@
+/* Scoped game presentation; shared panels, buttons, players and chat stay intact. */
+.pr-game { margin-top: 1rem; --ui-card-w: 72px; }
+
+.pr-players { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: .5rem; }
+.pr-players li { gap: .7rem; margin: 0; font-size: .85rem; min-width: 0; }
+.pr-players li > span:first-child { overflow-wrap: anywhere; }
+.pr-players .badge { flex-shrink: 0; }
+.pr-active { outline: 2px solid var(--accent-2); }
+
+.pr-table {
+  background: radial-gradient(ellipse, #215e43, #143d2d);
+  border: 5px solid #365946; border-radius: 35px; padding: 1.5rem; margin: 1rem 0;
+  text-align: center; min-height: 220px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1rem;
+}
+.pr-pile { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; justify-content: center; }
+.pr-pile-count { color: #d3e8d8; font-size: .95rem; width: 100%; }
+.pr-info { color: #d3e8d8; font-size: .95rem; min-height: 1.5em; margin: 0; }
+.pr-winner { color: #b6f7c5; font-weight: 600; font-size: 1.2rem; }
+
+.pr-countdown { display: flex; align-items: center; gap: .6rem; }
+.pr-countdown[hidden] { display: none; }
+.pr-countdown progress { width: 180px; height: .6rem; }
+.pr-time { color: #d3e8d8; font-size: .85rem; min-width: 5.5em; text-align: left; }
+
+.pr-hand-heading { gap: 1rem; align-items: center; justify-content: space-between; }
+.pr-actions { display: flex; gap: .5rem; }
+.pr-hand { display: flex; gap: .4rem; flex-wrap: wrap; margin-top: .5rem; }
+.pr-card-button { background: none; border: none; padding: 0; cursor: pointer; border-radius: 8px; }
+.pr-card-button:disabled { cursor: default; opacity: .9; }
+.pr-card-button .ui-card { transition: transform .1s ease; }
+.pr-card-button:not(:disabled):hover .ui-card { transform: translateY(-6px); }
+.ui-card.pr-selected { transform: translateY(-12px); outline: 3px solid var(--accent-2); }
+.pr-help { font-size: .85rem; color: var(--muted); margin-top: 1rem; }
+
+@media (max-width: 600px) {
+  .pr-game { --ui-card-w: 58px; }
+  .pr-table { padding: 1rem; border-radius: 24px; }
+  .pr-players { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .pr-players li { flex-direction: column; gap: .3rem; }
+}
+@media (prefers-reduced-motion: reduce) { .pr-game * { animation: none !important; transition: none !important; } }

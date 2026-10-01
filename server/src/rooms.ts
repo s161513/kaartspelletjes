@@ -18,6 +18,7 @@ export interface GameRuntime {
   gameId: GameId;
   game: Game;
   state: GameState;
+  timer?: ReturnType<typeof setTimeout>;
 }
 
 export interface Room {
@@ -87,6 +88,7 @@ export class RoomManager {
     if (!p) return;
     p.connected = false;
     p.ws = null;
+    this.updateGamePlayers(room);
 
     // Reassign host to another connected player if the host dropped.
     if (room.hostId === playerId) {
@@ -100,6 +102,7 @@ export class RoomManager {
   /** Fully remove a player (explicit leave). */
   removePlayer(room: Room, playerId: string): void {
     room.players.delete(playerId);
+    this.updateGamePlayers(room);
     if (room.hostId === playerId) {
       const next = [...room.players.values()].find((x) => x.connected);
       room.hostId = next ? next.id : null;
@@ -115,7 +118,10 @@ export class RoomManager {
     if (room.pruneTimer) return;
     room.pruneTimer = setTimeout(() => {
       const stillEmpty = ![...room.players.values()].some((x) => x.connected);
-      if (stillEmpty) this.rooms.delete(room.code);
+      if (stillEmpty) {
+        clearTimeout(room.runtime?.timer);
+        this.rooms.delete(room.code);
+      }
     }, GRACE_MS);
   }
 
@@ -129,6 +135,64 @@ export class RoomManager {
 
   currentGameId(room: Room): GameId | null {
     return room.runtime ? room.runtime.gameId : null;
+  }
+
+  /** One projection path for initial state, updates, results and reconnects. */
+  gameView(room: Room, playerId: string): GameState {
+    const runtime = room.runtime!;
+    return runtime.game.getViewForPlayer
+      ? runtime.game.getViewForPlayer(runtime.state, playerId)
+      : runtime.state;
+  }
+
+  sendGame(room: Room, type: "gameStarted" | "gameState" | "gameOver", onlyPlayerId?: string): void {
+    const runtime = room.runtime;
+    if (!runtime) return;
+    for (const player of room.players.values()) {
+      if (onlyPlayerId && player.id !== onlyPlayerId) continue;
+      if (!player.connected || player.ws?.readyState !== 1) continue;
+      const state = this.gameView(room, player.id);
+      const msg: ServerMessage = type === "gameStarted"
+        ? { type, gameId: runtime.gameId, state }
+        : type === "gameOver"
+          ? { type, winner: runtime.game.result(runtime.state).winner ?? "draw", state }
+          : { type, state };
+      player.ws.send(JSON.stringify(msg));
+    }
+  }
+
+  updateGamePlayers(room: Room): void {
+    const runtime = room.runtime;
+    if (!runtime?.game.playersChanged) return;
+    runtime.state = runtime.game.playersChanged(runtime.state,
+      [...room.players.values()].filter(p => p.connected).map(p => p.id), [...room.players.keys()]);
+    this.sendGame(room, "gameState");
+    this.scheduleGame(room);
+  }
+
+  /** Games without timed transitions retain the original request/response flow. */
+  scheduleGame(room: Room): void {
+    const runtime = room.runtime;
+    if (!runtime) return;
+    clearTimeout(runtime.timer);
+    runtime.timer = undefined;
+    const delay = runtime.game.nextUpdateIn?.(runtime.state);
+    if (delay === null || delay === undefined || !runtime.game.advance) return;
+    runtime.timer = setTimeout(() => {
+      if (room.runtime !== runtime) return;
+      runtime.timer = undefined;
+      runtime.state = runtime.game.advance!(runtime.state);
+      this.sendGame(room, "gameState");
+      this.scheduleGame(room);
+    }, Math.max(0, delay));
+  }
+
+  /** Test/server shutdown cleanup, with no change to normal room semantics. */
+  dispose(): void {
+    for (const room of this.rooms.values()) {
+      clearTimeout(room.pruneTimer ?? undefined);
+      clearTimeout(room.runtime?.timer);
+    }
   }
 
   broadcast(room: Room, msg: ServerMessage): void {

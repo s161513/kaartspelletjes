@@ -40,7 +40,11 @@ export function setupGamePage<State>(
   const ctx: GameContext = {
     container: containerEl,
     playerId: session.playerId,
-    sendMove: (move) => socket.send({ type: "move", move }),
+    players: [],
+    get connected() { return socket.connected; },
+    sendMove: (move) => {
+      if (socket.connected) socket.send({ type: "move", move });
+    },
     setStatus: (text) => {
       statusEl.textContent = text;
     },
@@ -57,6 +61,10 @@ export function setupGamePage<State>(
   };
 
   socket.on("gameStarted", (msg) => {
+    if (msg.gameId !== meta.id) {
+      location.href = `/game.html?game=${encodeURIComponent(msg.gameId)}`;
+      return;
+    }
     gameOver = false;
     backBtn.style.display = "none";
     errEl.textContent = "";
@@ -86,11 +94,14 @@ export function setupGamePage<State>(
 
   socket.on("error", (msg) => {
     errEl.textContent = msg.message;
+    page.onError?.(msg.message, ctx);
   });
 
   // Landed here with no active game (e.g. direct nav / game already ended) and
   // nothing rendered yet → go back to the lobby.
   socket.on("roomState", (msg) => {
+    ctx.players = msg.players;
+    page.onRoomState?.(ctx);
     if (msg.currentGameId === null && !gameOver && !mounted) {
       location.href = "/lobby.html";
     }

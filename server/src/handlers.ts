@@ -54,7 +54,7 @@ export function attachConnection(ws: WebSocket, manager: RoomManager): void {
   ws.on("close", () => {
     if (!conn.roomCode || !conn.playerId) return;
     const room = manager.getRoom(conn.roomCode);
-    if (!room) return;
+    if (!room || room.players.get(conn.playerId)?.ws !== ws) return;
     manager.disconnect(room, conn.playerId);
     // Room may have been pruned; only broadcast if it still exists.
     if (manager.getRoom(conn.roomCode)) sendRoomState(manager, room);
@@ -91,6 +91,7 @@ function handle(conn: Conn, manager: RoomManager, msg: ClientMessage): void {
       manager.cancelPrune(room); // recovered before deletion — keep it alive
       player.ws = ws;
       player.connected = true;
+      manager.updateGamePlayers(room);
       if (!room.hostId) room.hostId = player.id;
       conn.roomCode = room.code;
       conn.playerId = player.id;
@@ -105,11 +106,7 @@ function handle(conn: Conn, manager: RoomManager, msg: ClientMessage): void {
       sendRoomState(manager, room);
       // Re-sync any game in progress for the returning player.
       if (room.runtime) {
-        send(ws, {
-          type: "gameStarted",
-          gameId: room.runtime.gameId,
-          state: room.runtime.state,
-        });
+        manager.sendGame(room, "gameStarted", player.id);
       }
       return;
     }
@@ -149,11 +146,8 @@ function handle(conn: Conn, manager: RoomManager, msg: ClientMessage): void {
       const playerIds = seated.map((p) => p.id);
       room.runtime = { gameId: meta.id, game, state: game.init(playerIds) };
 
-      manager.broadcast(room, {
-        type: "gameStarted",
-        gameId: meta.id,
-        state: room.runtime.state,
-      });
+      manager.sendGame(room, "gameStarted");
+      manager.scheduleGame(room);
       sendRoomState(manager, room);
       return;
     }
@@ -174,15 +168,13 @@ function handle(conn: Conn, manager: RoomManager, msg: ClientMessage): void {
 
       const outcome = game.result(next);
       if (outcome.over) {
-        manager.broadcast(room, {
-          type: "gameOver",
-          winner: outcome.winner ?? "draw",
-          state: next,
-        });
+        clearTimeout(room.runtime.timer);
+        manager.sendGame(room, "gameOver");
         room.runtime = null;
         sendRoomState(manager, room);
       } else {
-        manager.broadcast(room, { type: "gameState", state: next });
+        manager.sendGame(room, "gameState");
+        manager.scheduleGame(room);
       }
       return;
     }
@@ -237,6 +229,10 @@ function requireRoom(conn: Conn, manager: RoomManager): Room | null {
   const room = manager.getRoom(conn.roomCode);
   if (!room) {
     err(conn.ws, "no_room", "Room no longer exists");
+    return null;
+  }
+  if (room.players.get(conn.playerId)?.ws !== conn.ws) {
+    err(conn.ws, "no_seat", "This connection no longer owns a seat");
     return null;
   }
   return room;

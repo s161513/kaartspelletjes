@@ -145,3 +145,90 @@ game branch once it's in. That way every change to shared code gets seen by
 everyone.
 
 Folders starting with `_` are ignored by the server and the lobby.
+
+## Bullshit / Cheat
+
+Bullshit is automatically discovered from `games/bullshit/`. No manual registry
+or second game page is needed. Start it in the existing lobby with **2–8 connected
+players**. The platform's generic lobby can hold more seats; Bullshit rejects
+starting with more than eight connected players.
+
+The implementation reuses `shared/cards.ts` (`Card`, `Rank`, `Suit`, `deal`,
+`shuffle`, `sortHand`), the room manager, WebSocket protocol, shared game host,
+chat, session storage, and existing panels/buttons/player styling. The repository
+had no playing-card renderer or card assets. A small general DOM renderer lives in
+`client/src/cards/renderer.ts`. Replace its presentation to add your own images
+or models; game rules never depend on asset paths. Hidden cards are rendered with
+`{ hidden: true }` and require no card data.
+
+### Rules
+
+One standard deck (52 cards, no jokers), dealt evenly. The starting player is
+random. The required claim cycles **A → 2 → … → K → A**, independent of the
+shared library's ace-high sorting. Choose one or more cards and press **Play
+cards**. Only the number and claimed rank are public.
+
+Other players have **3 seconds** to call **BULLSHIT!** on that particular play.
+The server checks only the last set. If any card does not match, the player who
+played takes the entire pile; otherwise the challenger takes it. The last set
+is revealed for 2.4 seconds, then the next player takes the turn and the rank
+advances, just as after an unchallenged play. A player who empties their hand
+wins only after the challenge is settled. A caught final bluff does not win.
+
+Timing constants are in `games/bullshit/types.ts`. The four phases are
+`TURN`, `CHALLENGE_WINDOW`, `RESOLVING_CHALLENGE`, and `GAME_OVER`.
+Round IDs, turn versions, play IDs and server deadlines reject stale/repeated
+actions, including packets left over from an earlier round. The server runs
+validation, mutation and challenge resolution synchronously.
+
+### Private state and server timers
+
+The minimal optional extensions to `Game` in `shared/game.ts` are:
+
+- `getViewForPlayer(state, playerId)`: individual wire projection for games
+  with private information. Public games that omit it keep their old payloads.
+- `tick(state, now)` and `nextDeadline(state)`: server-time transitions
+  without waiting for another move. Existing games do not need either hook.
+- An optional `now` for move validation/application, so one action uses one
+  timestamp, and optional public player metadata in `GameContext` for labels.
+
+`server/src/gameRuntime.ts` applies the projection to **start, update, end and
+rejoin** events. Bullshit projects only the recipient's `myHand`, other players'
+card counts, pile count, public claim, and the last challenged set. No other
+hands, hidden pile cards, or unchallenged set are included. A finished snapshot
+is retained server-side until the next game so a refresh can restore the winner
+screen; restarting still happens through the existing lobby. An optional\n\`gameId\` on finished events prevents a retained snapshot from being rendered\nby the wrong game view when a player revisits an old game URL.
+
+**Existing platform limitation, deliberately unchanged:** rejoin authenticates
+only with the public player ID and room code. A malicious client can impersonate
+a different seat and receive that seat's private view. Per-player projection
+prevents broadcasting secrets, but cannot secure identity on its own. Token/auth
+changes were explicitly outside this integration's scope. Use this build in a
+trusted group until that separate platform issue is addressed. The existing
+30-second empty-room grace period, host reassignment, chat, routing, and
+connection/session implementation are unchanged. If the player on turn is
+offline, Bullshit waits for that player to reconnect.
+
+### Test and demonstrate
+
+```bash
+npm test
+npm run typecheck
+npm run build
+npm run dev
+```
+
+Open the existing landing page in independent tabs, choose different nicknames,
+create/join the same room and select Bullshit. Each tab uses the platform's
+existing sessionStorage identity. Refresh a game tab to test reconnect. After
+winning, use **Back to lobby**, then start another game.
+
+The repository had no existing automated test suite. Added tests cover the
+shared card utilities, dealing to 2–8 players, rank and turn progression,
+selection validation, truthful/mixed/false claims, the full pile pickup, exact
+challenge deadlines and races, all final-card cases, hidden-state projections,
+round replay rejection, full rounds and rematches. The WebSocket integration test
+uses the real loader, room manager and handlers to test 8-player play, reconnect
+during challenge resolution, automatic timer expiration, private end/rejoin
+events, rematch, and 2-player Bullshit. Tic-tac-toe winner/draw rules and live
+WebSocket play are regression-tested. No new dependency stack was introduced.

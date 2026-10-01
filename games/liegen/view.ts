@@ -46,6 +46,8 @@ const htmlTemplate = `
 .current-claim-value { font-size: 2.25rem; font-weight: 900; color: white; text-shadow: 0 0 15px rgba(34,197,94,0.5); }
 .cancel-btn { color: #94a3b8; background: transparent; border: none; font-size: 0.875rem; cursor: pointer; margin-top: 0.5rem; }
 .cancel-btn:hover { color: white; }
+.advice-container { margin-top: 1rem; display: flex; align-items: center; justify-content: center; gap: 0.5rem; color: #cbd5e1; font-size: 0.875rem; }
+.advice-checkbox { width: 1.25rem; height: 1.25rem; cursor: pointer; accent-color: #22c55e; }
 </style>
 <div class="liegen-layout">
     <div class="liegen-players" id="liegen-players"></div>
@@ -71,6 +73,10 @@ const htmlTemplate = `
         <div id="claim-grid-container" class="claim-grid-container hidden">
             <span style="font-size: 0.875rem; font-weight: 500; color: #cbd5e1;" id="claim-title">Select Claim</span>
             <div id="claim-grid" class="claim-grid"></div>
+            <label class="advice-container">
+                <input type="checkbox" id="advice-checkbox" class="advice-checkbox">
+                Met advies (mijn echte worp is nog hoger!)
+            </label>
             <button id="btn-cancel-claim" class="cancel-btn">Cancel</button>
         </div>
     </div>
@@ -96,7 +102,8 @@ const page: GamePage<LiegenState> = {
             
             btn.onclick = () => {
                 if (currentPendingAction) {
-                    ctx.sendMove({ action: currentPendingAction, value: val });
+                    const withAdvice = (document.getElementById("advice-checkbox") as HTMLInputElement).checked;
+                    ctx.sendMove({ action: currentPendingAction, value: val, withAdvice });
                     document.getElementById("claim-grid-container")!.classList.add("hidden");
                     document.getElementById("actions")!.classList.remove("hidden");
                     currentPendingAction = null;
@@ -120,6 +127,7 @@ const page: GamePage<LiegenState> = {
             document.getElementById("claim-grid-container")!.classList.remove("hidden");
             document.getElementById("claim-title")!.innerText = "Blind Claim";
             document.getElementById("btn-cancel-claim")!.classList.remove("hidden");
+            (document.getElementById("advice-checkbox") as HTMLInputElement).checked = false;
         };
 
         document.getElementById("btn-cancel-claim")!.onclick = () => {
@@ -167,7 +175,8 @@ const page: GamePage<LiegenState> = {
                 "</div>";
         });
 
-        document.getElementById("current-claim")!.innerText = state.currentClaim ? String(state.currentClaim) : "--";
+        const claimText = state.currentClaim ? String(state.currentClaim) + (state.currentAdvice ? " (Advies)" : "") : "--";
+        document.getElementById("current-claim")!.innerText = claimText;
 
         const logDiv = document.getElementById("liegen-log")!;
         logDiv.innerHTML = "";
@@ -210,6 +219,7 @@ const page: GamePage<LiegenState> = {
                 document.getElementById("claim-title")!.innerText = "Maak een Claim";
                 currentPendingAction = "claim";
                 document.getElementById("btn-cancel-claim")!.classList.add("hidden");
+                (document.getElementById("advice-checkbox") as HTMLInputElement).checked = false;
             }
         } else {
             actionsContainer.classList.add("hidden");

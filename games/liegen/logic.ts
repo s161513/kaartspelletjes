@@ -38,6 +38,7 @@ const logic: Game<LiegenState, LiegenMove> = {
             players,
             playerOrder: [...playerIds],
             currentClaim: null,
+            currentAdvice: false,
             lastClaimPlayerId: null,
             gameState: "WAITING_FOR_FIRST_SHAKE",
             logs: ["Game started!"],
@@ -91,21 +92,33 @@ const logic: Game<LiegenState, LiegenMove> = {
             addLog(`Cup shaken.`);
         } else if (move.action === "claim") {
             next.currentClaim = move.value!;
+            next.currentAdvice = move.withAdvice || false;
             next.lastClaimPlayerId = playerId;
             next.gameState = "WAITING_FOR_ACTION";
-            addLog(`Claim made: ${move.value}`);
+            addLog(`Claim made: ${move.value}${next.currentAdvice ? ' (met advies!)' : ''}`);
             const nt = nextTurn(next);
             if (nt) next.turn = nt;
         } else if (move.action === "blind_pass") {
             next.currentClaim = move.value!;
+            next.currentAdvice = move.withAdvice || false;
             next.lastClaimPlayerId = playerId;
-            addLog(`Blind pass with claim: ${move.value}`);
+            addLog(`Blind pass with claim: ${move.value}${next.currentAdvice ? ' (met advies!)' : ''}`);
             const nt = nextTurn(next);
             if (nt) next.turn = nt;
         } else if (move.action === "call_bluff") {
             addLog(`Bluff called! Cup revealed: ${next.secretRoll}`);
             let loserId = "";
-            if (getRank(next.secretRoll!) < getRank(next.currentClaim!)) {
+            let truth = false;
+            
+            if (next.currentAdvice) {
+                // with advice: real roll must be STRICTLY higher than claim
+                truth = getRank(next.secretRoll!) > getRank(next.currentClaim!);
+            } else {
+                // normal: real roll must be >= claim
+                truth = getRank(next.secretRoll!) >= getRank(next.currentClaim!);
+            }
+
+            if (!truth) {
                 loserId = next.lastClaimPlayerId!;
                 addLog(`The claim was a bluff!`);
             } else {

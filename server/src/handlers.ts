@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { WebSocket } from "ws";
-import type { ClientMessage, Game, ServerMessage } from "@app/shared";
+import type { ClientMessage, ServerMessage } from "@app/shared";
 import { RoomManager, type Player, type Room } from "./rooms.js";
 import { games } from "./games/loader.js";
 
@@ -19,51 +19,38 @@ function err(ws: WebSocket, code: string, message: string): void {
   send(ws, { type: "error", code, message });
 }
 
-/**
- * Send a game message to every connected player, each with their own view of
- * the state (the game's `playerView`, or the full state if it has none).
- */
-function sendGame(
-  room: Room,
-  game: Game,
-  state: unknown,
-  build: (view: unknown) => ServerMessage,
-): void {
-  for (const p of room.players.values()) {
-    if (!p.connected || !p.ws) continue;
-    send(p.ws, build(game.playerView ? game.playerView(state, p.id) : state));
-  }
-}
-
 /** Store a new game state and send it out, ending the game if it is over. */
 function publish(manager: RoomManager, room: Room, next: unknown): void {
   const runtime = room.runtime!;
   runtime.state = next;
-  const outcome = runtime.game.result(next);
-  if (outcome.over) {
-    sendGame(room, runtime.game, next, (view) => ({
-      type: "gameOver",
-      winner: outcome.winner ?? "draw",
-      state: view,
-    }));
+  if (runtime.game.result(next).over) {
+    clearTimeout(runtime.timer);
+    manager.sendGame(room, "gameOver");
     room.runtime = null;
     sendRoomState(manager, room);
   } else {
-    sendGame(room, runtime.game, next, (view) => ({ type: "gameState", state: view }));
+    manager.sendGame(room, "gameState");
+    manager.scheduleGame(room);
   }
 }
 
-/** A player left mid-game: let the game handle it, or end the game. */
+/**
+ * A player left mid-game. `playerLeft` decides what happens to the game; a game
+ * with only `playersChanged` already heard about it via removePlayer. A game
+ * with neither cannot continue: end it, and a lone remaining player wins.
+ */
 function playerLeftGame(manager: RoomManager, room: Room, playerId: string): void {
-  const { game, state } = room.runtime!;
-  if (game.playerLeft) return publish(manager, room, game.playerLeft(state, playerId));
+  const runtime = room.runtime!;
+  if (runtime.game.playerLeft) {
+    return publish(manager, room, runtime.game.playerLeft(runtime.state, playerId));
+  }
+  if (runtime.game.playersChanged) return;
 
   const remaining = [...room.players.values()];
-  sendGame(room, game, state, (view) => ({
-    type: "gameOver",
+  clearTimeout(runtime.timer);
+  manager.sendGame(room, "gameOver", {
     winner: remaining.length === 1 ? remaining[0].id : "draw",
-    state: view,
-  }));
+  });
   room.runtime = null;
 }
 
@@ -142,6 +129,7 @@ function handle(conn: Conn, manager: RoomManager, msg: ClientMessage): void {
       manager.cancelPrune(room); // recovered before deletion — keep it alive
       player.ws = ws;
       player.connected = true;
+      manager.updateGamePlayers(room);
       if (!room.hostId) room.hostId = player.id;
       conn.roomCode = room.code;
       conn.playerId = player.id;
@@ -156,12 +144,7 @@ function handle(conn: Conn, manager: RoomManager, msg: ClientMessage): void {
       sendRoomState(manager, room);
       // Re-sync any game in progress for the returning player.
       if (room.runtime) {
-        const { gameId, game, state } = room.runtime;
-        send(ws, {
-          type: "gameStarted",
-          gameId,
-          state: game.playerView ? game.playerView(state, player.id) : state,
-        });
+        manager.sendGame(room, "gameStarted", { only: player.id });
       }
       return;
     }
@@ -201,11 +184,8 @@ function handle(conn: Conn, manager: RoomManager, msg: ClientMessage): void {
       const playerIds = seated.map((p) => p.id);
       room.runtime = { gameId: meta.id, game, state: game.init(playerIds) };
 
-      sendGame(room, game, room.runtime.state, (view) => ({
-        type: "gameStarted",
-        gameId: meta.id,
-        state: view,
-      }));
+      manager.sendGame(room, "gameStarted");
+      manager.scheduleGame(room);
       sendRoomState(manager, room);
       return;
     }
@@ -285,6 +265,10 @@ function requireRoom(conn: Conn, manager: RoomManager): Room | null {
   const room = manager.getRoom(conn.roomCode);
   if (!room) {
     err(conn.ws, "no_room", "Room no longer exists");
+    return null;
+  }
+  if (room.players.get(conn.playerId)?.ws !== conn.ws) {
+    err(conn.ws, "no_seat", "This connection no longer owns a seat");
     return null;
   }
   return room;

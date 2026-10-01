@@ -1,0 +1,73 @@
+/* All styles are scoped to Dobble; other game views and the lobby stay intact. */
+.dobble-game { --dobble-purple:#7955d9; --dobble-muted:#a9a0bc; color:#eee8fa; }
+.wrap:has(.dobble-game) #error { display:none; } /* Errors use the game's round message. */
+.dobble-game [hidden] { display:none !important; }
+.dobble-heading { display:flex; justify-content:space-between; align-items:center; gap:12px; }
+.dobble-pill { background:#eee8fa; color:var(--dobble-purple); padding:9px 12px; border-radius:9px; font-size:10px; font-weight:800; letter-spacing:1px; }
+.dobble-game .round-count { color:var(--dobble-muted); font-size:12px; }
+.dobble-game .scoreboard { display:flex; flex-wrap:wrap; gap:8px; justify-content:center; margin:20px 0 10px; }
+.dobble-game .score-chip { display:flex; align-items:center; gap:8px; padding:9px 12px; background:#302c43; border:1px solid #494059; border-radius:12px; font-size:12px; min-width:0; }
+.dobble-game .score-chip>span:first-child { font-size:23px; }
+.dobble-game .score-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:120px; }
+.dobble-game .score-chip strong { font-size:15px; background:#eee5fc; color:var(--dobble-purple); padding:3px 8px; border-radius:7px; }
+.dobble-game .my-score { border-color:#ae90eb; background:#493863; }
+.dobble-game .offline-score { opacity:.55; }
+.dobble-game .round-message { text-align:center; font-size:14px; font-weight:600; min-height:44px; padding:12px 5px; color:var(--dobble-muted); }
+.dobble-game .round-message.success { background:#244b3f; color:#a8e3b8; border-radius:12px; }
+.dobble-game .dobble-network { text-align:center; background:#654d1e; color:#ffdf8f; padding:12px; margin:12px 0; border-radius:10px; font-size:13px; }
+.dobble-board { display:flex; align-items:center; justify-content:center; gap:35px; padding:20px 0 10px; }
+.dobble-game .card-area { display:flex; flex-direction:column; align-items:center; gap:17px; min-width:0; }
+.dobble-game .card-label { font-size:10px; font-weight:800; letter-spacing:2px; color:#d9bf84; }
+.dobble-game .own-area .card-label { color:#cfb6ff; }
+.dobble-game .dobble-card { position:relative; width:clamp(250px,28vw,345px); aspect-ratio:1; border-radius:50%; background:#fff; border:7px solid #fff; box-shadow:0 12px 35px #0003; container-type:inline-size; }
+.dobble-game .dobble-card.personal { border-color:#eee5fc; box-shadow:0 0 0 2px #aa87e5,0 12px 40px #7955d940; }
+.dobble-game .symbol { position:absolute; width:20%; height:20%; min-width:44px; min-height:44px; display:grid; place-items:center; padding:0; border:0; border-radius:50%; background:none; color:#29233d; transform:translate(-50%,-50%) rotate(var(--rotation)); font-size:var(--size); line-height:1; user-select:none; touch-action:manipulation; -webkit-tap-highlight-color:transparent; }
+.dobble-game .symbol:disabled { opacity:1; cursor:default; }
+.dobble-game button.symbol:not(:disabled):hover { background:#f0e9fc; filter:none; }
+.dobble-game button.symbol:not(:disabled):active { background:#e4d4fa; scale:1.1; }
+.dobble-game .symbol:focus-visible { outline:3px solid #ac91f0; outline-offset:3px; }
+.dobble-game .matched { background:#dcf4de; box-shadow:0 0 20px #63bb7c55; animation:dobble-pulse .5s ease-out; }
+.dobble-game .wrong .personal { box-shadow:0 0 0 3px #e68481,0 0 25px #e6848130; animation:dobble-shake .25s; }
+.dobble-game .round-enter { animation:dobble-in .28s ease-out; }
+.dobble-results { text-align:center; position:relative; overflow:hidden; padding:18px 5px; }
+.dobble-game .trophy { font-size:70px; margin-bottom:14px; }
+.dobble-results h2 { font-size:36px; letter-spacing:-1px; margin:10px 0; overflow-wrap:anywhere; }
+.dobble-results p { font-size:13px; color:var(--dobble-muted); line-height:1.6; }
+.dobble-game .result-list { max-width:480px; margin:25px auto; padding:10px 20px; background:#29283e; border:1px solid #4c435d; border-radius:18px; }
+.dobble-game .result-row { display:flex; justify-content:space-between; align-items:center; gap:14px; text-align:left; border-bottom:1px solid #474053; padding:14px 0; font-size:14px; }
+.dobble-game .result-row:last-child { border-bottom:0; }
+.dobble-game .result-row span { overflow-wrap:anywhere; min-width:0; }
+.dobble-game .result-row strong { color:#ccb1fa; white-space:nowrap; }
+.dobble-game .result-note { max-width:420px; margin:auto; }
+.dobble-game .confetti { position:absolute; inset:0; pointer-events:none; }
+.dobble-game .confetti i { position:absolute; width:7px; height:12px; top:-15px; border-radius:2px; animation:dobble-fall 2.8s ease-out forwards; }
+@keyframes dobble-in { from { opacity:0; transform:scale(.97); } to { opacity:1; transform:scale(1); } }
+@keyframes dobble-pulse { 50% { scale:1.12; } }
+@keyframes dobble-shake { 25% { transform:translateX(-4px); } 75% { transform:translateX(4px); } }
+@keyframes dobble-fall { to { transform:translateY(650px) rotate(540deg); opacity:0; } }
+@media(max-width:740px) {
+  .wrap:has(.dobble-game) { padding-top:16px; }
+  .wrap:has(.dobble-game)>h1 { font-size:25px; margin-bottom:12px; }
+  .wrap:has(.dobble-game)>.card { padding:14px; }
+  /* The game has its own visible round message; keep shared status accessible. */
+  .wrap:has(.dobble-game) .status { position:absolute; width:1px; height:1px; margin:0; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
+  .dobble-game .dobble-heading { gap:6px; }
+  .dobble-game .dobble-pill { font-size:9px; padding:8px; }
+  .dobble-game .round-count { font-size:10px; }
+  .dobble-game .scoreboard { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; margin:12px 0 8px; }
+  .dobble-game .score-chip { padding:6px 4px; gap:3px; justify-content:space-between; font-size:10px; }
+  .dobble-game .score-chip>span:first-child { font-size:17px; }
+  .dobble-game .score-name { min-width:0; max-width:40px; }
+  .dobble-game .score-chip strong { font-size:11px; padding:2px 5px; }
+  .dobble-game .round-message { min-height:32px; font-size:12px; padding:8px 3px; }
+  .dobble-game .dobble-board { flex-direction:column; gap:13px; padding-top:10px; }
+  .dobble-game .card-area { gap:9px; }
+  .dobble-game .card-label { font-size:9px; letter-spacing:1.5px; }
+  .dobble-game .dobble-card { width:min(70vw,clamp(210px,calc((100svh - 330px)/2),280px)); border-width:5px; }
+  .dobble-results h2 { font-size:30px; }
+  .dobble-game .result-row { font-size:12px; }
+}
+@media(prefers-reduced-motion:reduce) {
+  .dobble-game *, .dobble-game *::before, .dobble-game *::after { animation:none !important; transition:none !important; }
+  .dobble-game .confetti { display:none; }
+}

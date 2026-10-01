@@ -69,6 +69,10 @@ export class GameSocket {
   private sendNow(msg: ClientMessage): void {
     this.ws?.send(JSON.stringify(msg));
   }
+  /** Game renderers can avoid buffering time-sensitive moves during a drop. */
+  get connected(): boolean {
+    return this.ws?.readyState === WebSocket.OPEN;
+  }
 
   /** Send now if open, otherwise queue until the socket (re)connects. */
   send(msg: ClientMessage): void {

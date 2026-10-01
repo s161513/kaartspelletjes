@@ -1,5 +1,6 @@
 // The contract every game implements. A game lives in its own folder
 // (games/<id>/) and provides a logic module (server) and a view (client).
+import type { PlayerPublic } from "./protocol.js";
 
 /** Result of validating a raw client move: the typed move, or a reason. */
 export type MoveResult<Move> =
@@ -37,6 +38,21 @@ export interface Game<State = unknown, Move = unknown> {
    * game ends, and if only one player remains they win.
    */
   playerLeft?(state: State, playerId: string): State;
+
+  /**
+   * Optional: server-driven transitions (e.g. deal the next round after a
+   * pause). `nextUpdateIn` returns a delay in ms, or null for no timer; when it
+   * fires the server calls `advance` and sends the new state to everyone.
+   */
+  nextUpdateIn?(state: State): number | null;
+  advance?(state: State): State;
+
+  /**
+   * Optional: room members connected, disconnected or left. `connectedIds` are
+   * online now, `memberIds` are still in the room (e.g. pause while fewer than
+   * two players are online). Called alongside `playerLeft` when someone leaves.
+   */
+  playersChanged?(state: State, connectedIds: string[], memberIds: string[]): State;
 }
 
 /**
@@ -50,6 +66,10 @@ export interface GameContext {
   playerId: string;
   /** Nickname of a player in the room (falls back to "Player"). */
   nickname(playerId: string): string;
+  /** Players in the room (with online status), supplied by the host page. */
+  players?: readonly PlayerPublic[];
+  /** Whether the socket is currently open. */
+  connected?: boolean;
   /** Send a move payload (validated server-side). */
   sendMove(move: unknown): void;
   /** Set the status line text (turn indicator, etc.). */
@@ -64,4 +84,6 @@ export interface GamePage<State = unknown> {
   update(state: State, ctx: GameContext): void;
   /** Optional hook when the game ends (e.g. freeze the board). */
   onGameOver?(winner: string | "draw", state: State, ctx: GameContext): void;
+  onRoomState?(ctx: GameContext): void;
+  onError?(message: string, ctx: GameContext): void;
 }

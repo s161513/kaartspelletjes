@@ -16,6 +16,7 @@ export interface LastPlay {
 export interface Reveal {
   cards: Card[];
   challengerId: string;
+  automatic: boolean;
   loserId: string;
   lied: boolean;
   pileCount: number;
@@ -45,7 +46,10 @@ export interface BullshitView {
   players: { id: string; cardCount: number }[];
   pileCount: number;
   turn: string | null;
+  /** Last claim, or A at the start of a cleared trick. */
   claimedRank: Rank;
+  allowedClaimRanks: Rank[];
+  minimumPlayCount: number;
   phase: BullshitPhase;
   version: number;
   deadline: number | null;
@@ -56,5 +60,5 @@ export interface BullshitView {
 }
 
 export type BullshitMove =
-  | { type: "playCards"; cardIds: string[]; playVersion: number; roundId: string }
+  | { type: "playCards"; cardIds: string[]; claimedRank: Rank; playVersion: number; roundId: string }
   | { type: "challenge"; playId: string; roundId: string };

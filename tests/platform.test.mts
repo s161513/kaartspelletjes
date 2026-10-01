@@ -8,7 +8,7 @@ import { RoomManager, type Room } from "../server/src/rooms.ts";
 import { attachConnection } from "../server/src/handlers.ts";
 import { loadGames, games } from "../server/src/games/loader.ts";
 import { advanceGame, publishGame } from "../server/src/gameRuntime.ts";
-import type { BullshitState, BullshitView } from "../games/bullshit/types.ts";
+import { CLAIM_RANKS, type BullshitState, type BullshitView } from "../games/bullshit/types.ts";
 import type { TicTacToeState } from "../games/tictactoe/types.ts";
 
 class Peer {
@@ -81,7 +81,7 @@ test("real platform sockets: discovery, lobby, 8 players, private start/update/r
     assert.equal(started.reduce((n,m)=>n+view(m).myHand.length,0),52);
     for(let i=0;i<8;i++)privatePayload(state,sessions[i].playerId,view(started[i]));
     seated[0].send({type:"startGame",gameId:"bullshit"});assert.equal((await seated[0].wait(m=>m.type==="error") as any).code,"already");
-    const turn=state.turnIndex;const actor=state.players[turn];const move={type:"playCards",cardIds:[state.hands[actor][0].id],playVersion:state.version,roundId:state.roundId};
+    const turn=state.turnIndex;const actor=state.players[turn];const move={type:"playCards",cardIds:[state.hands[actor][0].id],claimedRank:CLAIM_RANKS[state.rankIndex],playVersion:state.version,roundId:state.roundId};
     const waits=seated.map(p=>p.wait(isState("CHALLENGE_WINDOW",state.version+1)));
     seated[turn].send({type:"move",move});const updates=await Promise.all(waits);state=room.runtime!.state as BullshitState;
     for(let i=0;i<8;i++)privatePayload(state,sessions[i].playerId,view(updates[i]));
@@ -103,7 +103,7 @@ test("real platform sockets: discovery, lobby, 8 players, private start/update/r
     const after=seated[turn].wait(isState("TURN",state.version+1));
     advanceGame(manager,room,state.deadline!);await after;
     state=room.runtime!.state as BullshitState;const nextIndex=state.turnIndex;
-    seated[nextIndex].send({type:"move",move:{type:"playCards",cardIds:[state.hands[state.players[nextIndex]][0].id],playVersion:state.version,roundId:state.roundId}});
+    seated[nextIndex].send({type:"move",move:{type:"playCards",cardIds:[state.hands[state.players[nextIndex]][0].id],claimedRank:CLAIM_RANKS[state.rankIndex],playVersion:state.version,roundId:state.roundId}});
     const timerView=view(await seated[nextIndex].wait(isState("CHALLENGE_WINDOW",state.version+1)));
     // No further traffic: the actual server timer must advance on its own.
     await seated[nextIndex].wait(isState("TURN",timerView.version+1));
@@ -117,7 +117,7 @@ test("real platform sockets: discovery, lobby, 8 players, private start/update/r
     state=room.runtime!.state as BullshitState;
     const winnerIndex=state.turnIndex;const winner=state.players[winnerIndex];
     state.hands[winner]=[state.hands[winner][0]];
-    const endMove={type:"playCards",cardIds:[state.hands[winner][0].id],playVersion:state.version,roundId:state.roundId};
+    const endMove={type:"playCards",cardIds:[state.hands[winner][0].id],claimedRank:CLAIM_RANKS[state.rankIndex],playVersion:state.version,roundId:state.roundId};
     seated[winnerIndex].send({type:"move",move:endMove});
     const finalPlay=view(await seated[winnerIndex].wait(isState("CHALLENGE_WINDOW",state.version+1)));
     const ended=seated.map(p=>p.wait(m=>m.type==="gameOver"&&(m.state as BullshitView).roundId===state.roundId));

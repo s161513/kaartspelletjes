@@ -1,10 +1,13 @@
-import { sortHand, type GameContext, type GamePage } from "@app/shared";
+import { sortHand, type Rank, type GameContext, type GamePage } from "@app/shared";
 import { renderCard } from "../../client/src/cards/renderer.js";
 import { BULLSHIT_WINDOW_MS, type BullshitView } from "./types.js";
 import "./style.css";
 
 const selected = new Set<string>();
 let current: BullshitView | undefined;
+let chosenRank: Rank | null = null;
+let claimChoices: HTMLElement;
+let selectionFeedback: HTMLElement;
 let context: GameContext;
 let timer: ReturnType<typeof setInterval>;
 let offset = 0;
@@ -40,21 +43,27 @@ function mount(ctx: GameContext): void {
       <button type="button" class="bs-call">BULLSHIT!</button>
       <span class="bs-countdown"></span>
     </div>
+    <div class="bs-claim-choice">
+      <span>Welke rank claim je?</span>
+      <div class="bs-claim-options" role="group" aria-label="Kies je claimed rank"></div>
+    </div>
+    <p class="bs-selection-feedback" aria-live="polite"></p>
     <div class="row bs-hand-heading">
       <strong class="bs-hand-label">Your hand</strong>
       <button type="button" class="bs-play">Play cards</button>
     </div>
     <div class="bs-hand" aria-label="Your private hand"></div>
-    <p class="bs-help">Select one or more cards. You claim the required rank, whatever you actually play.</p>
+    <p class="bs-help">Selecteer je echte kaarten en kies je claim. De kaarten mogen afwijken van je claim — bluffen mag.</p>
   `;
   const find = <T extends HTMLElement>(selector: string) => ctx.container.querySelector<T>(selector)!;
+  claimChoices = find(".bs-claim-options"); selectionFeedback = find(".bs-selection-feedback");
   players = find<HTMLUListElement>(".bs-players");
   pile = find(".bs-pile"); claim = find(".bs-claim"); feedback = find(".bs-feedback"); reveal = find(".bs-reveal");
   hand = find(".bs-hand"); play = find<HTMLButtonElement>(".bs-play"); challenge = find<HTMLButtonElement>(".bs-call");
   progress = find<HTMLProgressElement>("progress"); countdown = find(".bs-countdown"); handLabel = find(".bs-hand-label");
   play.addEventListener("click", () => {
-    if (!current || !selected.size) return;
-    ctx.sendMove({ type: "playCards", cardIds: [...selected], playVersion: current.version, roundId: current.roundId });
+    if (!current || selected.size < current.minimumPlayCount || !chosenRank || !current.allowedClaimRanks.includes(chosenRank)) return;
+    ctx.sendMove({ type: "playCards", cardIds: [...selected], claimedRank: chosenRank, playVersion: current.version, roundId: current.roundId });
   });
   challenge.addEventListener("click", () => {
     if (!current?.lastPlay || current.phase !== "CHALLENGE_WINDOW") return;
@@ -75,11 +84,31 @@ function updateTimer(): void {
 }
 
 function update(state: BullshitView, ctx: GameContext): void {
-  if (current?.roundId !== state.roundId) selected.clear();
+  if (current?.roundId !== state.roundId || current?.version !== state.version) {
+    if (current?.roundId !== state.roundId) selected.clear();
+    chosenRank = state.allowedClaimRanks.includes(state.claimedRank) ? state.claimedRank : null;
+  }
   if (current !== state) offset = state.serverNow - Date.now();
   current = state; context = ctx;
   for (const id of selected) if (!state.myHand.some(card => card.id === id)) selected.delete(id);
   const myTurn = state.phase === "TURN" && state.turn === ctx.playerId;
+  claimChoices.replaceChildren();
+  for (const rank of state.allowedClaimRanks) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "secondary bs-rank" + (rank === state.claimedRank ? " bs-previous-rank" : "");
+    button.textContent = rank;
+    button.setAttribute("aria-label", "Claim " + rank);
+    button.setAttribute("aria-pressed", String(chosenRank === rank));
+    button.title = rank === state.claimedRank ? "Vorige claim / beginrank" : "Toegestane aangrenzende rank";
+    button.disabled = !myTurn;
+    button.addEventListener("click", () => {
+      chosenRank = rank;
+      for (const choice of claimChoices.querySelectorAll("button")) choice.setAttribute("aria-pressed", String(choice === button));
+      updatePlayButton(myTurn);
+    });
+    claimChoices.append(button);
+  }
   players.replaceChildren();
   for (const player of state.players) {
     const li = document.createElement("li");
@@ -93,7 +122,7 @@ function update(state: BullshitView, ctx: GameContext): void {
   }
   if (state.phase !== "GAME_OVER") {
     ctx.setStatus(state.phase === "TURN"
-      ? (myTurn ? "Your turn — claim " : name(state.turn) + "'s turn — claim ") + state.claimedRank + (!online(state.turn!) ? " · waiting for reconnect" : "")
+      ? (myTurn ? "Jouw beurt" : name(state.turn) + " is aan zet") + " — speel minimaal " + state.minimumPlayCount + " kaart(en), claim " + state.allowedClaimRanks.join(" / ") + (!online(state.turn!) ? " · waiting for reconnect" : "")
       : state.phase === "CHALLENGE_WINDOW" ? "Do you believe " + name(state.lastPlay!.playerId) + "?"
       : "Checking the last play…");
   }
@@ -103,12 +132,13 @@ function update(state: BullshitView, ctx: GameContext): void {
   pile.classList.toggle("bs-played", state.phase === "CHALLENGE_WINDOW");
   claim.textContent = state.lastPlay
     ? name(state.lastPlay.playerId) + " played " + state.lastPlay.count + " card(s), claiming " + state.lastPlay.rank
-    : "Ranks: A → 2 → 3 → … → K → A";
+    : "Nieuwe slag — minimaal 1 kaart; claim K, A of 2."
   reveal.replaceChildren();
   feedback.textContent = "";
   if (state.phase === "RESOLVING_CHALLENGE" && state.reveal) {
     for (const card of state.reveal.cards) reveal.append(renderCard({ card }));
-    feedback.textContent = name(state.reveal.challengerId) + " called Bullshit! " +
+    feedback.textContent = name(state.reveal.challengerId) +
+      (state.reveal.automatic ? " riep automatisch Bullshit: te weinig kaarten om de vorige zet te evenaren. " : " called Bullshit! ") +
       (state.reveal.lied ? name(state.lastPlay!.playerId) + " lied. " : "The claim was true. ") +
       name(state.reveal.loserId) + " takes all " + state.reveal.pileCount + " pile cards.";
     feedback.className = "bs-feedback " + (state.reveal.lied ? "bs-lie" : "bs-truth");
@@ -148,8 +178,16 @@ function update(state: BullshitView, ctx: GameContext): void {
 }
 
 function updatePlayButton(myTurn: boolean): void {
-  play.disabled = !myTurn || selected.size === 0;
-  play.textContent = "Play " + (selected.size || "") + " card" + (selected.size === 1 ? "" : "s") + " · claim " + (current?.claimedRank ?? "A");
+  if (!current) return;
+  const enoughCards = selected.size >= current.minimumPlayCount;
+  const validClaim = chosenRank !== null && current.allowedClaimRanks.includes(chosenRank);
+  play.disabled = !myTurn || !enoughCards || !validClaim;
+  play.textContent = "Speel " + (selected.size || "") + " kaart" + (selected.size === 1 ? "" : "en") + " · claim " + (chosenRank ?? "…");
+  selectionFeedback.textContent = current.phase === "TURN"
+    ? (!myTurn ? "Volgende zet: minimaal " + current.minimumPlayCount + " kaart(en)." : !enoughCards ? "Je moet minstens " + current.minimumPlayCount + " kaart(en) spelen. " + selected.size + " geselecteerd."
+      : !validClaim ? "Je kunt alleen " + current.allowedClaimRanks.join(", ") + " claimen."
+      : selected.size + " kaarten geselecteerd; je claimt " + chosenRank + ".")
+    : "";
 }
 
 export default { mount, update } satisfies GamePage<BullshitView>;

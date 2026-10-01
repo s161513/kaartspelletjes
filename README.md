@@ -164,15 +164,21 @@ or models; game rules never depend on asset paths. Hidden cards are rendered wit
 ### Rules
 
 One standard deck (52 cards, no jokers), dealt evenly. The starting player is
-random. The required claim cycles **A → 2 → … → K → A**, independent of the
-shared library's ace-high sorting. Choose one or more cards and press **Play
-cards**. Only the number and claimed rank are public.
+random. Each play must contain at least as many cards as the previous set;
+a fresh trick starts with a minimum of one card. Choose the claimed rank from
+the previous claim minus one, the same rank, or plus one, wrapping cyclically
+**A → 2 → … → K → A**. A fresh trick uses A as its anchor (K, A or 2).
+The claim is independent of the selected cards: bluffing is allowed. Only the
+number and claimed rank are public.
 
 Other players have **3 seconds** to call **BULLSHIT!** on that particular play.
 The server checks only the last set. If any card does not match, the player who
 played takes the entire pile; otherwise the challenger takes it. The last set
-is revealed for 2.4 seconds, then the next player takes the turn and the rank
-advances, just as after an unchallenged play. A player who empties their hand
+is revealed for 2.4 seconds, then the next player takes the turn. Clearing the
+pile resets the minimum to one and the rank anchor to A. An unchallenged play
+keeps its chosen claim as the next anchor. If the next player has fewer cards
+than the required minimum, the server automatically calls Bullshit for that
+player and resolves the claim normally. A player who empties their hand
 wins only after the challenge is settled. A caught final bluff does not win.
 
 Timing constants are in `games/bullshit/types.ts`. The four phases are

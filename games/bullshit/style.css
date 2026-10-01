@@ -27,3 +27,12 @@
   .playing-card { width: 60px; height: 88px; }
 }
 @media (prefers-reduced-motion: reduce) { .bs-game *, .playing-card { animation: none !important; transition: none !important; } }
+
+/* Bullshit claim controls only. */
+.bs-claim-choice { display: flex; justify-content: center; align-items: center; gap: 1rem; flex-wrap: wrap; }
+.bs-claim-choice > span, .bs-selection-feedback { font-size: .9rem; color: var(--muted); }
+.bs-claim-options { display: flex; gap: .5rem; }
+.bs-rank { min-width: 48px; }
+.bs-rank.bs-previous-rank { border-bottom: 3px solid var(--accent); }
+.bs-rank[aria-pressed="true"] { background: var(--accent-2); color: #062819; outline: 2px solid #a5efb7; }
+.bs-selection-feedback { min-height: 1.5em; margin: 1rem 0; }

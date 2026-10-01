@@ -1,7 +1,7 @@
 import { RANK_VALUES, type Card, type GameContext, type GamePage } from "@app/shared";
 import { renderCard } from "../_ui/cards.js";
 import { PASS_COUNT, legalPlays } from "./rules.js";
-import type { HeartsState, PassDirection } from "./types.js";
+import type { HeartsState, PassDirection, Play } from "./types.js";
 import html from "./view.html?raw";
 import "./style.css";
 
@@ -15,8 +15,22 @@ let latest: HeartsState | null = null;
 /** Cards picked to pass this round. */
 let selected = new Set<string>();
 let selectedRound = 0;
-/** Trick cards already on screen, so only new ones animate. */
+/** Trick cards already on screen this round, so only newly played ones fly in. */
 let seenTrick = new Set<string>();
+/** Where your clicked card was in your hand, so it flies in from there. */
+let lastPlayedFrom: { id: string; rect: DOMRect } | null = null;
+/** A finished trick stays on show, then sweeps to its winner; the table waits for it. */
+let sweepUntil = 0;
+let sweepWinner: string | null = null;
+let deferredRender: number | undefined;
+let previous: HeartsState | null = null;
+/** Set once the game is over, so the final banner survives a deferred render. */
+let finalWinner: string | "draw" | null = null;
+
+const THROW_MS = 380;
+const SHOW_MS = 1000;
+const SWEEP_MS = 450;
+const reducedMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 const PASS_LABEL: Record<PassDirection, string> = {
   left: "to the left ←",
@@ -56,16 +70,16 @@ const myHand = (state: HeartsState, ctx: GameContext) =>
 function renderSeats(state: HeartsState, ctx: GameContext): void {
   const seats = $(".hearts-seats");
   seats.innerHTML = "";
-  const trickWinner = state.trick.length === 0 ? state.lastTrick?.winner : undefined;
 
   for (const id of state.players) {
     const { x, y } = seatVector(state, id, ctx.playerId);
     const node = el("div", "hearts-seat");
+    node.dataset.playerId = id;
     node.style.setProperty("--x", x.toFixed(4));
     node.style.setProperty("--y", y.toFixed(4));
     node.classList.toggle("is-me", id === ctx.playerId);
     node.classList.toggle("is-turn", state.toPlay === id);
-    node.classList.toggle("is-winner", state.phase === "playing" && trickWinner === id);
+    node.classList.toggle("is-winner", sweepWinner === id);
     node.classList.toggle("is-gone", state.left.includes(id));
 
     const name = ctx.nickname(id);
@@ -96,36 +110,126 @@ function renderSeats(state: HeartsState, ctx: GameContext): void {
   }
 }
 
+const centre = (r: DOMRect) => ({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
+
+function seatRect(id: string): DOMRect | undefined {
+  return root
+    .querySelector(`.hearts-seat[data-player-id="${CSS.escape(id)}"] .hearts-plate`)
+    ?.getBoundingClientRect();
+}
+
+/** A played card, lying in front of the player who played it. */
+function playedSlot(state: HeartsState, play: Play, order: number, ctx: GameContext): HTMLElement {
+  const { x, y } = seatVector(state, play.playerId, ctx.playerId);
+  const slot = el("div", "hearts-played");
+  slot.style.setProperty("--x", x.toFixed(4));
+  slot.style.setProperty("--y", y.toFixed(4));
+  slot.style.setProperty("--tilt", `${((order * 37) % 13) - 6}deg`);
+  slot.style.zIndex = String(order + 1);
+  slot.append(renderCard(play.card));
+  return slot;
+}
+
+/** Fly a newly played card in from its player's seat (or from your hand). */
+function throwIn(slot: HTMLElement, play: Play, state: HeartsState): void {
+  const key = `${state.roundNumber}:${play.card.id}`;
+  if (seenTrick.has(key)) return;
+  seenTrick.add(key);
+  if (reducedMotion()) return;
+
+  const from = lastPlayedFrom?.id === play.card.id ? lastPlayedFrom.rect : seatRect(play.playerId);
+  const card = slot.firstElementChild as HTMLElement;
+  if (!from) return;
+  const a = centre(from);
+  const b = centre(card.getBoundingClientRect());
+  card.animate(
+    [
+      { transform: `translate(${a.x - b.x}px, ${a.y - b.y}px) rotate(-30deg) scale(0.7)`, opacity: 0.5 },
+      { transform: "none", opacity: 1 },
+    ],
+    { duration: THROW_MS, easing: "cubic-bezier(0.2, 0.8, 0.25, 1)" },
+  );
+}
+
 function renderTrick(state: HeartsState, ctx: GameContext): void {
   const area = $(".hearts-trick");
   area.innerHTML = "";
-  const showingLast = state.trick.length === 0 && state.lastTrick && state.phase === "playing";
-  const plays = showingLast ? state.lastTrick!.plays : state.trick;
-
-  plays.forEach((play, order) => {
-    const { x, y } = seatVector(state, play.playerId, ctx.playerId);
-    const key = `${state.roundNumber}-${state.tricksPlayed}-${play.card.id}`;
-    const card = renderCard(play.card, { isNew: !seenTrick.has(key) && !showingLast });
-    seenTrick.add(key);
-    const slot = el("div", "hearts-played");
-    slot.style.setProperty("--x", x.toFixed(4));
-    slot.style.setProperty("--y", y.toFixed(4));
-    slot.style.setProperty("--tilt", `${((order * 37) % 13) - 6}deg`);
-    slot.style.zIndex = String(order + 1);
-    if (showingLast && play.playerId === state.lastTrick!.winner) slot.classList.add("is-winning");
-    slot.append(card);
+  state.trick.forEach((play, order) => {
+    const slot = playedSlot(state, play, order, ctx);
     area.append(slot);
+    throwIn(slot, play, state);
   });
-  area.classList.toggle("is-last", !!showingLast);
-
   $(".hearts-broken").hidden = !(state.heartsBroken && state.phase === "playing");
+}
+
+/** A trick just finished: show it complete for a moment, then sweep it to the winner. */
+function sweepTrick(state: HeartsState, ctx: GameContext): void {
+  const { plays, winner } = state.lastTrick!;
+  const layer = $(".hearts-sweep");
+  $(".hearts-trick").innerHTML = "";
+  layer.innerHTML = "";
+
+  const slots = plays.map((play, order) => {
+    const slot = playedSlot(state, play, order, ctx);
+    layer.append(slot);
+    throwIn(slot, play, state);
+    if (play.playerId === winner) slot.classList.add("is-winning");
+    return slot;
+  });
+
+  const show = reducedMotion() ? 700 : SHOW_MS;
+  sweepWinner = winner;
+  sweepUntil = Date.now() + show + SWEEP_MS;
+
+  window.setTimeout(() => {
+    const target = seatRect(winner);
+    if (!reducedMotion() && target) {
+      const t = centre(target);
+      slots.forEach((slot, i) => {
+        const card = slot.firstElementChild as HTMLElement;
+        const b = centre(card.getBoundingClientRect());
+        card.animate(
+          [
+            { transform: "none", opacity: 1 },
+            { transform: `translate(${t.x - b.x}px, ${t.y - b.y}px) scale(0.35) rotate(${(i - 1) * 20}deg)`, opacity: 0 },
+          ],
+          { duration: SWEEP_MS - 60, delay: i * 20, easing: "cubic-bezier(0.55, 0, 0.75, 0.2)", fill: "forwards" },
+        );
+      });
+    }
+    window.setTimeout(() => (layer.innerHTML = ""), SWEEP_MS);
+  }, show);
+}
+
+/** Trick, banner and seat highlights; waits while a finished trick is being swept away. */
+function renderTable(state: HeartsState, ctx: GameContext): void {
+  window.clearTimeout(deferredRender);
+  const wait = sweepUntil - Date.now();
+  if (wait > 0) {
+    deferredRender = window.setTimeout(() => latest && renderTable(latest, ctx), wait);
+    return;
+  }
+  sweepWinner = null;
+  renderSeats(state, ctx);
+  renderTrick(state, ctx);
+  renderBanner(state, ctx);
 }
 
 function renderBanner(state: HeartsState, ctx: GameContext): void {
   const banner = $(".hearts-banner");
   const round = state.phase === "roundEnd" ? state.history[state.history.length - 1] : null;
-  banner.hidden = !round;
+  banner.hidden = !round && !finalWinner;
   banner.innerHTML = "";
+  if (finalWinner) {
+    const title =
+      finalWinner === "draw"
+        ? "🤝 It's a draw!"
+        : `🏆 ${ctx.nickname(finalWinner)} wins with ${state.scores[finalWinner]} points!`;
+    banner.append(el("div", "hearts-banner-title hearts-final", title));
+    if (state.left.length) {
+      banner.append(el("div", "hearts-moon", `${state.left.map((id) => ctx.nickname(id)).join(", ")} left the game`));
+    }
+  }
   if (!round) return;
 
   banner.append(el("div", "hearts-banner-title", `Round ${round.round}`));
@@ -199,6 +303,8 @@ function onCardClick(card: Card, ctx: GameContext): void {
     renderHand(state, ctx);
     renderActions(state, ctx);
   } else if (state.toPlay === ctx.playerId) {
+    const button = root.querySelector(`.hearts-hand [data-card-id="${CSS.escape(card.id)}"]`);
+    if (button) lastPlayedFrom = { id: card.id, rect: button.getBoundingClientRect() };
     ctx.sendMove({ type: "play", card: card.id });
   }
 }
@@ -258,9 +364,17 @@ function update(state: HeartsState, ctx: GameContext): void {
   const inHand = new Set(myHand(state, ctx).map((c) => c.id));
   for (const id of selected) if (!inHand.has(id)) selected.delete(id);
 
+  const trickJustFinished =
+    previous !== null &&
+    state.lastTrick !== null &&
+    state.roundNumber === previous.roundNumber &&
+    state.tricksPlayed > previous.tricksPlayed;
+  previous = state;
+
+  // Sweep first: it measures the seats still on screen and sets the winner highlight.
+  if (trickJustFinished) sweepTrick(state, ctx);
   renderSeats(state, ctx);
-  renderTrick(state, ctx);
-  renderBanner(state, ctx);
+  renderTable(state, ctx);
   renderHand(state, ctx);
   renderActions(state, ctx);
   renderScores(state, ctx);
@@ -279,18 +393,10 @@ function update(state: HeartsState, ctx: GameContext): void {
 }
 
 function onGameOver(winner: string | "draw", state: HeartsState, ctx: GameContext): void {
+  finalWinner = winner;
   $(".hearts-actions").hidden = true;
   $(".hearts-scores-wrap").setAttribute("open", "");
-  const banner = $(".hearts-banner");
-  banner.hidden = false;
-  const title =
-    winner === "draw"
-      ? "🤝 It's a draw!"
-      : `🏆 ${ctx.nickname(winner)} wins with ${state.scores[winner]} points!`;
-  banner.prepend(el("div", "hearts-banner-title hearts-final", title));
-  if (state.left.length) {
-    banner.append(el("div", "hearts-moon", `${state.left.map((id) => ctx.nickname(id)).join(", ")} left the game`));
-  }
+  renderTable(state, ctx);
 }
 
 export default { mount, update, onGameOver } satisfies GamePage<HeartsState>;

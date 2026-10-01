@@ -114,9 +114,11 @@ body.hearts-wide #error {
 
 /* the trick: each card lies towards the player who played it */
 
-.hearts-trick {
+.hearts-trick,
+.hearts-sweep {
   position: absolute;
   inset: 0;
+  pointer-events: none;
 }
 
 .hearts-played {
@@ -127,15 +129,17 @@ body.hearts-wide #error {
   transition: opacity 0.3s ease, filter 0.3s ease;
 }
 
-.hearts-trick.is-last .hearts-played:not(.is-winning) {
-  opacity: 0.55;
-  filter: saturate(0.6);
+/* the winning card lights up once the last card has landed */
+.hearts-played.is-winning .ui-card {
+  animation: hearts-win 0.25s ease 0.38s both;
 }
 
-.hearts-played.is-winning .ui-card {
-  box-shadow:
-    0 0 0 3px var(--hearts-gold),
-    0 0 22px rgba(245, 196, 81, 0.6);
+@keyframes hearts-win {
+  to {
+    box-shadow:
+      0 0 0 3px var(--hearts-gold),
+      0 0 22px rgba(245, 196, 81, 0.6);
+  }
 }
 
 .hearts-broken {

@@ -1,4 +1,4 @@
-import type { GameContext, GameMeta, GamePage } from "@app/shared";
+import type { GameContext, GameMeta, GamePage, PlayerPublic } from "@app/shared";
 import { GameSocket } from "./ws.js";
 import { session } from "./session.js";
 import { setupChat } from "./chat.js";
@@ -37,8 +37,13 @@ export function setupGamePage<State>(
     document.getElementById("chatInput") as HTMLInputElement,
   );
 
-  // Latest player list from roomState (sent before gameStarted on every join).
+  // Player names, from `joined` (the first reply on every (re)connect, before
+  // any game state) and kept current by `roomState`.
   const nicknames = new Map<string, string>();
+  const rememberPlayers = (players: PlayerPublic[]) => {
+    for (const p of players) nicknames.set(p.id, p.nickname);
+    ctx.players = players;
+  };
 
   const ctx: GameContext = {
     container: containerEl,
@@ -109,9 +114,10 @@ export function setupGamePage<State>(
 
   // Landed here with no active game (e.g. direct nav / game already ended) and
   // nothing rendered yet → go back to the lobby.
+  socket.on("joined", (msg) => rememberPlayers(msg.players));
+
   socket.on("roomState", (msg) => {
-    for (const p of msg.players) nicknames.set(p.id, p.nickname);
-    ctx.players = msg.players;
+    rememberPlayers(msg.players);
     page.onRoomState?.(ctx);
     if (msg.currentGameId === null && !gameOver && !mounted) {
       location.href = "/lobby.html";

@@ -34,8 +34,7 @@ const htmlTemplate = `
     <div class="flex-grow flex flex-col gap-4 items-center">
         <div id="cup-container" class="relative group cursor-pointer w-32 h-40">
             <div id="cup" class="w-full h-full bg-gradient-to-b from-red-600 to-red-800 rounded-t-lg rounded-b-3xl border-4 border-red-900 shadow-2xl relative transition-transform duration-500 origin-bottom"></div>
-            <div id="secret-roll" class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-5xl font-black text-white drop-shadow-md opacity-0 transition-opacity duration-300 pointer-events-none">??</div>
-            <p class="text-center text-xs text-slate-400 mt-2 opacity-0 group-hover:opacity-100">Hold to peek</p>
+            <div id="secret-roll" class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-5xl font-black text-white drop-shadow-md transition-opacity duration-300 pointer-events-none">??</div>
         </div>
 
         <div class="mt-4 text-center">
@@ -123,21 +122,6 @@ const page: GamePage<LiegenState> = {
             document.getElementById("actions")!.classList.remove("hidden");
         };
 
-        const cupContainer = document.getElementById("cup-container")!;
-        const peek = () => {
-            if (currentSecret === null) return;
-            document.getElementById("cup")!.style.transform = 'translateY(-40px) rotate(15deg)';
-            document.getElementById("secret-roll")!.style.opacity = '1';
-        };
-        const unpeek = () => {
-            document.getElementById("cup")!.style.transform = 'translateY(0) rotate(0)';
-            document.getElementById("secret-roll")!.style.opacity = '0';
-        };
-
-        cupContainer.addEventListener("mousedown", peek);
-        cupContainer.addEventListener("touchstart", peek);
-        document.addEventListener("mouseup", unpeek);
-        document.addEventListener("touchend", unpeek);
     },
 
     update(state, ctx) {
@@ -207,9 +191,11 @@ const page: GamePage<LiegenState> = {
         if (state.secretRoll) {
             currentSecret = state.secretRoll;
             document.getElementById("secret-roll")!.innerText = String(state.secretRoll);
+            document.getElementById("cup")!.style.transform = 'translateY(-40px) rotate(15deg)';
         } else {
             currentSecret = null;
             document.getElementById("secret-roll")!.innerText = "??";
+            document.getElementById("cup")!.style.transform = 'translateY(0) rotate(0)';
         }
 
         const currentRank = state.currentClaim ? getRank(state.currentClaim) : -1;

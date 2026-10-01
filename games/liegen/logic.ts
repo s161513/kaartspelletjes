@@ -118,9 +118,7 @@ const logic: Game<LiegenState, LiegenMove> = {
                 addLog(`A player was eliminated!`);
             }
             
-            next.currentClaim = null;
-            next.secretRoll = null;
-            next.gameState = "WAITING_FOR_FIRST_SHAKE";
+            next.gameState = "SHOWING_REVEAL";
             
             if (loser.status !== "eliminated") {
                 next.turn = loser.id;
@@ -142,6 +140,25 @@ const logic: Game<LiegenState, LiegenMove> = {
         
         return next;
     },
+
+    nextUpdateIn(state) {
+        if (state.gameState === "SHOWING_REVEAL") return 5000;
+        return null;
+    },
+
+    advance(state) {
+        if (state.gameState === "SHOWING_REVEAL") {
+            const next = { ...state, players: { ...state.players }, playerOrder: [...state.playerOrder], logs: [...state.logs] };
+            next.currentClaim = null;
+            next.secretRoll = null;
+            
+            if (state.turn !== null) {
+                next.gameState = "WAITING_FOR_FIRST_SHAKE";
+            }
+            return next;
+        }
+        return state;
+    },
     
     result(state) {
         const active = state.playerOrder.filter(id => state.players[id].status === "active");
@@ -155,7 +172,9 @@ const logic: Game<LiegenState, LiegenMove> = {
     
     playerView(state, playerId) {
         const next = { ...state };
-        if (state.turn !== playerId || state.gameState !== "WAITING_FOR_CLAIM") {
+        if (state.gameState === "SHOWING_REVEAL") {
+            // Keep it visible for everyone
+        } else if (state.turn !== playerId || state.gameState !== "WAITING_FOR_CLAIM") {
             next.secretRoll = null;
         }
         return next;

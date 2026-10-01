@@ -10,7 +10,7 @@ export interface LiegenState {
   playerOrder: string[];
   currentClaim: number | null;
   lastClaimPlayerId: string | null;
-  gameState: "WAITING_FOR_FIRST_SHAKE" | "WAITING_FOR_ACTION" | "WAITING_FOR_CLAIM";
+  gameState: "WAITING_FOR_FIRST_SHAKE" | "WAITING_FOR_ACTION" | "WAITING_FOR_CLAIM" | "SHOWING_REVEAL";
   logs: string[];
   
   // This value is populated globally but will be filtered by playerView

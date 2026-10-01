@@ -1,7 +1,7 @@
-import type { TicTacToeState } from "@app/shared";
-import { setupGamePage, type GameContext } from "../gameHost.js";
+import type { GameContext, GamePage } from "@app/shared";
+import type { TicTacToeState } from "./types.js";
 
-// Tic-tac-toe renderer. The host (gameHost.ts) owns the socket, chat, status
+// Tic-tac-toe renderer. The host (client/src/gameHost.ts) owns the socket, chat, status
 // line, back button and navigation; this file only draws the board and turns
 // clicks into moves.
 
@@ -47,9 +47,4 @@ function onGameOver(_winner: string | "draw", _state: TicTacToeState, _ctx: Game
   for (const cell of cells) cell.disabled = true;
 }
 
-setupGamePage<TicTacToeState>({
-  gameId: "tictactoe",
-  mount,
-  update,
-  onGameOver,
-});
+export default { mount, update, onGameOver } satisfies GamePage<TicTacToeState>;

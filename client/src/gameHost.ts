@@ -1,44 +1,19 @@
-import type { GameId, GameState } from "@app/shared";
-import { GAMES } from "@app/shared";
+import type { GameContext, GameMeta, GamePage } from "@app/shared";
 import { GameSocket } from "./ws.js";
 import { session } from "./session.js";
 import { setupChat } from "./chat.js";
 
 /**
- * What a game page receives to render itself. The host owns the socket, chat,
- * status line and navigation; the game only draws its board and sends moves.
- */
-export interface GameContext {
-  /** Element the game renders its board into. */
-  container: HTMLElement;
-  /** This client's player id. */
-  playerId: string;
-  /** Send a validated-server-side move payload. */
-  sendMove(move: unknown): void;
-  /** Set the status line text (turn indicator, etc.). */
-  setStatus(text: string): void;
-}
-
-export interface GamePage<State extends GameState = GameState> {
-  gameId: GameId;
-  /** Build the board DOM once. Called before the first `update`. */
-  mount(ctx: GameContext): void;
-  /** Render a fresh state. */
-  update(state: State, ctx: GameContext): void;
-  /** Optional hook when the game ends (e.g. freeze the board). */
-  onGameOver?(winner: string | "draw", state: State, ctx: GameContext): void;
-}
-
-/**
  * Wire up a per-game page: shared chrome (socket, chat, status, back, error,
- * reconnect-to-lobby) + delegation to the game's renderer. Each game page file
- * is just `setupGamePage(<its GamePage>)`.
+ * reconnect-to-lobby) + delegation to the game's renderer (games/<id>/view.ts).
+ * Called by client/src/game.ts with the view and meta of the game in the URL.
  *
  * Expected DOM ids: #status, #gameRoot, #back, #error, #chatLog, #chatForm,
  * #chatInput, and optionally #gameTitle.
  */
-export function setupGamePage<State extends GameState>(
+export function setupGamePage<State>(
   page: GamePage<State>,
+  meta: GameMeta,
 ): void {
   // Guard: must have a seat to be here.
   if (!session.roomCode || !session.playerId) {
@@ -51,7 +26,8 @@ export function setupGamePage<State extends GameState>(
   const backBtn = document.getElementById("back") as HTMLButtonElement;
   const errEl = document.getElementById("error") as HTMLParagraphElement;
   const titleEl = document.getElementById("gameTitle");
-  if (titleEl) titleEl.textContent = GAMES[page.gameId].title;
+  if (titleEl) titleEl.textContent = meta.title;
+  document.title = `${meta.title} · Classroom Games`;
 
   const socket = new GameSocket();
   setupChat(

@@ -1,9 +1,8 @@
 import { randomUUID } from "node:crypto";
 import type { WebSocket } from "ws";
 import type { ClientMessage, ServerMessage } from "@app/shared";
-import { GAMES } from "@app/shared";
 import { RoomManager, type Player, type Room } from "./rooms.js";
-import { games } from "./games/types.js";
+import { games } from "./games/loader.js";
 
 /** Per-connection state: which room/player this socket is bound to. */
 interface Conn {
@@ -108,7 +107,7 @@ function handle(conn: Conn, manager: RoomManager, msg: ClientMessage): void {
       if (room.runtime) {
         send(ws, {
           type: "gameStarted",
-          gameId: room.runtime.game.id,
+          gameId: room.runtime.gameId,
           state: room.runtime.state,
         });
       }
@@ -137,9 +136,9 @@ function handle(conn: Conn, manager: RoomManager, msg: ClientMessage): void {
         return err(ws, "not_host", "Only the host can start the game");
       if (room.runtime) return err(ws, "already", "A game is already running");
 
-      const meta = GAMES[msg.gameId];
-      const game = games[msg.gameId];
-      if (!meta || !game) return err(ws, "no_game", "Unknown game");
+      const entry = games.get(msg.gameId);
+      if (!entry) return err(ws, "no_game", "Unknown game");
+      const { meta, logic: game } = entry;
 
       const seated = [...room.players.values()].filter((p) => p.connected);
       if (seated.length < meta.minPlayers)
@@ -148,11 +147,11 @@ function handle(conn: Conn, manager: RoomManager, msg: ClientMessage): void {
         return err(ws, "too_many", `At most ${meta.maxPlayers} players`);
 
       const playerIds = seated.map((p) => p.id);
-      room.runtime = { game, state: game.init(playerIds) };
+      room.runtime = { gameId: meta.id, game, state: game.init(playerIds) };
 
       manager.broadcast(room, {
         type: "gameStarted",
-        gameId: game.id,
+        gameId: meta.id,
         state: room.runtime.state,
       });
       sendRoomState(manager, room);

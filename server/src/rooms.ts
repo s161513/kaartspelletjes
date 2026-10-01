@@ -1,11 +1,11 @@
 import type { WebSocket } from "ws";
 import type {
+  Game,
   GameId,
   GameState,
   PlayerPublic,
   ServerMessage,
 } from "@app/shared";
-import type { Game } from "./games/types.js";
 
 export interface Player {
   id: string;
@@ -15,6 +15,7 @@ export interface Player {
 }
 
 export interface GameRuntime {
+  gameId: GameId;
   game: Game;
   state: GameState;
 }
@@ -127,7 +128,7 @@ export class RoomManager {
   }
 
   currentGameId(room: Room): GameId | null {
-    return room.runtime ? room.runtime.game.id : null;
+    return room.runtime ? room.runtime.gameId : null;
   }
 
   broadcast(room: Room, msg: ServerMessage): void {

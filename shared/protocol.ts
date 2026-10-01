@@ -4,7 +4,11 @@
 // Re-export the card library so consumers can `import { deal, type Card } from "@app/shared"`.
 export * from "./cards.js";
 
-export type GameId = "tictactoe";
+// Re-export the game contract (Game, GamePage, ...) implemented in games/<id>/.
+export * from "./game.js";
+
+/** A game's id — equal to its folder name under games/. */
+export type GameId = string;
 
 /** A player as visible to everyone in a room (no socket, no secrets). */
 export interface PlayerPublic {
@@ -13,52 +17,21 @@ export interface PlayerPublic {
   connected: boolean;
 }
 
-// ---------------------------------------------------------------------------
-// Game catalog — single source of truth for display + constraints + routing.
-// Both the server (player-count checks) and the client (lobby picker, routing)
-// read from here. Adding a game = one entry here + a server logic file + a
-// client renderer/page.
-// ---------------------------------------------------------------------------
-
+/**
+ * Game metadata — default export of games/<id>/meta.ts. Read by the server
+ * (player-count checks) and the client (lobby picker, page title).
+ */
 export interface GameMeta {
+  /** Must equal the game's folder name. */
   id: GameId;
   title: string;
   minPlayers: number;
   maxPlayers: number;
-  /** Client page to navigate to when this game starts. */
-  page: string;
   description?: string;
 }
 
-export const GAMES: Record<GameId, GameMeta> = {
-  tictactoe: {
-    id: "tictactoe",
-    title: "Tic-tac-toe",
-    minPlayers: 2,
-    maxPlayers: 2,
-    page: "/tictactoe.html",
-    description: "Classic 3×3. Two players take turns; first to a line wins.",
-  },
-};
-
-export const GAME_LIST: GameMeta[] = Object.values(GAMES);
-
-// ---------------------------------------------------------------------------
-// Game state shapes (sent whole on every update; the client is a pure renderer)
-// ---------------------------------------------------------------------------
-
-export type Cell = "X" | "O" | null;
-
-export interface TicTacToeState {
-  board: Cell[]; // length 9, index 0..8 (row-major)
-  /** playerId whose turn it is, or null when the game is over. */
-  turn: string | null;
-  /** playerId -> mark */
-  marks: Record<string, "X" | "O">;
-}
-
-/** Discriminated union of all game states. Extend as games are added. */
-export type GameState = TicTacToeState;
+/** Game state as sent over the wire; each game defines its own type in games/<id>/types.ts. */
+export type GameState = unknown;
 
 // ---------------------------------------------------------------------------
 // Client -> Server
@@ -166,11 +139,3 @@ export type ServerMessage =
   | GameStateMsg
   | GameOverMsg
   | ErrorMsg;
-
-// ---------------------------------------------------------------------------
-// TicTacToe move payload
-// ---------------------------------------------------------------------------
-
-export interface TicTacToeMove {
-  cell: number; // 0..8
-}

@@ -1,8 +1,8 @@
 import type { PlayerPublic, GameMeta } from "@app/shared";
-import { GAMES, GAME_LIST } from "@app/shared";
 import { GameSocket } from "./ws.js";
 import { session } from "./session.js";
 import { setupChat } from "./chat.js";
+import { GAME_LIST } from "./catalog.js";
 
 // Guard: must have a seat to be here.
 if (!session.roomCode || !session.playerId) {
@@ -101,7 +101,7 @@ socket.on("roomState", (msg) => {
 
 // When a game begins (started by anyone, incl. us) go to that game's page.
 socket.on("gameStarted", (msg) => {
-  location.href = GAMES[msg.gameId].page;
+  location.href = `/game.html?game=${encodeURIComponent(msg.gameId)}`;
 });
 
 socket.on("error", (msg) => {

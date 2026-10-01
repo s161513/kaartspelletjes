@@ -5,6 +5,7 @@ import express from "express";
 import { WebSocketServer } from "ws";
 import { RoomManager } from "./rooms.js";
 import { attachConnection } from "./handlers.js";
+import { loadGames } from "./games/loader.js";
 
 const PORT = Number(process.env.PORT ?? 3000);
 
@@ -28,6 +29,8 @@ app.use(express.static(clientDist));
 app.get("*", (_req, res) => {
   res.sendFile(path.join(clientDist, "index.html"));
 });
+
+await loadGames();
 
 httpServer.listen(PORT, () => {
   console.log(`Server listening on http://localhost:${PORT} (ws at /ws)`);

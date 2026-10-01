@@ -1,0 +1,15 @@
+{
+  // Compiles only what the server loads (meta + logic). view.ts is bundled by Vite.
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "outDir": "./dist",
+    "rootDir": ".",
+    "strict": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true
+  },
+  "include": ["*/meta.ts", "*/logic.ts", "*/types.ts"],
+  "exclude": ["dist", "node_modules"]
+}

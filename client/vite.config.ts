@@ -20,8 +20,8 @@ export default defineConfig({
       input: {
         index: resolve(__dirname, "index.html"),
         lobby: resolve(__dirname, "lobby.html"),
-        // One entry per game page. Add a game's <id>.html here when you add it.
-        tictactoe: resolve(__dirname, "tictactoe.html"),
+        // One page for all games; the game comes from ?game=<id>.
+        game: resolve(__dirname, "game.html"),
       },
     },
   },

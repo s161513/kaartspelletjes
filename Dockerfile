@@ -8,11 +8,12 @@ WORKDIR /app
 # this layer is cached unless dependencies change.
 COPY package.json package-lock.json ./
 COPY shared/package.json ./shared/
+COPY games/package.json ./games/
 COPY server/package.json ./server/
 COPY client/package.json ./client/
 RUN npm ci
 
-# Build: emits shared/dist, client/dist, server/dist.
+# Build: emits shared/dist, games/dist, client/dist, server/dist.
 COPY . .
 RUN npm run build
 
@@ -25,14 +26,17 @@ ENV PORT=3000
 # Production-only deps (express, ws) + the @app/shared workspace symlink.
 COPY package.json package-lock.json ./
 COPY shared/package.json ./shared/
+COPY games/package.json ./games/
 COPY server/package.json ./server/
 COPY client/package.json ./client/
 RUN npm ci --omit=dev
 
 # Built artifacts. Keep server/dist and client/dist as siblings under /app so the
 # server's static path (../../client/dist from server/dist/index.js) resolves,
-# and ship shared/dist so the @app/shared symlink points at real JS.
+# ship shared/dist so the @app/shared symlink points at real JS, and games/dist
+# which the server scans for game logic at startup.
 COPY --from=build /app/shared/dist ./shared/dist
+COPY --from=build /app/games/dist ./games/dist
 COPY --from=build /app/server/dist ./server/dist
 COPY --from=build /app/client/dist ./client/dist
 

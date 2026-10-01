@@ -1,5 +1,5 @@
-import type { TicTacToeState, TicTacToeMove } from "@app/shared";
-import type { Game } from "./types.js";
+import type { Game } from "@app/shared";
+import type { TicTacToeState, TicTacToeMove } from "./types.js";
 
 const LINES = [
   [0, 1, 2],
@@ -25,9 +25,7 @@ function winningPlayer(state: TicTacToeState): string | null {
   return null;
 }
 
-export const ticTacToe: Game<TicTacToeState, TicTacToeMove> = {
-  id: "tictactoe",
-
+const ticTacToe: Game<TicTacToeState, TicTacToeMove> = {
   init(playerIds) {
     // First player is X and moves first.
     const [p1, p2] = playerIds;
@@ -87,3 +85,5 @@ export const ticTacToe: Game<TicTacToeState, TicTacToeMove> = {
     return { over: false };
   },
 };
+
+export default ticTacToe;

@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createDeck, shuffle, deal } from "@app/shared";
-import { createGame, validateMove, applyMove, tick, getViewForPlayer } from "../games/bullshit/logic.ts";
+import { createGame, validateMove, applyMove, advance, playerView } from "../games/bullshit/logic.ts";
 import { BULLSHIT_WINDOW_MS, REVEAL_MS, CLAIM_RANKS, type BullshitState, type BullshitMove } from "../games/bullshit/types.ts";
 import { getAllowedClaimRanks, getMinimumPlayCount } from "../games/bullshit/rules.ts";
 import ticTacToe from "../games/tictactoe/logic.ts";
@@ -9,11 +9,11 @@ import ticTacToe from "../games/tictactoe/logic.ts";
 const ids = ["alice", "bob", "charlie"];
 const setup = () => createGame(ids, () => 0);
 const play = (s: BullshitState, cardIds = [s.hands[s.players[s.turnIndex]][0].id]): BullshitMove => ({
-  type: "playCards", cardIds, claimedRank: getViewForPlayer(s, s.players[s.turnIndex]).claimedRank, playVersion: s.version, roundId: s.roundId,
+  type: "playCards", cardIds, claimedRank: playerView(s, s.players[s.turnIndex]).claimedRank, playVersion: s.version, roundId: s.roundId,
 });
 const call = (s: BullshitState): BullshitMove => ({ type: "challenge", playId: s.lastPlay!.id, roundId: s.roundId });
 function checkPrivacy(s: BullshitState, id: string) {
-  const view = getViewForPlayer(s, id, 100);
+  const view = playerView(s, id, 100);
   assert.deepEqual(view.myHand, s.hands[id]);
   assert.ok(!("hands" in view));
   assert.ok(!("pile" in view));
@@ -51,7 +51,7 @@ test("player limits and unique seats", () => {
 });
 test("random start uses RNG; Bullshit starts at ace independently of shared ace-high ranks", () => {
   assert.equal(createGame(ids, () => .99).turnIndex, 2);
-  assert.equal(getViewForPlayer(setup(), "alice").claimedRank, "A");
+  assert.equal(playerView(setup(), "alice").claimedRank, "A");
 });
 test("valid multi-card selection, immutable action, and cards conserved", () => {
   const s = setup(); const before = structuredClone(s); const move = play(s, s.hands.alice.slice(0, 3).map(c => c.id));
@@ -78,10 +78,10 @@ test("reject rank/pile/secret-state injection, unknown actions and old rounds", 
 test("turn advances once after deadline; the last claim remains the next anchor", () => {
   const s = setup(); s.rankIndex = 12;
   const next = applyMove(s, "alice", play(s), 10);
-  assert.equal(tick(next, 10 + BULLSHIT_WINDOW_MS - 1), next);
-  const advanced = tick(next, 10 + BULLSHIT_WINDOW_MS);
+  assert.equal(advance(next, 10 + BULLSHIT_WINDOW_MS - 1), next);
+  const advanced = advance(next, 10 + BULLSHIT_WINDOW_MS);
   assert.equal(advanced.turnIndex, 1); assert.equal(advanced.rankIndex, 12);
-  assert.equal(tick(advanced, 99999), advanced);
+  assert.equal(advance(advanced, 99999), advanced);
   assert.equal(validateMove(next, "alice", play(next), 11).ok, false);
 });
 for (const lied of [false,true]) test(lied ? "bluff: player picks up whole pile" : "truth: challenger picks up whole pile", () => {
@@ -95,7 +95,7 @@ for (const lied of [false,true]) test(lied ? "bluff: player picks up whole pile"
   assert.deepEqual(s.reveal!.cards.map(c => c.id), [card.id]); assert.equal(s.reveal!.pileCount, 2);
   assert.equal(Object.values(s.hands).flat().length, 52);
   for (const id of ids) checkPrivacy(s, id);
-  const advanced = tick(s, 1 + REVEAL_MS); assert.equal(advanced.turnIndex, 1); assert.equal(advanced.rankIndex, 0);
+  const advanced = advance(s, 1 + REVEAL_MS); assert.equal(advanced.turnIndex, 1); assert.equal(advanced.rankIndex, 0);
 });
 test("mixed rank set is a lie, even if some cards match", () => {
   let s=setup();const cards=[s.hands.alice.find(c=>c.rank==="A")!,s.hands.alice.find(c=>c.rank!=="A")!];
@@ -117,20 +117,20 @@ test("first challenge wins; second does not mutate state or pick up pile again",
 for(const mode of ["no challenge","truth","lie"]) test("last card: "+mode,()=>{
   let s=setup();s.hands.alice=[createDeck().find(c=>c.rank===(mode==="lie"?"K":"A"))!];
   s=applyMove(s,"alice",play(s),0);assert.equal(s.winner,null);
-  if(mode==="no challenge")s=tick(s,BULLSHIT_WINDOW_MS);
-  else {s=applyMove(s,"bob",call(s),1);s=tick(s,1+REVEAL_MS);}
+  if(mode==="no challenge")s=advance(s,BULLSHIT_WINDOW_MS);
+  else {s=applyMove(s,"bob",call(s),1);s=advance(s,1+REVEAL_MS);}
   assert.equal(s.winner,mode==="lie"?null:"alice");
   if(s.winner) assert.equal(validateMove(s,"bob",call(s),99999).ok,false);
 });
 test("private wire projections hide other hands and hidden pile in every phase",()=>{
   let s=setup();for(const id of ids)checkPrivacy(s,id);
   s=applyMove(s,"alice",play(s),0);for(const id of ids)checkPrivacy(s,id);
-  s=tick(s,BULLSHIT_WINDOW_MS);for(const id of ids)checkPrivacy(s,id);
-  const outsider=getViewForPlayer(s,"outside");assert.deepEqual(outsider.myHand,[]);
+  s=advance(s,BULLSHIT_WINDOW_MS);for(const id of ids)checkPrivacy(s,id);
+  const outsider=playerView(s,"outside");assert.deepEqual(outsider.myHand,[]);
 });
 test("full round, correct winner, fresh rematch deck and new round ID",()=>{
   let s=setup();let now=0;
-  while(s.phase!=="GAME_OVER"){const actor=s.players[s.turnIndex];s=applyMove(s,actor,play(s),now);now+=BULLSHIT_WINDOW_MS;s=tick(s,now);}
+  while(s.phase!=="GAME_OVER"){const actor=s.players[s.turnIndex];s=applyMove(s,actor,play(s),now);now+=BULLSHIT_WINDOW_MS;s=advance(s,now);}
   assert.equal(s.hands[s.winner!].length,0);
   const fresh=createGame(s.players);assert.notEqual(fresh.roundId,s.roundId);assert.equal(fresh.phase,"TURN");assert.equal(Object.values(fresh.hands).flat().length,52);
 });
@@ -147,9 +147,9 @@ for (const [previousCount, choices] of [[2, [1, 2, 3]], [3, [2, 3, 4]]] as const
   test("minimum follows previous " + previousCount + "-card play and rejects smaller selections", () => {
     let s = setup();
     s = applyMove(s, "alice", play(s, s.hands.alice.slice(0, previousCount).map(c => c.id)), 0);
-    s = tick(s, BULLSHIT_WINDOW_MS);
+    s = advance(s, BULLSHIT_WINDOW_MS);
     assert.equal(getMinimumPlayCount(s), previousCount);
-    assert.equal(getViewForPlayer(s, "bob").minimumPlayCount, previousCount);
+    assert.equal(playerView(s, "bob").minimumPlayCount, previousCount);
     for (const count of choices) {
       const move = play(s, s.hands.bob.slice(0, count).map(c => c.id));
       const validated = validateMove(s, "bob", move, BULLSHIT_WINDOW_MS);
@@ -171,8 +171,8 @@ for (const [previousCount, choices] of [[2, [1, 2, 3]], [3, [2, 3, 4]]] as const
 test("previous claim 7 permits 6, 7, 8 and rejects 5, 9, missing or invalid claims", () => {
   let s = setup(); s.rankIndex = CLAIM_RANKS.indexOf("7");
   s = applyMove(s, "alice", { ...play(s), claimedRank: "7" }, 0);
-  s = tick(s, BULLSHIT_WINDOW_MS);
-  assert.deepEqual(getViewForPlayer(s, "bob").allowedClaimRanks, ["6", "7", "8"]);
+  s = advance(s, BULLSHIT_WINDOW_MS);
+  assert.deepEqual(playerView(s, "bob").allowedClaimRanks, ["6", "7", "8"]);
   for (const rank of ["6", "7", "8", "5", "9", "bogus", null, 7, undefined]) {
     const move = { ...play(s), claimedRank: rank };
     assert.equal(validateMove(s, "bob", move, 3000).ok, ["6", "7", "8"].includes(rank as string));
@@ -195,10 +195,10 @@ test("chosen rank determines truth and next choices; hand ranks never constrain 
   let s = setup(); s.rankIndex = CLAIM_RANKS.indexOf("7");
   const card = s.hands.alice.find(c => c.rank === "6")!;
   s = applyMove(s, "alice", { ...play(s, [card.id]), claimedRank: "6" }, 0);
-  assert.equal(s.lastPlay!.rank, "6"); assert.equal(getViewForPlayer(s, "alice").claimedRank, "6");
+  assert.equal(s.lastPlay!.rank, "6"); assert.equal(playerView(s, "alice").claimedRank, "6");
   const truth = applyMove(s, "bob", call(s), 1); assert.equal(truth.reveal!.lied, false);
-  const unchallenged = tick(s, BULLSHIT_WINDOW_MS);
-  assert.deepEqual(getViewForPlayer(unchallenged, "bob").allowedClaimRanks, ["5", "6", "7"]);
+  const unchallenged = advance(s, BULLSHIT_WINDOW_MS);
+  assert.deepEqual(playerView(unchallenged, "bob").allowedClaimRanks, ["5", "6", "7"]);
   let bluff = setup(); bluff.rankIndex = CLAIM_RANKS.indexOf("7");
   bluff = applyMove(bluff, "alice", { ...play(bluff, [card.id]), claimedRank: "8" }, 0);
   assert.equal(applyMove(bluff, "bob", call(bluff), 1).reveal!.lied, true);
@@ -208,12 +208,12 @@ test("new rounds and cleared tricks reset minimum and rank anchor; old reveal do
   let s = setup(); s.rankIndex = CLAIM_RANKS.indexOf("7");
   s = applyMove(s, "alice", { ...play(s, s.hands.alice.slice(0, 3).map(c => c.id)), claimedRank: "7" }, 0);
   s = applyMove(s, "bob", call(s), 1);
-  s = tick(s, 1 + REVEAL_MS);
+  s = advance(s, 1 + REVEAL_MS);
   assert.equal(s.phase, "TURN"); assert.equal(s.lastPlay!.rank, "7"); assert.ok(s.reveal);
-  const v = getViewForPlayer(s, "bob");
+  const v = playerView(s, "bob");
   assert.equal(v.minimumPlayCount, 1); assert.deepEqual(v.allowedClaimRanks, ["K", "A", "2"]);
   assert.equal(validateMove(s, "bob", { ...play(s), claimedRank: "A" }, 2500).ok, true);
-  const fresh = getViewForPlayer(setup(), "alice");
+  const fresh = playerView(setup(), "alice");
   assert.equal(fresh.minimumPlayCount, 1); assert.deepEqual(fresh.allowedClaimRanks, ["K", "A", "2"]);
 });
 
@@ -233,7 +233,7 @@ for (const lied of [false, true]) test("insufficient next hand forces one automa
   const resolved = structuredClone(s);
   assert.equal(validateMove(s, "charlie", call(s), 101).ok, false);
   assert.throws(() => applyMove(s, "charlie", call(s), 101)); assert.deepEqual(s, resolved);
-  s = tick(s, 100 + REVEAL_MS);
+  s = advance(s, 100 + REVEAL_MS);
   assert.equal(s.phase, "TURN"); assert.equal(getMinimumPlayCount(s), 1);
   for (const id of ids) checkPrivacy(s, id);
 });
@@ -245,7 +245,7 @@ for (const lied of [false, true]) test("final set with forced challenge " + (lie
   s.hands = { alice: cards, bob: rest.slice(0, 2), charlie: rest.slice(2) };
   s = applyMove(s, "alice", { ...play(s, cards.map(c => c.id)), claimedRank: "A" }, 0);
   assert.equal(s.phase, "RESOLVING_CHALLENGE"); assert.equal(s.winner, null);
-  s = tick(s, REVEAL_MS); assert.equal(s.winner, lied ? null : "alice");
+  s = advance(s, REVEAL_MS); assert.equal(s.winner, lied ? null : "alice");
 });
 
 test("matching the minimum exactly does not auto-challenge", () => {

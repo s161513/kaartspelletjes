@@ -9,7 +9,7 @@ import { setupChat } from "./chat.js";
  * Called by client/src/game.ts with the view and meta of the game in the URL.
  *
  * Expected DOM ids: #status, #gameRoot, #back, #error, #chatLog, #chatForm,
- * #chatInput, and optionally #gameTitle.
+ * #chatInput, and optionally #gameTitle and #leaveGame.
  */
 export function setupGamePage<State>(
   page: GamePage<State>,
@@ -37,10 +37,19 @@ export function setupGamePage<State>(
     document.getElementById("chatInput") as HTMLInputElement,
   );
 
+  // Latest player list from roomState (sent before gameStarted on every join).
+  const nicknames = new Map<string, string>();
+
   const ctx: GameContext = {
     container: containerEl,
     playerId: session.playerId,
-    sendMove: (move) => socket.send({ type: "move", move }),
+    nickname: (id) => nicknames.get(id) ?? "Player",
+    players: [],
+    get connected() { return socket.connected; },
+    // Drop moves while offline instead of queueing stale, time-sensitive input.
+    sendMove: (move) => {
+      if (socket.connected) socket.send({ type: "move", move });
+    },
     setStatus: (text) => {
       statusEl.textContent = text;
     },
@@ -48,9 +57,6 @@ export function setupGamePage<State>(
 
   let mounted = false;
   let gameOver = false;
-  let lastState: State | undefined;
-  const update = (state: State) => { lastState = state; page.update(state, ctx); };
-  socket.on("joined", msg => { ctx.players = msg.players; });
 
   const ensureMounted = () => {
     if (!mounted) {
@@ -68,12 +74,13 @@ export function setupGamePage<State>(
     backBtn.style.display = "none";
     errEl.textContent = "";
     ensureMounted();
-    update(msg.state as State);
+    page.update(msg.state as State, ctx);
   });
 
   socket.on("gameState", (msg) => {
+    errEl.textContent = "";
     ensureMounted();
-    update(msg.state as State);
+    page.update(msg.state as State, ctx);
   });
 
   socket.on("gameOver", (msg) => {
@@ -83,7 +90,7 @@ export function setupGamePage<State>(
     }
     gameOver = true;
     ensureMounted();
-    update(msg.state as State);
+    page.update(msg.state as State, ctx);
     page.onGameOver?.(msg.winner, msg.state as State, ctx);
     if (msg.winner === "draw") {
       ctx.setStatus("It's a draw! 🤝");
@@ -97,13 +104,15 @@ export function setupGamePage<State>(
 
   socket.on("error", (msg) => {
     errEl.textContent = msg.message;
+    page.onError?.(msg.message, ctx);
   });
 
   // Landed here with no active game (e.g. direct nav / game already ended) and
   // nothing rendered yet → go back to the lobby.
   socket.on("roomState", (msg) => {
+    for (const p of msg.players) nicknames.set(p.id, p.nickname);
     ctx.players = msg.players;
-    if (mounted && lastState !== undefined) page.update(lastState, ctx);
+    page.onRoomState?.(ctx);
     if (msg.currentGameId === null && !gameOver && !mounted) {
       location.href = "/lobby.html";
     }
@@ -111,5 +120,13 @@ export function setupGamePage<State>(
 
   backBtn.addEventListener("click", () => {
     location.href = "/lobby.html";
+  });
+
+  document.getElementById("leaveGame")?.addEventListener("click", () => {
+    if (mounted && !gameOver && !confirm("Leave the game? You can't rejoin it.")) return;
+    socket.send({ type: "leave" });
+    session.clearRoom();
+    socket.close();
+    location.href = "/";
   });
 }

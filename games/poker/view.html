@@ -1,0 +1,44 @@
+<div class="poker">
+  <div class="poker-table">
+    <div class="poker-rail">
+      <div class="poker-felt">
+        <div class="poker-center">
+          <div class="poker-pot">
+            <span class="poker-chip poker-chip-gold"></span>
+            <span class="poker-pot-amount"></span>
+          </div>
+          <div class="poker-board"></div>
+          <div class="poker-banner" hidden></div>
+        </div>
+      </div>
+    </div>
+    <div class="poker-seats"></div>
+  </div>
+
+  <div class="poker-actions">
+    <div class="poker-buttons">
+      <button type="button" class="poker-btn poker-btn-fold">Fold</button>
+      <button type="button" class="poker-btn poker-btn-call">Check</button>
+      <button type="button" class="poker-btn poker-btn-raise">Raise</button>
+    </div>
+    <div class="poker-raise">
+      <div class="poker-presets">
+        <button type="button" data-preset="min">Min</button>
+        <button type="button" data-preset="half">½ pot</button>
+        <button type="button" data-preset="pot">Pot</button>
+        <button type="button" data-preset="allin">All-in</button>
+      </div>
+      <div class="poker-stepper">
+        <button type="button" class="poker-step" data-step="-1" aria-label="Lower">−</button>
+        <output class="poker-amount" aria-label="Raise to"></output>
+        <button type="button" class="poker-step" data-step="1" aria-label="Higher">+</button>
+      </div>
+    </div>
+    <button type="button" class="poker-btn poker-btn-next" hidden>Next hand</button>
+  </div>
+
+  <details class="poker-log-wrap">
+    <summary>Hand history</summary>
+    <ol class="poker-log"></ol>
+  </details>
+</div>

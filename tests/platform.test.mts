@@ -7,7 +7,6 @@ import { createDeck, type JoinedMsg, type ServerMessage } from "@app/shared";
 import { RoomManager, type Room } from "../server/src/rooms.ts";
 import { attachConnection } from "../server/src/handlers.ts";
 import { loadGames, games } from "../server/src/games/loader.ts";
-import { advanceGame, publishGame } from "../server/src/gameRuntime.ts";
 import { CLAIM_RANKS, type BullshitState, type BullshitView } from "../games/bullshit/types.ts";
 import type { TicTacToeState } from "../games/tictactoe/types.ts";
 
@@ -101,9 +100,9 @@ test("real platform sockets: discovery, lobby, 8 players, private start/update/r
     assert.deepEqual(restored.myHand,oldHand);assert.equal(restored.phase,"RESOLVING_CHALLENGE");
     privatePayload(state,sessions[resumeIndex].playerId,restored);
     const after=seated[turn].wait(isState("TURN",state.version+1));
-    advanceGame(manager,room,state.deadline!);await after;
+    state.deadline = Date.now(); manager.scheduleGame(room); await after;
     state=room.runtime!.state as BullshitState;const nextIndex=state.turnIndex;
-    seated[nextIndex].send({type:"move",move:{type:"playCards",cardIds:[state.hands[state.players[nextIndex]][0].id],claimedRank:CLAIM_RANKS[state.rankIndex],playVersion:state.version,roundId:state.roundId}});
+    seated[nextIndex].send({type:"move",move:{type:"playCards",cardIds:state.hands[state.players[nextIndex]].slice(0,2).map(c=>c.id),claimedRank:"2",playVersion:state.version,roundId:state.roundId}});
     const timerView=view(await seated[nextIndex].wait(isState("CHALLENGE_WINDOW",state.version+1)));
     // No further traffic: the actual server timer must advance on its own.
     await seated[nextIndex].wait(isState("TURN",timerView.version+1));
@@ -113,15 +112,29 @@ test("real platform sockets: discovery, lobby, 8 players, private start/update/r
     assert.equal((await outsider.wait(m=>m.type==="error") as any).code,"unknown_type");
     outsider.send({type:"move",move:{type:"getState"}});assert.equal((await outsider.wait(m=>m.type==="error") as any).code,"no_room");
 
+    // Validate count and claimed rank through main's actual move handler.
+    state=room.runtime!.state as BullshitState;
+    assert.equal(state.lastPlay!.cards.length,2);
+    const currentIndex=state.turnIndex, currentActor=state.players[currentIndex];
+    const invalid={type:"playCards",cardIds:[state.hands[currentActor][0].id],claimedRank:"2",playVersion:state.version,roundId:state.roundId};
+    seated[currentIndex].send({type:"move",move:invalid});
+    const countError=await seated[currentIndex].wait(m=>m.type==="error");
+    assert.ok("message" in countError && countError.message.includes("minstens 2"));
+    const wrongClaim={...invalid,cardIds:state.hands[currentActor].slice(0,2).map(c=>c.id),claimedRank:"Q"};
+    seated[currentIndex].send({type:"move",move:wrongClaim});
+    const claimError=await seated[currentIndex].wait(m=>m.type==="error");
+    assert.ok("message" in claimError && claimError.message.includes("A, 2, 3"));
+    assert.equal(room.runtime!.state,state);
+
     // Exercise final snapshots and restart through the actual handlers.
     state=room.runtime!.state as BullshitState;
     const winnerIndex=state.turnIndex;const winner=state.players[winnerIndex];
-    state.hands[winner]=[state.hands[winner][0]];
-    const endMove={type:"playCards",cardIds:[state.hands[winner][0].id],claimedRank:CLAIM_RANKS[state.rankIndex],playVersion:state.version,roundId:state.roundId};
+    state.hands[winner]=state.hands[winner].slice(0,2);
+    const endMove={type:"playCards",cardIds:state.hands[winner].map(c=>c.id),claimedRank:CLAIM_RANKS[state.rankIndex],playVersion:state.version,roundId:state.roundId};
     seated[winnerIndex].send({type:"move",move:endMove});
     const finalPlay=view(await seated[winnerIndex].wait(isState("CHALLENGE_WINDOW",state.version+1)));
     const ended=seated.map(p=>p.wait(m=>m.type==="gameOver"&&(m.state as BullshitView).roundId===state.roundId));
-    advanceGame(manager,room,finalPlay.deadline!);
+    (room.runtime!.state as BullshitState).deadline = Date.now(); manager.scheduleGame(room);
     const endings=await Promise.all(ended);
     assert.equal(room.runtime,null);assert.ok(room.lastGame);
     for(let i=0;i<8;i++)privatePayload(room.lastGame!.state as BullshitState,sessions[i].playerId,view(endings[i]));
@@ -153,7 +166,7 @@ test("real platform sockets: discovery, lobby, 8 players, private start/update/r
   } finally {
     for(const c of clients)c.socket.terminate();
     await new Promise<void>(resolve=>wss.close(()=>resolve()));
-    for(const r of rooms)manager.cancelPrune(r);
+    manager.dispose();
     await new Promise<void>(resolve=>http.close(()=>resolve()));
   }
 });

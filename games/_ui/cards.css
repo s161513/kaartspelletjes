@@ -1,0 +1,83 @@
+/* Shared playing-card look for every card game (see cards.ts).
+   Size cards by setting --ui-card-w on the card or any parent (default 46px). */
+
+.ui-card {
+  position: relative;
+  flex: none;
+  width: var(--ui-card-w, 46px);
+  aspect-ratio: 5 / 7;
+  border-radius: calc(var(--ui-card-w, 46px) * 0.12);
+  background: linear-gradient(160deg, #ffffff, #eef0f4);
+  color: #16181d;
+  box-shadow:
+    0 2px 6px rgba(0, 0, 0, 0.35),
+    inset 0 0 0 1px rgba(0, 0, 0, 0.08);
+  font-family: Georgia, "Times New Roman", serif;
+  user-select: none;
+}
+
+.ui-card.is-red {
+  color: #d62839;
+}
+
+.ui-card-corner {
+  position: absolute;
+  top: 6%;
+  left: 9%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 0.95;
+}
+
+.ui-card-rank {
+  font-weight: 700;
+  font-size: calc(var(--ui-card-w, 46px) * 0.34);
+  letter-spacing: -0.04em;
+}
+
+.ui-card-suit {
+  font-size: calc(var(--ui-card-w, 46px) * 0.26);
+}
+
+.ui-card-pip {
+  position: absolute;
+  right: 10%;
+  bottom: 6%;
+  font-size: calc(var(--ui-card-w, 46px) * 0.55);
+  line-height: 1;
+}
+
+.ui-card.is-back {
+  background:
+    repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.14) 0 3px, transparent 3px 7px),
+    repeating-linear-gradient(-45deg, rgba(255, 255, 255, 0.14) 0 3px, transparent 3px 7px),
+    linear-gradient(160deg, #b3263a, #6d1020);
+  box-shadow:
+    0 2px 6px rgba(0, 0, 0, 0.35),
+    inset 0 0 0 3px #fff;
+}
+
+.ui-card.is-slot {
+  background: transparent;
+  box-shadow: none;
+  border: 1.5px dashed rgba(255, 255, 255, 0.18);
+}
+
+.ui-card.is-new {
+  animation: ui-card-deal 0.4s cubic-bezier(0.2, 0.8, 0.3, 1.2) both;
+}
+
+@keyframes ui-card-deal {
+  from {
+    opacity: 0;
+    translate: 0 -18px;
+    scale: 0.7;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-card {
+    animation: none !important;
+  }
+}

@@ -1,5 +1,5 @@
 import { sortHand, type Rank, type GameContext, type GamePage } from "@app/shared";
-import { renderCard } from "../../client/src/cards/renderer.js";
+import { renderCard } from "../_ui/cards.js";
 import { BULLSHIT_WINDOW_MS, type BullshitView } from "./types.js";
 import "./style.css";
 
@@ -23,8 +23,7 @@ let progress: HTMLProgressElement;
 let countdown: HTMLElement;
 let handLabel: HTMLElement;
 
-const name = (id: string | null) => context.players?.find(p => p.id === id)?.nickname
-  ?? (current?.players.findIndex(p => p.id === id)! >= 0 ? "Player " + (current!.players.findIndex(p => p.id === id) + 1) : "Player");
+const name = (id: string | null) => id ? context.nickname(id) : "Player";
 const online = (id: string) => context.players?.find(p => p.id === id)?.connected !== false;
 
 function mount(ctx: GameContext): void {
@@ -126,7 +125,7 @@ function update(state: BullshitView, ctx: GameContext): void {
       : state.phase === "CHALLENGE_WINDOW" ? "Do you believe " + name(state.lastPlay!.playerId) + "?"
       : "Checking the last play…");
   }
-  pile.replaceChildren(renderCard({ hidden: true }));
+  pile.replaceChildren(renderCard(null));
   const count = document.createElement("strong");
   count.className = "bs-pile-count"; count.textContent = state.pileCount + " cards in pile"; pile.append(count);
   pile.classList.toggle("bs-played", state.phase === "CHALLENGE_WINDOW");
@@ -136,7 +135,7 @@ function update(state: BullshitView, ctx: GameContext): void {
   reveal.replaceChildren();
   feedback.textContent = "";
   if (state.phase === "RESOLVING_CHALLENGE" && state.reveal) {
-    for (const card of state.reveal.cards) reveal.append(renderCard({ card }));
+    for (const card of state.reveal.cards) reveal.append(renderCard(card));
     feedback.textContent = name(state.reveal.challengerId) +
       (state.reveal.automatic ? " riep automatisch Bullshit: te weinig kaarten om de vorige zet te evenaren. " : " called Bullshit! ") +
       (state.reveal.lied ? name(state.lastPlay!.playerId) + " lied. " : "The claim was true. ") +
@@ -158,11 +157,11 @@ function update(state: BullshitView, ctx: GameContext): void {
     button.setAttribute("aria-label", card.rank + " " + card.suit);
     button.setAttribute("aria-pressed", String(selected.has(card.id)));
     button.disabled = !myTurn;
-    button.append(renderCard({ card, selected: selected.has(card.id) }));
+    button.append(renderCard(card, { className: selected.has(card.id) ? "bs-selected" : "" }));
     button.addEventListener("click", () => {
       if (selected.has(card.id)) selected.delete(card.id); else selected.add(card.id);
       button.setAttribute("aria-pressed", String(selected.has(card.id)));
-      button.firstElementChild!.classList.toggle("selected", selected.has(card.id));
+      button.firstElementChild!.classList.toggle("bs-selected", selected.has(card.id));
       updatePlayButton(myTurn);
     });
     hand.append(button);
@@ -190,4 +189,8 @@ function updatePlayButton(myTurn: boolean): void {
     : "";
 }
 
-export default { mount, update } satisfies GamePage<BullshitView>;
+function onRoomState(ctx: GameContext): void {
+  if (current) update(current, ctx);
+}
+
+export default { mount, update, onRoomState } satisfies GamePage<BullshitView>;

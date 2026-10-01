@@ -1,5 +1,5 @@
 /* Scoped game presentation; shared panels, buttons, players and chat stay intact. */
-.bs-game { margin-top: 1rem; }
+.bs-game { margin-top: 1rem; --ui-card-w: 70px; }
 .bs-players { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: .5rem; }
 .bs-players li { gap: .7rem; margin: 0; font-size: .85rem; min-width: 0; }
 .bs-players li > span:first-child { overflow-wrap: anywhere; }
@@ -14,7 +14,7 @@
 .bs-truth, .bs-winner { color: #b6f7c5; font-weight: 600; }
 .bs-winner { font-size: 1.2rem; animation: bs-celebrate .4s ease-out; }
 .bs-reveal { display: flex; gap: .4rem; flex-wrap: wrap; justify-content: center; max-height: 240px; overflow-y: auto; }
-.bs-reveal .bs-played .face-down { animation: bs-deal .3s ease-out; }
+.bs-played .ui-card.is-back { animation: bs-deal .3s ease-out; }
 @keyframes bs-deal { from { transform: translateY(60px) rotate(20deg); opacity: 0; } to { transform: none; opacity: 1; } }
 @keyframes bs-flip { from { transform: rotateY(90deg); } to { transform: rotateY(0); } }
 @keyframes bs-pulse { 50% { filter: brightness(1.1); } }
@@ -24,9 +24,9 @@
   .bs-players { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .bs-players li { flex-direction: column; gap: .3rem; }
   .bs-hand-heading { gap: 1rem; }
-  .playing-card { width: 60px; height: 88px; }
+  .bs-game { --ui-card-w: 60px; }
 }
-@media (prefers-reduced-motion: reduce) { .bs-game *, .playing-card { animation: none !important; transition: none !important; } }
+@media (prefers-reduced-motion: reduce) { .bs-game * { animation: none !important; transition: none !important; } }
 
 /* Bullshit claim controls only. */
 .bs-claim-choice { display: flex; justify-content: center; align-items: center; gap: 1rem; flex-wrap: wrap; }
@@ -36,3 +36,19 @@
 .bs-rank.bs-previous-rank { border-bottom: 3px solid var(--accent); }
 .bs-rank[aria-pressed="true"] { background: var(--accent-2); color: #062819; outline: 2px solid #a5efb7; }
 .bs-selection-feedback { min-height: 1.5em; margin: 1rem 0; }
+
+.bs-challenge { min-height: 60px; display: flex; align-items: center; justify-content: center; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem; }
+.bs-call { background: #f89b66; color: #412309; font-size: 1.3rem; animation: bs-pulse 1.1s infinite; }
+.bs-challenge progress { width: 120px; height: 8px; accent-color: #f89b66; }
+.bs-challenge [hidden] { display: none; }
+.bs-countdown, .bs-help { color: var(--muted); font-size: .85rem; }
+.bs-hand-heading { justify-content: space-between; align-items: center; }
+.bs-hand-heading strong { font-size: .9rem; color: var(--muted); }
+.bs-hand { display: flex; gap: .6rem; overflow-x: auto; padding: 20px 4px 12px; }
+.bs-card-button { background: transparent; border: none; padding: 0; flex-shrink: 0; }
+.bs-card-button:disabled { opacity: 1; }
+.bs-card-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+
+.bs-game .ui-card { transition: transform .16s, outline .16s; }
+.bs-game .ui-card.bs-selected { transform: translateY(-12px); outline: 3px solid var(--accent-2); }
+.bs-card-button:not(:disabled):hover .ui-card:not(.bs-selected) { transform: translateY(-5px); }

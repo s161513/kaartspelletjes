@@ -93,7 +93,7 @@ export function applyMove(state: BullshitState, playerId: string, move: Bullshit
   return next;
 }
 
-export function tick(state: BullshitState, now: number): BullshitState {
+export function advance(state: BullshitState, now = Date.now()): BullshitState {
   if (state.deadline === null || now < state.deadline ||
       (state.phase !== "CHALLENGE_WINDOW" && state.phase !== "RESOLVING_CHALLENGE")) return state;
   const next = { ...state, version: state.version + 1, deadline: null };
@@ -109,7 +109,7 @@ export function tick(state: BullshitState, now: number): BullshitState {
   return next;
 }
 
-export function getViewForPlayer(state: BullshitState, playerId: string, now = Date.now()): BullshitView {
+export function playerView(state: BullshitState, playerId: string, now = Date.now()): BullshitView {
   const play = state.lastPlay;
   return {
     roundId: state.roundId, selfId: playerId,
@@ -132,7 +132,7 @@ export default {
   validateMove,
   applyMove,
   result: (state) => ({ over: state.phase === "GAME_OVER", winner: state.winner ?? undefined }),
-  getViewForPlayer,
-  tick,
-  nextDeadline: state => state.deadline,
+  playerView,
+  advance,
+  nextUpdateIn: state => state.deadline === null ? null : Math.max(0, state.deadline - Date.now()),
 } satisfies Game<BullshitState, BullshitMove>;

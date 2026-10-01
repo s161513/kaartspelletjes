@@ -107,14 +107,36 @@ The template is a small working card game ("highest card wins"); read its
 comments first. Card helpers (`createDeck`, `shuffle`, `deal`, `sortHand`, …)
 come from `@app/shared`.
 
+Optional extras in your folder:
+
+- **HTML + CSS for the layout.** Put the static markup in `view.html` and your
+  styles in `style.css`, and load them from `view.ts`:
+  ```ts
+  import html from "./view.html?raw";
+  import "./style.css";
+  // in mount(): ctx.container.innerHTML = html;
+  ```
+  Prefix your CSS classes with your game id (e.g. `.pesten-hand`) so they
+  don't clash with other games.
+- **Hidden information.** Add `playerView(state, playerId)` to `logic.ts` to
+  decide what each player receives (e.g. replace other players' cards with
+  `null`, leave out the deck). Without it everyone gets the full state.
+- **Players leaving.** Every game page has a "Leave game" button. Add
+  `playerLeft(state, playerId)` to `logic.ts` to keep the game going without
+  them (e.g. fold their hand). Without it the game ends when someone leaves,
+  and if only one player remains they win.
+- **Player names.** `ctx.nickname(playerId)` in `view.ts`.
+- **Tests.** Any `games/<id>/*.test.ts` file runs with `npm test`
+  (Node's built-in test runner; see `games/tictactoe/tictactoe.test.ts`).
+
 Good to know:
 
 - **The server decides.** Check everything in `validateMove` (whose turn,
   is the move allowed); never trust what the browser sends.
 - **Keep state plain JSON**: objects, arrays, strings, numbers. No `Map`,
   `Set` or classes — the state is sent over the WebSocket.
-- **Every player receives the full state**, including other players' hands.
-  Fine among friends; just don't show them in `view.ts`.
+- **Every player receives the full state** unless you add `playerView`
+  (see above) — without it, other players' hands are visible in devtools.
 - Restart `npm run dev` after creating a new game folder, then test with two
   browser tabs (see [Develop](#develop)).
 
@@ -130,7 +152,7 @@ git merge origin/main
 ### 5. Get it merged
 
 ```bash
-npm run build                        # must succeed
+npm test && npm run build            # must succeed
 git push -u origin game/<id>
 ```
 
@@ -145,6 +167,10 @@ game branch once it's in. That way every change to shared code gets seen by
 everyone.
 
 Folders starting with `_` are ignored by the server and the lobby.
+`games/_ui/` holds shared view helpers for games, e.g. `renderCard()` from
+`games/_ui/cards.ts` for good-looking playing cards (size them with the
+`--ui-card-w` CSS variable). Card *data* (`Card`, `createDeck`, …) comes from
+`@app/shared`.
 
 ## Bullshit / Cheat
 
@@ -155,11 +181,9 @@ starting with more than eight connected players.
 
 The implementation reuses `shared/cards.ts` (`Card`, `Rank`, `Suit`, `deal`,
 `shuffle`, `sortHand`), the room manager, WebSocket protocol, shared game host,
-chat, session storage, and existing panels/buttons/player styling. The repository
-had no playing-card renderer or card assets. A small general DOM renderer lives in
-`client/src/cards/renderer.ts`. Replace its presentation to add your own images
-or models; game rules never depend on asset paths. Hidden cards are rendered with
-`{ hidden: true }` and require no card data.
+chat, session storage, and existing panels/buttons/player styling. Playing cards
+use the shared `renderCard()` from `games/_ui/cards.ts`; hidden backs are rendered
+with `renderCard(null)` and require no card data.
 
 ### Rules
 
@@ -189,21 +213,14 @@ validation, mutation and challenge resolution synchronously.
 
 ### Private state and server timers
 
-The minimal optional extensions to `Game` in `shared/game.ts` are:
-
-- `getViewForPlayer(state, playerId)`: individual wire projection for games
-  with private information. Public games that omit it keep their old payloads.
-- `tick(state, now)` and `nextDeadline(state)`: server-time transitions
-  without waiting for another move. Existing games do not need either hook.
-- An optional `now` for move validation/application, so one action uses one
-  timestamp, and optional public player metadata in `GameContext` for labels.
-
-`server/src/gameRuntime.ts` applies the projection to **start, update, end and
-rejoin** events. Bullshit projects only the recipient's `myHand`, other players'
-card counts, pile count, public claim, and the last challenged set. No other
-hands, hidden pile cards, or unchallenged set are included. A finished snapshot
-is retained server-side until the next game so a refresh can restore the winner
-screen; restarting still happens through the existing lobby. An optional\n\`gameId\` on finished events prevents a retained snapshot from being rendered\nby the wrong game view when a player revisits an old game URL.
+Bullshit implements the platform's `playerView(state, playerId)`,
+`advance(state)` and `nextUpdateIn(state)` hooks. The room manager applies the
+same private projection to **start, update, end and rejoin** events. Only the
+recipient's `myHand`, other players' card counts, pile count, public claim and
+the last challenged set are included. Other hands, hidden pile cards and
+unchallenged sets stay server-side. A finished snapshot is retained until the
+next game so a refresh can restore the winner screen; finished events include
+`gameId` so the shared host opens the matching game view.
 
 **Existing platform limitation, deliberately unchanged:** rejoin authenticates
 only with the public player ID and room code. A malicious client can impersonate
@@ -229,7 +246,8 @@ create/join the same room and select Bullshit. Each tab uses the platform's
 existing sessionStorage identity. Refresh a game tab to test reconnect. After
 winning, use **Back to lobby**, then start another game.
 
-The repository had no existing automated test suite. Added tests cover the
+The main test runner discovers all game tests and the Bullshit/platform tests.
+Bullshit tests cover the
 shared card utilities, dealing to 2–8 players, rank and turn progression,
 selection validation, truthful/mixed/false claims, the full pile pickup, exact
 challenge deadlines and races, all final-card cases, hidden-state projections,

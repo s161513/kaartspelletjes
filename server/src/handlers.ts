@@ -3,7 +3,6 @@ import type { WebSocket } from "ws";
 import type { ClientMessage, ServerMessage } from "@app/shared";
 import { RoomManager, type Player, type Room } from "./rooms.js";
 import { games } from "./games/loader.js";
-import { advanceGame, publishGame, sendRoomState, syncGame } from "./gameRuntime.js";
 
 /** Per-connection state: which room/player this socket is bound to. */
 interface Conn {
@@ -18,6 +17,52 @@ function send(ws: WebSocket, msg: ServerMessage): void {
 
 function err(ws: WebSocket, code: string, message: string): void {
   send(ws, { type: "error", code, message });
+}
+
+/** Store a new game state and send it out, ending the game if it is over. */
+function publish(manager: RoomManager, room: Room, next: unknown): void {
+  const runtime = room.runtime!;
+  runtime.state = next;
+  if (runtime.game.result(next).over) {
+    clearTimeout(runtime.timer);
+    manager.sendGame(room, "gameOver");
+    room.lastGame = runtime;
+    room.runtime = null;
+    sendRoomState(manager, room);
+  } else {
+    manager.sendGame(room, "gameState");
+    manager.scheduleGame(room);
+  }
+}
+
+/**
+ * A player left mid-game. `playerLeft` decides what happens to the game; a game
+ * with only `playersChanged` already heard about it via removePlayer. A game
+ * with neither cannot continue: end it, and a lone remaining player wins.
+ */
+function playerLeftGame(manager: RoomManager, room: Room, playerId: string): void {
+  const runtime = room.runtime!;
+  if (runtime.game.playerLeft) {
+    return publish(manager, room, runtime.game.playerLeft(runtime.state, playerId));
+  }
+  if (runtime.game.playersChanged) return;
+
+  const remaining = [...room.players.values()];
+  clearTimeout(runtime.timer);
+  manager.sendGame(room, "gameOver", {
+    winner: remaining.length === 1 ? remaining[0].id : "draw",
+  });
+  room.runtime = null;
+}
+
+/** Broadcast the current room snapshot to everyone in it. */
+function sendRoomState(manager: RoomManager, room: Room): void {
+  manager.broadcast(room, {
+    type: "roomState",
+    players: manager.publicPlayers(room),
+    hostId: room.hostId ?? "",
+    currentGameId: manager.currentGameId(room),
+  });
 }
 
 export function attachConnection(ws: WebSocket, manager: RoomManager): void {
@@ -46,6 +91,9 @@ export function attachConnection(ws: WebSocket, manager: RoomManager): void {
     if (!conn.roomCode || !conn.playerId) return;
     const room = manager.getRoom(conn.roomCode);
     if (!room) return;
+    // A newer socket may already own this seat (page navigation or a reload
+    // whose rejoin arrived before this close). Then this close means nothing.
+    if (room.players.get(conn.playerId)?.ws !== ws) return;
     manager.disconnect(room, conn.playerId);
     // Room may have been pruned; only broadcast if it still exists.
     if (manager.getRoom(conn.roomCode)) sendRoomState(manager, room);
@@ -82,6 +130,7 @@ function handle(conn: Conn, manager: RoomManager, msg: ClientMessage): void {
       manager.cancelPrune(room); // recovered before deletion — keep it alive
       player.ws = ws;
       player.connected = true;
+      manager.updateGamePlayers(room);
       if (!room.hostId) room.hostId = player.id;
       conn.roomCode = room.code;
       conn.playerId = player.id;
@@ -93,9 +142,10 @@ function handle(conn: Conn, manager: RoomManager, msg: ClientMessage): void {
         players: manager.publicPlayers(room),
         hostId: room.hostId ?? "",
       });
-      // Rejoin uses the same private projection as start/update/end.
-      const snapshot = syncGame(manager, room, player.id);
-      if (snapshot) send(ws, snapshot);
+      // Restore the private snapshot before the room can redirect the client.
+      if (room.runtime || room.lastGame) {
+        manager.sendGame(room, room.runtime ? "gameStarted" : "gameOver", { only: player.id });
+      }
       sendRoomState(manager, room);
       return;
     }
@@ -133,10 +183,11 @@ function handle(conn: Conn, manager: RoomManager, msg: ClientMessage): void {
         return err(ws, "too_many", `At most ${meta.maxPlayers} players`);
 
       const playerIds = seated.map((p) => p.id);
+      room.lastGame = undefined;
       room.runtime = { gameId: meta.id, game, state: game.init(playerIds) };
 
-      room.lastGame = undefined;
-      publishGame(manager, room, true);
+      manager.sendGame(room, "gameStarted");
+      manager.scheduleGame(room);
       sendRoomState(manager, room);
       return;
     }
@@ -146,27 +197,31 @@ function handle(conn: Conn, manager: RoomManager, msg: ClientMessage): void {
       if (!room) return;
       if (!room.runtime) return err(ws, "no_game", "No game in progress");
 
-      const now = Date.now();
-      advanceGame(manager, room, now);
-      if (!room.runtime) return err(ws, "no_game", "No game in progress");
       const { game, state } = room.runtime;
-      const validated = game.validateMove(state, conn.playerId!, msg.move, now);
+      const validated = game.validateMove(state, conn.playerId!, msg.move);
       if (!validated.ok) {
         return err(ws, "bad_move", validated.error);
       }
 
-      const next = game.applyMove(state, conn.playerId!, validated.move, now);
-      room.runtime.state = next;
-
-      publishGame(manager, room);
+      publish(manager, room, game.applyMove(state, conn.playerId!, validated.move));
       return;
     }
 
     case "leave": {
       const room = manager.getRoom(conn.roomCode ?? "");
       if (room && conn.playerId) {
+        const nickname = room.players.get(conn.playerId)?.nickname ?? "A player";
         manager.removePlayer(room, conn.playerId);
-        if (manager.getRoom(room.code)) sendRoomState(manager, room);
+        if (manager.getRoom(room.code)) {
+          manager.broadcast(room, {
+            type: "chat",
+            from: "🚪",
+            text: `${nickname} left the room`,
+            ts: Date.now(),
+          });
+          if (room.runtime) playerLeftGame(manager, room, conn.playerId);
+          sendRoomState(manager, room);
+        }
       }
       conn.roomCode = null;
       conn.playerId = null;
@@ -212,6 +267,10 @@ function requireRoom(conn: Conn, manager: RoomManager): Room | null {
   const room = manager.getRoom(conn.roomCode);
   if (!room) {
     err(conn.ws, "no_room", "Room no longer exists");
+    return null;
+  }
+  if (room.players.get(conn.playerId)?.ws !== conn.ws) {
+    err(conn.ws, "no_seat", "This connection no longer owns a seat");
     return null;
   }
   return room;

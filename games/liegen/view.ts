@@ -198,7 +198,7 @@ const page: GamePage<LiegenState> = {
                     gridContainer.classList.add("hidden");
                 } else {
                     btnShake.classList.remove("hidden");
-                    btnShake.innerText = "🎲 Schudden & Kijken";
+                    btnShake.innerText = "🎲 Schudden";
                     btnCall.classList.remove("hidden");
                     btnBlind.classList.remove("hidden");
                     actionsContainer.classList.remove("hidden");

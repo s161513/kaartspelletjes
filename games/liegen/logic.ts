@@ -176,8 +176,14 @@ const logic: Game<LiegenState, LiegenMove> = {
         const next = { ...state };
         if (state.gameState === "SHOWING_REVEAL") {
             // Keep it visible for everyone
-        } else if (state.turn !== playerId || state.gameState !== "WAITING_FOR_CLAIM") {
-            next.secretRoll = null;
+        } else {
+            // Only the first player of the round can see the roll (currentClaim is null)
+            const canSee = state.turn === playerId && 
+                           state.gameState === "WAITING_FOR_CLAIM" && 
+                           state.currentClaim === null;
+            if (!canSee) {
+                next.secretRoll = null;
+            }
         }
         return next;
     }

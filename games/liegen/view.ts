@@ -245,18 +245,20 @@ const page: GamePage<LiegenState> = {
         }
     },
 
-    onGameOver(winner, state, ctx) {
+    onGameOver(loser, state, ctx) {
         document.getElementById("actions")!.classList.add("hidden");
         document.getElementById("claim-grid-container")!.classList.add("hidden");
-        const msg = winner === "draw" ? "Gelijkspel!" : (winner === ctx.playerId ? "Jij hebt gewonnen!" : ctx.nickname(winner) + " heeft gewonnen!");
+        
+        const isMe = loser === ctx.playerId;
+        const msg = isMe ? "Jij hebt VERLOREN! 💀" : ctx.nickname(loser) + " heeft VERLOREN! 🎉";
         ctx.setStatus(msg);
         
         const banner = document.getElementById("turn-banner")!;
         banner.classList.remove("hidden");
         banner.innerText = msg;
-        banner.style.background = "#2563eb";
+        banner.style.background = isMe ? "#dc2626" : "#22c55e"; // Red if you lost, green if someone else lost
         banner.style.color = "white";
-        banner.style.borderColor = "#1d4ed8";
+        banner.style.borderColor = isMe ? "#991b1b" : "#166534";
     }
 };
 

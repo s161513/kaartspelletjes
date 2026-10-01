@@ -130,27 +130,13 @@ const logic: Game<LiegenState, LiegenMove> = {
             loser.strikes += 1;
             if (loser.strikes >= 3) {
                 loser.status = "eliminated";
-                addLog(`A player was eliminated!`);
+                addLog(`A player was eliminated! The game is over.`);
+                next.turn = null;
+            } else {
+                next.turn = loser.id;
             }
             
             next.gameState = "SHOWING_REVEAL";
-            
-            if (loser.status !== "eliminated") {
-                next.turn = loser.id;
-            } else {
-                next.turn = loser.id;
-                const nt = nextTurn(next);
-                next.turn = nt;
-            }
-            
-            const active = next.playerOrder.filter(id => next.players[id].status === "active");
-            if (active.length === 1) {
-                next.players[active[0]].status = "winner";
-                addLog(`We have a winner!`);
-                next.turn = null;
-            } else if (active.length === 0) {
-                next.turn = null;
-            }
         }
         
         return next;
@@ -176,11 +162,11 @@ const logic: Game<LiegenState, LiegenMove> = {
     },
     
     result(state) {
-        const active = state.playerOrder.filter(id => state.players[id].status === "active");
-        if (active.length === 1) {
-            return { over: true, winner: active[0] };
-        } else if (active.length === 0) {
-            return { over: true, winner: "draw" };
+        const eliminated = state.playerOrder.filter(id => state.players[id].status === "eliminated");
+        if (eliminated.length > 0) {
+            // In this variant, the first person to get eliminated ends the game. 
+            // We pass the loser's ID in the winner field.
+            return { over: true, winner: eliminated[0] };
         }
         return { over: false };
     },

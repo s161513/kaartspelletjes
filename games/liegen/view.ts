@@ -15,6 +15,7 @@ let claimButtons: HTMLButtonElement[] = [];
 
 const htmlTemplate = `
 <style>
+.hidden { display: none !important; }
 .glass {
     background: rgba(30, 41, 59, 0.7);
     backdrop-filter: blur(12px);
@@ -25,6 +26,28 @@ const htmlTemplate = `
     opacity: 0.3;
     cursor: not-allowed;
     transform: none !important;
+}
+#cup-container {
+    position: relative;
+    width: 8rem;
+    height: 10rem;
+}
+#cup {
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(to bottom, #dc2626, #991b1b);
+    border-top-left-radius: 0.5rem;
+    border-top-right-radius: 0.5rem;
+    border-bottom-left-radius: 1.5rem;
+    border-bottom-right-radius: 1.5rem;
+    border: 4px solid #7f1d1d;
+    box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25);
+    transition: transform 0.5s;
+    transform-origin: bottom;
+}
+.active-turn {
+    background: rgba(20, 83, 45, 0.5) !important;
+    border: 2px solid #22c55e !important;
 }
 </style>
 <div class="flex flex-col md:flex-row gap-6 w-full h-full text-white">
@@ -71,14 +94,14 @@ const page: GamePage<LiegenState> = {
         // But wait, the new setup uses game.html for ALL games. We shouldn't inject Tailwind globally if it breaks others.
         // Tailwind via CDN works fine though. Let's just inject the script programmatically if it doesn't exist.
         if (!document.getElementById("tailwind-script")) {
+            const config = document.createElement("script");
+            config.innerHTML = "window.tailwind = { config: { theme: { extend: { colors: { brand: { 400: '#4ade80', 500: '#22c55e', 900: '#14532d' } } } } } };";
+            document.head.appendChild(config);
+
             const script = document.createElement("script");
             script.id = "tailwind-script";
             script.src = "https://cdn.tailwindcss.com";
             document.head.appendChild(script);
-            
-            const config = document.createElement("script");
-            config.innerHTML = "tailwind.config = { theme: { extend: { colors: { brand: { 400: '#4ade80', 500: '#22c55e', 900: '#14532d' } } } } }";
-            document.head.appendChild(config);
         }
 
         const claimGrid = document.getElementById("claim-grid")!;
@@ -135,12 +158,13 @@ const page: GamePage<LiegenState> = {
             const name = isMe ? "You" : ctx.nickname(pid);
             const activeTurn = state.turn === pid;
             
-            let bg = p.status === 'eliminated' ? 'bg-red-900/20 opacity-50' : (activeTurn ? 'bg-brand-900/40 border-brand-500' : 'bg-slate-800/50');
-            let border = activeTurn ? 'border border-brand-500' : 'border border-transparent';
+            let bg = p.status === 'eliminated' ? 'bg-red-900/20 opacity-50' : 'bg-slate-800/50';
+            let border = 'border border-transparent';
+            let activeClass = activeTurn ? 'active-turn' : '';
             
             const strikesHtml = p.status === 'eliminated' ? '💀' : '❌'.repeat(p.strikes) + '⚪'.repeat(3 - p.strikes);
 
-            playersDiv.innerHTML += "<div class='flex items-center justify-between p-2 rounded-lg " + bg + " " + border + "'>" +
+            playersDiv.innerHTML += "<div class='flex items-center justify-between p-2 rounded-lg " + bg + " " + border + " " + activeClass + "'>" +
                 "<span class='font-medium " + (isMe ? 'text-brand-400' : '') + "'>" + name + "</span>" +
                 "<span class='text-xs tracking-widest'>" + strikesHtml + "</span>" +
                 "</div>";

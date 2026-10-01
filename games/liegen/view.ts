@@ -171,17 +171,24 @@ const page: GamePage<LiegenState> = {
                 actionsContainer.classList.remove("hidden");
                 gridContainer.classList.add("hidden");
             } else if (state.gameState === "WAITING_FOR_ACTION") {
-                btnShake.classList.remove("hidden");
-                btnShake.innerText = "🎲 Schudden & Kijken";
-                btnCall.classList.remove("hidden");
-                btnBlind.classList.remove("hidden");
-                actionsContainer.classList.remove("hidden");
-                gridContainer.classList.add("hidden");
+                if (state.currentClaim === 21) {
+                    btnCall.classList.remove("hidden");
+                    actionsContainer.classList.remove("hidden");
+                    gridContainer.classList.add("hidden");
+                } else {
+                    btnShake.classList.remove("hidden");
+                    btnShake.innerText = "🎲 Schudden & Kijken";
+                    btnCall.classList.remove("hidden");
+                    btnBlind.classList.remove("hidden");
+                    actionsContainer.classList.remove("hidden");
+                    gridContainer.classList.add("hidden");
+                }
             } else if (state.gameState === "WAITING_FOR_CLAIM") {
                 actionsContainer.classList.add("hidden");
                 gridContainer.classList.remove("hidden");
                 document.getElementById("claim-title")!.innerText = "Make a Claim";
                 currentPendingAction = "claim";
+                document.getElementById("btn-cancel-claim")!.classList.add("hidden");
             }
         } else {
             actionsContainer.classList.add("hidden");

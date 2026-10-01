@@ -52,6 +52,7 @@ const logic: Game<LiegenState, LiegenMove> = {
         
         if (m.action === "shake") {
             if (state.gameState === "WAITING_FOR_CLAIM") return { ok: false, error: "Must claim" };
+            if (state.currentClaim === 21) return { ok: false, error: "Cannot shake on 21 (Mex), must call" };
         } else if (m.action === "claim") {
             if (state.gameState !== "WAITING_FOR_CLAIM") return { ok: false, error: "Cannot claim now" };
             if (m.value === undefined || getRank(m.value) === -1) return { ok: false, error: "Invalid claim value" };
@@ -60,6 +61,7 @@ const logic: Game<LiegenState, LiegenMove> = {
             }
         } else if (m.action === "blind_pass") {
             if (state.gameState !== "WAITING_FOR_ACTION" || state.currentClaim === null) return { ok: false, error: "Cannot blind pass" };
+            if (state.currentClaim === 21) return { ok: false, error: "Cannot pass on 21 (Mex)" };
             if (m.value === undefined || getRank(m.value) === -1) return { ok: false, error: "Invalid claim value" };
             if (getRank(m.value) <= getRank(state.currentClaim)) {
                 return { ok: false, error: "Claim must be higher" };

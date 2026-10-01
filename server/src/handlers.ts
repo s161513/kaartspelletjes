@@ -71,6 +71,9 @@ export function attachConnection(ws: WebSocket, manager: RoomManager): void {
     if (!conn.roomCode || !conn.playerId) return;
     const room = manager.getRoom(conn.roomCode);
     if (!room) return;
+    // A newer socket may already own this seat (page navigation or a reload
+    // whose rejoin arrived before this close). Then this close means nothing.
+    if (room.players.get(conn.playerId)?.ws !== ws) return;
     manager.disconnect(room, conn.playerId);
     // Room may have been pruned; only broadcast if it still exists.
     if (manager.getRoom(conn.roomCode)) sendRoomState(manager, room);

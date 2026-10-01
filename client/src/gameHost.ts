@@ -37,9 +37,13 @@ export function setupGamePage<State>(
     document.getElementById("chatInput") as HTMLInputElement,
   );
 
+  // Latest player list from roomState (sent before gameStarted on every join).
+  const nicknames = new Map<string, string>();
+
   const ctx: GameContext = {
     container: containerEl,
     playerId: session.playerId,
+    nickname: (id) => nicknames.get(id) ?? "Player",
     sendMove: (move) => socket.send({ type: "move", move }),
     setStatus: (text) => {
       statusEl.textContent = text;
@@ -65,6 +69,7 @@ export function setupGamePage<State>(
   });
 
   socket.on("gameState", (msg) => {
+    errEl.textContent = "";
     ensureMounted();
     page.update(msg.state as State, ctx);
   });
@@ -91,6 +96,7 @@ export function setupGamePage<State>(
   // Landed here with no active game (e.g. direct nav / game already ended) and
   // nothing rendered yet → go back to the lobby.
   socket.on("roomState", (msg) => {
+    for (const p of msg.players) nicknames.set(p.id, p.nickname);
     if (msg.currentGameId === null && !gameOver && !mounted) {
       location.href = "/lobby.html";
     }

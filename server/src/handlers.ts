@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { WebSocket } from "ws";
-import type { ClientMessage, ServerMessage } from "@app/shared";
+import type { ClientMessage, Game, ServerMessage } from "@app/shared";
 import { RoomManager, type Player, type Room } from "./rooms.js";
 import { games } from "./games/loader.js";
 
@@ -17,6 +17,22 @@ function send(ws: WebSocket, msg: ServerMessage): void {
 
 function err(ws: WebSocket, code: string, message: string): void {
   send(ws, { type: "error", code, message });
+}
+
+/**
+ * Send a game message to every connected player, each with their own view of
+ * the state (the game's `playerView`, or the full state if it has none).
+ */
+function sendGame(
+  room: Room,
+  game: Game,
+  state: unknown,
+  build: (view: unknown) => ServerMessage,
+): void {
+  for (const p of room.players.values()) {
+    if (!p.connected || !p.ws) continue;
+    send(p.ws, build(game.playerView ? game.playerView(state, p.id) : state));
+  }
 }
 
 /** Broadcast the current room snapshot to everyone in it. */
@@ -105,10 +121,11 @@ function handle(conn: Conn, manager: RoomManager, msg: ClientMessage): void {
       sendRoomState(manager, room);
       // Re-sync any game in progress for the returning player.
       if (room.runtime) {
+        const { gameId, game, state } = room.runtime;
         send(ws, {
           type: "gameStarted",
-          gameId: room.runtime.gameId,
-          state: room.runtime.state,
+          gameId,
+          state: game.playerView ? game.playerView(state, player.id) : state,
         });
       }
       return;
@@ -149,11 +166,11 @@ function handle(conn: Conn, manager: RoomManager, msg: ClientMessage): void {
       const playerIds = seated.map((p) => p.id);
       room.runtime = { gameId: meta.id, game, state: game.init(playerIds) };
 
-      manager.broadcast(room, {
+      sendGame(room, game, room.runtime.state, (view) => ({
         type: "gameStarted",
         gameId: meta.id,
-        state: room.runtime.state,
-      });
+        state: view,
+      }));
       sendRoomState(manager, room);
       return;
     }
@@ -174,15 +191,15 @@ function handle(conn: Conn, manager: RoomManager, msg: ClientMessage): void {
 
       const outcome = game.result(next);
       if (outcome.over) {
-        manager.broadcast(room, {
+        sendGame(room, game, next, (view) => ({
           type: "gameOver",
           winner: outcome.winner ?? "draw",
-          state: next,
-        });
+          state: view,
+        }));
         room.runtime = null;
         sendRoomState(manager, room);
       } else {
-        manager.broadcast(room, { type: "gameState", state: next });
+        sendGame(room, game, next, (view) => ({ type: "gameState", state: view }));
       }
       return;
     }

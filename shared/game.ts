@@ -24,6 +24,12 @@ export interface Game<State = unknown, Move = unknown> {
 
   /** Whether the game is over and, if so, who won. */
   result(state: State): { over: boolean; winner?: string | "draw" };
+
+  /**
+   * Optional: what `playerId` is allowed to see (e.g. hide other players'
+   * cards and the deck). Without it every player receives the full state.
+   */
+  playerView?(state: State, playerId: string): unknown;
 }
 
 /**
@@ -35,6 +41,8 @@ export interface GameContext {
   container: HTMLElement;
   /** This client's player id. */
   playerId: string;
+  /** Nickname of a player in the room (falls back to "Player"). */
+  nickname(playerId: string): string;
   /** Send a move payload (validated server-side). */
   sendMove(move: unknown): void;
   /** Set the status line text (turn indicator, etc.). */

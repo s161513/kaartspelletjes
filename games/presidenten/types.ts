@@ -76,9 +76,16 @@ export interface ExchangeView {
 export interface PresidentenView {
   selfId: string;
   myHand: Card[];
-  players: { id: string; cardCount: number; finishPlace: number | null; role: Role | null }[];
+  players: {
+    id: string;
+    cardCount: number;
+    finishPlace: number | null;
+    role: Role | null;
+    passed: boolean; // out of the current trick (passed or auto-skipped)
+  }[];
   pileCount: number;
   pileTop: Card[] | null; // the cards of the current top play (for display)
+  topBy: string | null; // who laid the current top (so their play can fly in from their seat)
   turn: string | null; // who must act (the on-turn player, or active exchange winner)
   currentCount: number | null;
   currentRank: string | null; // human label of the rank to beat, e.g. "Q"

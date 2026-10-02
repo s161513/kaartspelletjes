@@ -1,58 +1,184 @@
-/* Scoped game presentation; shared panels, buttons, players and chat stay intact. */
-.pr-game { margin-top: 1rem; --ui-card-w: 72px; }
+/* Presidenten table — a round felt with seats around it, same look as the other
+   games. Cards come from games/_ui/cards.css; every class is prefixed `pr-`. */
 
-.pr-players { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: .5rem; }
-.pr-players li { gap: .7rem; margin: 0; font-size: .85rem; min-width: 0; }
-.pr-players li > span:first-child { overflow-wrap: anywhere; }
-.pr-players .badge { flex-shrink: 0; }
-.pr-active { outline: 2px solid var(--accent-2); }
-
-.pr-table {
-  position: relative;
-  background: radial-gradient(ellipse, #215e43, #143d2d);
-  border: 5px solid #365946; border-radius: 35px; padding: 1.5rem; margin: 1rem 0;
-  text-align: center; min-height: 220px;
-  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1rem;
+.pr-game {
+  margin-top: 1rem;
+  --ui-card-w: 66px;
+  --pr-seat-rx: 48%;
+  --pr-seat-ry: 44%;
+  --pr-trick-rx: 17%;
+  --pr-trick-ry: 23%;
+  --pr-felt: #215e43;
+  --pr-felt-edge: #0e2e22;
+  --pr-gold: #f5c451;
+  --pr-glass: rgba(10, 16, 30, 0.82);
+  display: flex;
+  flex-direction: column;
+  gap: .5rem;
 }
+
+/* ------------------------------------------------------------------ table */
+
+.pr-table-wrap {
+  position: relative;
+  width: 100%;
+  max-width: 780px;
+  aspect-ratio: 16 / 10;
+  margin: .5rem auto 1rem;
+}
+
+.pr-rail {
+  position: absolute;
+  inset: 4% 4%;
+  border-radius: 999px;
+  padding: 12px;
+  background: linear-gradient(160deg, rgba(255, 255, 255, .18), transparent 40%),
+    linear-gradient(180deg, #5b3a22, #2e1b0f);
+  box-shadow: 0 24px 50px rgba(0, 0, 0, .55), 0 0 0 2px #1a0f08,
+    inset 0 2px 3px rgba(255, 255, 255, .25);
+}
+
+.pr-felt {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border-radius: 999px;
+  background: radial-gradient(ellipse at 50% 35%, rgba(255, 255, 255, .1), transparent 60%),
+    radial-gradient(ellipse at center, var(--pr-felt) 0%, var(--pr-felt-edge) 100%);
+  box-shadow: inset 0 0 0 2px rgba(245, 196, 81, .22), inset 0 10px 40px rgba(0, 0, 0, .55);
+}
+
+.pr-info {
+  position: absolute;
+  left: 50%;
+  bottom: 9%;
+  transform: translateX(-50%);
+  max-width: 80%;
+  margin: 0;
+  color: #d3e8d8;
+  font-size: .9rem;
+  text-align: center;
+}
+.pr-winner { color: #b6f7c5; font-weight: 700; font-size: 1.1rem; }
 
 /* Last completed trick, pinned to the top-right of the felt. */
 .pr-last-trick {
-  position: absolute; top: .6rem; right: .6rem; width: auto; max-width: 240px;
+  position: absolute; top: .6rem; right: .6rem; z-index: 3; max-width: 240px;
   text-align: left; display: flex; flex-direction: column; gap: .3rem;
-  background: rgba(0, 0, 0, .28); border-radius: 10px; padding: .5rem .6rem;
+  background: rgba(0, 0, 0, .32); border-radius: 10px; padding: .5rem .6rem;
   font-size: .78rem; color: #d7ebdc; backdrop-filter: blur(2px);
-  --ui-card-w: 40px;
+  --ui-card-w: 38px;
 }
 .pr-last-trick[hidden] { display: none; }
 .pr-lt-title { font-weight: 600; color: #b6f7c5; }
 .pr-lt-who { overflow-wrap: anywhere; }
-.pr-lt-cards { display: flex; gap: .25rem; flex-wrap: wrap; }
+.pr-lt-cards { display: flex; gap: .2rem; flex-wrap: wrap; }
 
-/* Between-hand card exchange (rendered inside the popup). The rank picker uses
-   card-shaped faces that show only the rank — no suit, since you are guessing. */
-.pr-ranks { display: flex; flex-wrap: wrap; gap: .4rem; justify-content: center; --ui-card-w: 56px; }
-.pr-ranks[hidden] { display: none; }
-.pr-rank-btn { background: none; border: none; padding: 0; cursor: pointer; border-radius: 8px; }
-.pr-rank-btn:disabled { cursor: default; opacity: .5; }
-.pr-rank-card { display: flex; align-items: center; justify-content: center; transition: transform .1s ease; }
-.pr-rank-btn:not(:disabled):hover .pr-rank-card { transform: translateY(-6px); }
-.pr-rank-face {
-  font-family: Georgia, "Times New Roman", serif; font-weight: 700; color: #16181d;
-  font-size: calc(var(--ui-card-w, 46px) * 0.5); letter-spacing: -0.04em;
+/* ------------------------------------------------------------------ the trick */
+
+.pr-trick, .pr-sweep { position: absolute; inset: 0; z-index: 1; pointer-events: none; }
+
+.pr-played {
+  position: absolute;
+  left: calc(50% + var(--x) * var(--pr-trick-rx));
+  top: calc(50% + var(--y) * var(--pr-trick-ry));
+  transform: translate(-50%, -50%);
+  display: flex;
+  --ui-card-w: 52px;
 }
-.pr-pile { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; justify-content: center; }
-.pr-pile-count { color: #d3e8d8; font-size: .95rem; width: 100%; }
-.pr-info { color: #d3e8d8; font-size: .95rem; min-height: 1.5em; margin: 0; }
-.pr-winner { color: #b6f7c5; font-weight: 600; font-size: 1.2rem; }
+.pr-played .ui-card + .ui-card { margin-left: calc(var(--ui-card-w) * -0.45); }
+.pr-played.is-winning .ui-card {
+  animation: pr-win .25s ease .05s both;
+}
+@keyframes pr-win {
+  to { box-shadow: 0 0 0 3px var(--pr-gold), 0 0 22px rgba(245, 196, 81, .6); }
+}
 
-.pr-countdown { display: flex; align-items: center; gap: .6rem; }
+/* ------------------------------------------------------------------ seats */
+
+.pr-seats { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
+
+.pr-seat {
+  position: absolute;
+  left: calc(50% + var(--x) * var(--pr-seat-rx));
+  top: calc(50% + var(--y) * var(--pr-seat-ry));
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 150px;
+  transition: opacity .3s ease;
+}
+
+.pr-plate {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  min-width: 118px;
+  padding: .3rem .8rem .3rem .3rem;
+  border-radius: 999px;
+  background: var(--pr-glass);
+  border: 1.5px solid rgba(255, 255, 255, .12);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, .45);
+  backdrop-filter: blur(6px);
+  transition: border-color .2s ease, box-shadow .2s ease;
+}
+
+.pr-avatar {
+  display: grid; place-items: center; flex: none;
+  width: 32px; height: 32px; border-radius: 50%;
+  background: linear-gradient(135deg, #4f9d6c, #2b6b47);
+  color: #fff; font-weight: 800; font-size: .95rem;
+}
+.pr-seat.is-me .pr-avatar {
+  background: linear-gradient(135deg, var(--pr-gold), #c8912a); color: #3a2605;
+}
+
+.pr-seat-info { min-width: 0; line-height: 1.15; text-align: left; }
+.pr-seat-name {
+  max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: .82rem; font-weight: 600; color: #fff;
+}
+.pr-seat-sub { font-size: .78rem; font-weight: 600; color: var(--pr-gold); }
+
+.pr-seat-meta {
+  display: flex; flex-wrap: wrap; justify-content: center; align-items: center;
+  gap: .25rem .4rem; min-height: 20px;
+}
+.pr-backs { display: flex; align-items: center; --ui-card-w: 18px; }
+.pr-backs .ui-card + .ui-card { margin-left: -11px; }
+.pr-backs .ui-card.is-back { box-shadow: 0 1px 3px rgba(0, 0, 0, .4), inset 0 0 0 1.5px #fff; }
+.pr-count { margin-left: .3rem; font-size: .72rem; font-weight: 700; color: rgba(255, 255, 255, .75); }
+.pr-seat-tag {
+  padding: .1rem .5rem; border-radius: 999px; background: rgba(148, 163, 184, .22);
+  color: #cbd5e1; font-size: .68rem; font-weight: 800; letter-spacing: .04em; white-space: nowrap;
+}
+
+.pr-seat.is-turn .pr-plate { border-color: var(--pr-gold); animation: pr-pulse 1.4s ease-in-out infinite; }
+.pr-seat.is-winner .pr-plate {
+  border-color: var(--pr-gold);
+  box-shadow: 0 0 0 3px rgba(245, 196, 81, .35), 0 0 24px rgba(245, 196, 81, .6);
+}
+.pr-seat.is-passed { opacity: .5; }
+.pr-seat.away { opacity: .4; filter: grayscale(1); }
+
+@keyframes pr-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(245, 196, 81, .55), 0 6px 18px rgba(0, 0, 0, .45); }
+  50% { box-shadow: 0 0 0 8px rgba(245, 196, 81, 0), 0 6px 18px rgba(0, 0, 0, .45); }
+}
+
+/* ------------------------------------------------------------------ your hand */
+
+.pr-countdown { display: flex; align-items: center; justify-content: center; gap: .6rem; }
 .pr-countdown[hidden] { display: none; }
 .pr-countdown progress { width: 180px; height: .6rem; }
-.pr-time { color: #d3e8d8; font-size: .85rem; min-width: 5.5em; text-align: left; }
+.pr-time { color: var(--muted); font-size: .85rem; min-width: 5.5em; }
 
 .pr-hand-heading { gap: 1rem; align-items: center; justify-content: space-between; }
 .pr-actions { display: flex; gap: .5rem; }
-.pr-hand { display: flex; gap: .4rem; flex-wrap: wrap; margin-top: .5rem; }
+.pr-hand { display: flex; gap: .4rem; flex-wrap: wrap; margin-top: .5rem; justify-content: center; }
 .pr-card-button { background: none; border: none; padding: 0; cursor: pointer; border-radius: 8px; }
 .pr-card-button:disabled { cursor: default; opacity: .9; }
 .pr-card-button.pr-dim { opacity: .3; }
@@ -61,7 +187,8 @@
 .ui-card.pr-selected { transform: translateY(-12px); outline: 3px solid var(--accent-2); }
 .pr-help { font-size: .85rem; color: var(--muted); margin-top: 1rem; }
 
-/* Interactive overlay card-picker, shown on your turn with the board dimmed behind. */
+/* ------------------------------------------------------------------ exchange popup */
+
 .pr-overlay {
   position: fixed; inset: 0; z-index: 50;
   display: flex; align-items: center; justify-content: center; padding: 1rem;
@@ -78,7 +205,20 @@
 .pr-overlay-hand { display: flex; gap: .4rem; flex-wrap: wrap; justify-content: center; }
 .pr-overlay-hand[hidden] { display: none; }
 
-/* Wide screens: move the shared chat into a right-hand column, like the other games. */
+/* The rank picker: card-shaped faces showing only a rank — no suit, you're guessing. */
+.pr-ranks { display: flex; flex-wrap: wrap; gap: .4rem; justify-content: center; --ui-card-w: 56px; }
+.pr-ranks[hidden] { display: none; }
+.pr-rank-btn { background: none; border: none; padding: 0; cursor: pointer; border-radius: 8px; }
+.pr-rank-btn:disabled { cursor: default; opacity: .5; }
+.pr-rank-card { display: flex; align-items: center; justify-content: center; transition: transform .1s ease; }
+.pr-rank-btn:not(:disabled):hover .pr-rank-card { transform: translateY(-6px); }
+.pr-rank-face {
+  font-family: Georgia, "Times New Roman", serif; font-weight: 700; color: #16181d;
+  font-size: calc(var(--ui-card-w, 46px) * 0.5); letter-spacing: -0.04em;
+}
+
+/* ------------------------------------------------------------------ page + motion */
+
 @media (min-width: 1000px) {
   body.presidenten-wide .wrap {
     display: grid;
@@ -91,17 +231,26 @@
 }
 
 @media (max-width: 760px) {
-  /* Not enough room to float it over the felt — stack it under the pile. */
+  .pr-game {
+    --ui-card-w: 54px;
+    --pr-seat-rx: 44%;
+    --pr-trick-rx: 20%;
+    --pr-trick-ry: 20%;
+  }
+  .pr-table-wrap { aspect-ratio: 4 / 5; }
+  .pr-rail { inset: 6% 6%; padding: 9px; }
+  .pr-seat { width: 104px; }
+  .pr-plate { min-width: 0; padding: .2rem .5rem .2rem .2rem; gap: .3rem; }
+  .pr-avatar { width: 24px; height: 24px; font-size: .75rem; }
+  .pr-seat-name { max-width: 62px; font-size: .72rem; }
+  .pr-seat-sub { font-size: .7rem; }
   .pr-last-trick {
-    position: static; max-width: none; margin-top: .5rem;
-    order: 3; align-self: stretch;
+    position: static; max-width: none; margin-top: .5rem; --ui-card-w: 34px;
   }
 }
 
-@media (max-width: 600px) {
-  .pr-game { --ui-card-w: 58px; }
-  .pr-table { padding: 1rem; border-radius: 24px; }
-  .pr-players { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .pr-players li { flex-direction: column; gap: .3rem; }
+@media (prefers-reduced-motion: reduce) {
+  .pr-game *, .pr-game *::before, .pr-game *::after {
+    animation: none !important; transition: none !important;
+  }
 }
-@media (prefers-reduced-motion: reduce) { .pr-game * { animation: none !important; transition: none !important; } }

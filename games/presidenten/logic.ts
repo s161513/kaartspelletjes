@@ -429,10 +429,12 @@ export function playerView(
         cardCount: state.hands[id]?.length ?? 0,
         finishPlace: place < 0 ? null : place + 1,
         role: state.roles?.[id] ?? null,
+        passed: state.passedThisTrick.includes(id),
       };
     }),
     pileCount: state.pile.length,
     pileTop: state.top ? structuredClone(state.top) : null,
+    topBy: state.lastPlayerId,
     turn,
     currentCount: state.currentCount,
     currentRank: state.currentRankValue === null ? null : rankLabel(state.currentRankValue),

@@ -1,4 +1,5 @@
 import { RANK_VALUES, type Card, type Rank } from "@app/shared";
+import type { ExchangePair, Role } from "./types.js";
 
 // Four of the same effective rank — laid at once or accumulated across
 // consecutive plays — burns the pile.
@@ -6,6 +7,63 @@ export const BURN_THRESHOLD = 4;
 
 // How long each player has to act before the server auto-resolves their turn.
 export const TURN_MS = 30_000;
+
+// Deal enough decks that every player gets at least this many cards, so the
+// game stays playable from 3 up to arbitrarily many players.
+export const MIN_CARDS_PER_PLAYER = 5;
+
+// The ranks a President may ask for, in Presidenten order (3 … A, then 2).
+export const REQUEST_RANKS: readonly Rank[] = [
+  "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A", "2",
+];
+
+// Human labels for the standings carried between hands.
+export const ROLE_LABEL: Record<Role, string> = {
+  "president": "President",
+  "vice-president": "Vice-President",
+  "winner": "Winner",
+  "citizen": "Citizen",
+  "loser": "Loser",
+  "vice-scum": "Vice-Scum",
+  "scum": "Scum",
+};
+
+/**
+ * Assign standings from a full finishing order (index 0 = first out = President).
+ * The field is split into thirds — the top `floor(n/3)` are winners, the bottom
+ * `floor(n/3)` are losers, everyone between is a citizen. The two extremes get
+ * the President/Scum (and Vice-) titles.
+ */
+export function assignRoles(finished: readonly string[]): Record<string, Role> {
+  const n = finished.length;
+  const tier = Math.floor(n / 3);
+  const roles: Record<string, Role> = {};
+  finished.forEach((id, i) => {
+    const fromBottom = n - i; // 1 = last place
+    if (i < tier) {
+      roles[id] = i === 0 ? "president" : i === 1 ? "vice-president" : "winner";
+    } else if (fromBottom <= tier) {
+      roles[id] = fromBottom === 1 ? "scum" : fromBottom === 2 ? "vice-scum" : "loser";
+    } else {
+      roles[id] = "citizen";
+    }
+  });
+  return roles;
+}
+
+/**
+ * Pair the i-th best winner with the i-th worst loser (President↔Scum first),
+ * for `floor(n/3)` pairs. Citizens in the middle do not exchange.
+ */
+export function exchangePairs(finished: readonly string[]): ExchangePair[] {
+  const n = finished.length;
+  const tier = Math.floor(n / 3);
+  const pairs: ExchangePair[] = [];
+  for (let i = 0; i < tier; i++) {
+    pairs.push({ winner: finished[i], loser: finished[n - 1 - i] });
+  }
+  return pairs;
+}
 
 // Reverse of RANK_VALUES, for labelling the rank-to-beat in the player view.
 const VALUE_TO_RANK = new Map<number, Rank>(
@@ -75,8 +133,7 @@ export function advanceRun(
  * Can `hand` legally follow the table at effective rank value `minValue` or
  * higher, playing **at least** `minCount` cards (more is allowed, never fewer)?
  * A group may use 2s as wild fillers but needs at least one non-2 to set the
- * rank, and a hand-emptying group may contain no 2 (you cannot go out on a 2).
- * Used to auto-skip a stuck follower and to warn in the UI.
+ * rank. Used to auto-skip a stuck follower and to warn in the UI.
  */
 export function hasLegalFollow(
   hand: readonly Card[],
@@ -93,9 +150,6 @@ export function hasLegalFollow(
   for (const [value, n] of byValue) {
     if (value < minValue) continue; // must meet or beat the rank
     if (n + twos < minCount) continue; // not enough cards to reach the minimum
-    // The only group that empties the whole hand is exactly minCount === hand.length;
-    // it must then use no 2 (n >= minCount), else going out on a 2 is illegal.
-    if (minCount === hand.length && n < minCount) continue;
     return true;
   }
   return false;

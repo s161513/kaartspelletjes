@@ -4,29 +4,46 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Classroom Games</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
     <div class="wrap">
-      <h1>🎮 Classroom Games</h1>
+      <header class="hero">
+        <span class="brandmark" aria-hidden="true"><span class="bm-back">♥</span><span class="bm-front">♠</span></span>
+        <div>
+          <h1>Classroom Games</h1>
+          <p class="tagline">Pull up a chair — join a table or open your own.</p>
+        </div>
+      </header>
+
       <div class="card">
-        <label for="nickname">Your nickname</label>
+        <label for="nickname">Your name</label>
         <input id="nickname" type="text" placeholder="e.g. Alice" maxlength="24" autocomplete="off" />
 
-        <div class="row">
-          <button id="create">Create a room</button>
-        </div>
-
-        <hr style="border-color: var(--panel-2); margin: 1.5rem 0" />
-
-        <label for="roomCode">Join an existing room</label>
-        <input id="roomCode" type="text" placeholder="Room code (e.g. QK4R)" maxlength="8" autocomplete="off" style="text-transform: uppercase" />
-        <div class="row">
-          <button id="join" class="secondary">Join room</button>
-        </div>
-
+        <form class="create-form" id="createForm">
+          <div>
+            <label for="roomName">New room</label>
+            <input id="roomName" type="text" placeholder="Room name (optional)" maxlength="32" autocomplete="off" />
+          </div>
+          <div>
+            <label for="roomPassword">Password</label>
+            <input id="roomPassword" type="password" placeholder="Optional" maxlength="64" autocomplete="new-password" />
+          </div>
+          <button type="submit" id="create">Create room</button>
+        </form>
         <p id="error" class="error"></p>
       </div>
+
+      <div class="section-head">
+        <h2>Open rooms</h2>
+        <span class="muted" id="roomCount"></span>
+      </div>
+      <ul class="room-list" id="roomList">
+        <li class="room-empty">Loading rooms…</li>
+      </ul>
     </div>
     <script type="module" src="/src/landing.ts"></script>
   </body>

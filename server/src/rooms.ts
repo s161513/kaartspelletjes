@@ -5,6 +5,7 @@ import {
   type GameId,
   type GameState,
   type PlayerPublic,
+  type RoomSummary,
   type ServerMessage,
   type SpectatorPublic,
 } from "@app/shared";
@@ -27,6 +28,10 @@ export interface GameRuntime {
 
 export interface Room {
   code: string;
+  /** Shown in the room list. */
+  name: string;
+  /** Required to join or watch; null for an open room. Never sent to clients. */
+  password: string | null;
   players: Map<string, Player>;
   /** Watchers with no seat. Never passed to game logic; see spectatorView. */
   spectators: Map<string, Player>;
@@ -47,6 +52,9 @@ const GRACE_MS = 30_000;
 
 export class RoomManager {
   private rooms = new Map<string, Room>();
+  /** Sockets on the landing page that want the live room list. */
+  private roomWatchers = new Set<WebSocket>();
+  private listQueued = false;
 
   private generateCode(): string {
     let code: string;
@@ -59,10 +67,12 @@ export class RoomManager {
     return code;
   }
 
-  createRoom(): Room {
+  createRoom(name = "Room", password: string | null = null): Room {
     const code = this.generateCode();
     const room: Room = {
       code,
+      name,
+      password,
       players: new Map(),
       spectators: new Map(),
       hostId: null,
@@ -75,6 +85,63 @@ export class RoomManager {
 
   getRoom(code: string): Room | undefined {
     return this.rooms.get(code.toUpperCase());
+  }
+
+  /** Does `attempt` open this room? Open rooms accept anything. */
+  checkPassword(room: Room, attempt: unknown): boolean {
+    return room.password === null || String(attempt ?? "").trim() === room.password;
+  }
+
+  /** Name + lock flag, spread into every joined/roomState message. */
+  roomInfo(room: Room): { roomName: string; locked: boolean } {
+    return { roomName: room.name, locked: room.password !== null };
+  }
+
+  /** Rooms worth listing: someone is actually connected (not just in the grace window). */
+  roomList(): RoomSummary[] {
+    const list: RoomSummary[] = [];
+    for (const room of this.rooms.values()) {
+      const players = [...room.players.values()].filter((p) => p.connected).length;
+      if (players === 0) continue;
+      list.push({
+        code: room.code,
+        name: room.name,
+        hostName: (room.hostId && room.players.get(room.hostId)?.nickname) || null,
+        players,
+        spectators: [...room.spectators.values()].filter((s) => s.connected).length,
+        locked: room.password !== null,
+        gameId: this.currentGameId(room),
+      });
+    }
+    // Waiting rooms first (you can join those), then by name.
+    return list.sort((a, b) => Number(a.gameId !== null) - Number(b.gameId !== null) || a.name.localeCompare(b.name));
+  }
+
+  watchRooms(ws: WebSocket): void {
+    this.roomWatchers.add(ws);
+    this.sendRoomList(ws);
+  }
+
+  unwatchRooms(ws: WebSocket): void {
+    this.roomWatchers.delete(ws);
+  }
+
+  private sendRoomList(ws: WebSocket): void {
+    if (ws.readyState !== 1) return;
+    ws.send(JSON.stringify({ type: "roomList", rooms: this.roomList() } satisfies ServerMessage));
+  }
+
+  /** Push the list to every watcher; coalesced so one change sends one update. */
+  notifyRoomWatchers(): void {
+    if (this.listQueued || this.roomWatchers.size === 0) return;
+    this.listQueued = true;
+    queueMicrotask(() => {
+      this.listQueued = false;
+      for (const ws of this.roomWatchers) {
+        if (ws.readyState > 1) this.roomWatchers.delete(ws); // closing/closed
+        else this.sendRoomList(ws);
+      }
+    });
   }
 
   addPlayer(room: Room, player: Player): void {
@@ -161,6 +228,7 @@ export class RoomManager {
       if (stillEmpty) {
         clearTimeout(room.runtime?.timer);
         this.rooms.delete(room.code);
+        this.notifyRoomWatchers();
       }
     }, GRACE_MS);
   }
@@ -338,12 +406,14 @@ export class RoomManager {
   sendRoomState(room: Room): void {
     this.broadcast(room, {
       type: "roomState",
+      ...this.roomInfo(room),
       players: this.publicPlayers(room),
       hostId: room.hostId ?? "",
       currentGameId: this.currentGameId(room),
       spectators: this.publicSpectators(room),
       joinable: this.joinable(room),
     });
+    this.notifyRoomWatchers();
   }
 
   broadcast(room: Room, msg: ServerMessage): void {

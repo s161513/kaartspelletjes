@@ -2,6 +2,7 @@ import type { GameContext, GameMeta, GamePage, PlayerPublic, SpectatorPublic } f
 import { GameSocket } from "./ws.js";
 import { session } from "./session.js";
 import { setupChat } from "./chat.js";
+import { iconBadge } from "./icons.js";
 
 /**
  * Wire up a per-game page: shared chrome (socket, chat, status, back, error,
@@ -9,7 +10,7 @@ import { setupChat } from "./chat.js";
  * Called by client/src/game.ts with the view and meta of the game in the URL.
  *
  * Expected DOM ids: #status, #gameRoot, #back, #error, #chatLog, #chatForm,
- * #chatInput, and optionally #gameTitle and #leaveGame.
+ * #chatInput, and optionally #gameTitle, #gameIcon, #endGame and #leaveGame.
  */
 export function setupGamePage<State>(
   page: GamePage<State>,
@@ -27,6 +28,7 @@ export function setupGamePage<State>(
   const errEl = document.getElementById("error") as HTMLParagraphElement;
   const titleEl = document.getElementById("gameTitle");
   if (titleEl) titleEl.textContent = meta.title;
+  document.getElementById("gameIcon")?.replaceChildren(iconBadge(meta, 38));
   document.title = `${meta.title} · Classroom Games`;
 
   const socket = new GameSocket();
@@ -153,6 +155,25 @@ export function setupGamePage<State>(
 
   let mounted = false;
   let gameOver = false;
+  let hostId = "";
+
+  // The host can stop the game (or, once it is over, call everyone back) and
+  // the whole room returns to the lobby together.
+  const endBtn = document.getElementById("endGame") as HTMLButtonElement | null;
+  const renderEndButton = () => {
+    if (!endBtn) return;
+    endBtn.hidden = isSpectator || hostId !== session.playerId || !mounted;
+    endBtn.textContent = gameOver ? "Everyone to lobby" : "End game";
+  };
+  endBtn?.addEventListener("click", () => {
+    if (!gameOver && !confirm("End the game for everyone and go back to the lobby?")) return;
+    socket.send({ type: "endGame" });
+  });
+  socket.on("gameEnded", (msg) => {
+    // Chat is not kept across pages, so carry the reason over to the lobby.
+    sessionStorage.setItem("cg.notice", `${msg.by} ended the game.`);
+    location.href = "/lobby.html";
+  });
 
   const ensureMounted = () => {
     if (!mounted) {
@@ -171,6 +192,7 @@ export function setupGamePage<State>(
     errEl.textContent = "";
     ensureMounted();
     page.update(msg.state as State, ctx);
+    renderEndButton();
   });
 
   socket.on("gameState", (msg) => {
@@ -186,6 +208,7 @@ export function setupGamePage<State>(
     }
     gameOver = true;
     ensureMounted();
+    renderEndButton();
     page.update(msg.state as State, ctx);
     page.onGameOver?.(msg.winner, msg.state as State, ctx);
     if (msg.winner === "draw") {
@@ -208,13 +231,17 @@ export function setupGamePage<State>(
   // Landed here with no active game (e.g. direct nav / game already ended) and
   // nothing rendered yet → go back to the lobby.
   socket.on("joined", (msg) => {
+    hostId = msg.hostId;
     rememberPlayers(msg.players);
     applyRoomMembership(msg.players, msg.spectators, msg.joinable);
+    renderEndButton();
   });
 
   socket.on("roomState", (msg) => {
+    hostId = msg.hostId;
     rememberPlayers(msg.players);
     applyRoomMembership(msg.players, msg.spectators, msg.joinable);
+    renderEndButton();
     page.onRoomState?.(ctx);
     if (msg.currentGameId === null && !gameOver && !mounted) {
       location.href = "/lobby.html";

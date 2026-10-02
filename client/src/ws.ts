@@ -13,6 +13,7 @@ type Handler<T extends ServerMessage["type"]> = (
 export class GameSocket {
   private ws: WebSocket | null = null;
   private handlers = new Map<string, Set<(m: ServerMessage) => void>>();
+  private openHandlers = new Set<() => void>();
   private queue: ClientMessage[] = [];
   private reconnectTimer: number | null = null;
   private manualClose = false;
@@ -40,6 +41,7 @@ export class GameSocket {
         });
       }
       for (const m of this.queue.splice(0)) this.sendNow(m);
+      for (const h of this.openHandlers) h();
     };
 
     ws.onmessage = (ev) => {
@@ -90,6 +92,12 @@ export class GameSocket {
       this.handlers.set(type, set);
     }
     set.add(handler as (m: ServerMessage) => void);
+  }
+
+  /** Run on every (re)connect, e.g. to renew a subscription the old socket held. */
+  onOpen(handler: () => void): void {
+    this.openHandlers.add(handler);
+    if (this.connected) handler();
   }
 
   close(): void {

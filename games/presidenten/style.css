@@ -8,10 +8,37 @@
 .pr-active { outline: 2px solid var(--accent-2); }
 
 .pr-table {
+  position: relative;
   background: radial-gradient(ellipse, #215e43, #143d2d);
   border: 5px solid #365946; border-radius: 35px; padding: 1.5rem; margin: 1rem 0;
   text-align: center; min-height: 220px;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1rem;
+}
+
+/* Last completed trick, pinned to the top-right of the felt. */
+.pr-last-trick {
+  position: absolute; top: .6rem; right: .6rem; width: auto; max-width: 240px;
+  text-align: left; display: flex; flex-direction: column; gap: .3rem;
+  background: rgba(0, 0, 0, .28); border-radius: 10px; padding: .5rem .6rem;
+  font-size: .78rem; color: #d7ebdc; backdrop-filter: blur(2px);
+  --ui-card-w: 40px;
+}
+.pr-last-trick[hidden] { display: none; }
+.pr-lt-title { font-weight: 600; color: #b6f7c5; }
+.pr-lt-who { overflow-wrap: anywhere; }
+.pr-lt-cards { display: flex; gap: .25rem; flex-wrap: wrap; }
+
+/* Between-hand card exchange (rendered inside the popup). The rank picker uses
+   card-shaped faces that show only the rank — no suit, since you are guessing. */
+.pr-ranks { display: flex; flex-wrap: wrap; gap: .4rem; justify-content: center; --ui-card-w: 56px; }
+.pr-ranks[hidden] { display: none; }
+.pr-rank-btn { background: none; border: none; padding: 0; cursor: pointer; border-radius: 8px; }
+.pr-rank-btn:disabled { cursor: default; opacity: .5; }
+.pr-rank-card { display: flex; align-items: center; justify-content: center; transition: transform .1s ease; }
+.pr-rank-btn:not(:disabled):hover .pr-rank-card { transform: translateY(-6px); }
+.pr-rank-face {
+  font-family: Georgia, "Times New Roman", serif; font-weight: 700; color: #16181d;
+  font-size: calc(var(--ui-card-w, 46px) * 0.5); letter-spacing: -0.04em;
 }
 .pr-pile { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; justify-content: center; }
 .pr-pile-count { color: #d3e8d8; font-size: .95rem; width: 100%; }
@@ -28,10 +55,48 @@
 .pr-hand { display: flex; gap: .4rem; flex-wrap: wrap; margin-top: .5rem; }
 .pr-card-button { background: none; border: none; padding: 0; cursor: pointer; border-radius: 8px; }
 .pr-card-button:disabled { cursor: default; opacity: .9; }
+.pr-card-button.pr-dim { opacity: .3; }
 .pr-card-button .ui-card { transition: transform .1s ease; }
 .pr-card-button:not(:disabled):hover .ui-card { transform: translateY(-6px); }
 .ui-card.pr-selected { transform: translateY(-12px); outline: 3px solid var(--accent-2); }
 .pr-help { font-size: .85rem; color: var(--muted); margin-top: 1rem; }
+
+/* Interactive overlay card-picker, shown on your turn with the board dimmed behind. */
+.pr-overlay {
+  position: fixed; inset: 0; z-index: 50;
+  display: flex; align-items: center; justify-content: center; padding: 1rem;
+  background: rgba(0, 0, 0, .6); backdrop-filter: blur(2px);
+}
+.pr-overlay[hidden] { display: none; }
+.pr-overlay-panel {
+  background: var(--card, #1b1f2a); border-radius: 16px; padding: 1.25rem;
+  max-width: min(680px, 95vw); max-height: 90dvh; overflow-y: auto;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, .5); text-align: center;
+}
+.pr-overlay-title { margin: 0 0 .5rem; font-size: 1.05rem; font-weight: 600; }
+.pr-overlay-msg { margin: 0 0 1rem; color: var(--muted); font-size: .9rem; }
+.pr-overlay-hand { display: flex; gap: .4rem; flex-wrap: wrap; justify-content: center; }
+.pr-overlay-hand[hidden] { display: none; }
+
+/* Wide screens: move the shared chat into a right-hand column, like the other games. */
+@media (min-width: 1000px) {
+  body.presidenten-wide .wrap {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 300px;
+    column-gap: 1rem;
+    align-items: start;
+  }
+  body.presidenten-wide .game-header { grid-column: 1 / -1; }
+  body.presidenten-wide .chat-log { height: calc(100dvh - 210px); min-height: 200px; }
+}
+
+@media (max-width: 760px) {
+  /* Not enough room to float it over the felt — stack it under the pile. */
+  .pr-last-trick {
+    position: static; max-width: none; margin-top: .5rem;
+    order: 3; align-self: stretch;
+  }
+}
 
 @media (max-width: 600px) {
   .pr-game { --ui-card-w: 58px; }

@@ -1,4 +1,4 @@
-import type { PlayerPublic, GameMeta } from "@app/shared";
+import type { PlayerPublic, SpectatorPublic, GameMeta } from "@app/shared";
 import { GameSocket } from "./ws.js";
 import { session } from "./session.js";
 import { setupChat } from "./chat.js";
@@ -14,6 +14,9 @@ const playersEl = document.getElementById("players") as HTMLUListElement;
 const gameListEl = document.getElementById("gameList") as HTMLDivElement;
 const leaveBtn = document.getElementById("leave") as HTMLButtonElement;
 const hintEl = document.getElementById("hint") as HTMLParagraphElement;
+const spectatorsBox = document.getElementById("spectatorsBox") as HTMLDivElement;
+const spectatorsEl = document.getElementById("spectators") as HTMLUListElement;
+const joinAsPlayerBtn = document.getElementById("joinAsPlayer") as HTMLButtonElement;
 
 roomCodeEl.textContent = session.roomCode;
 
@@ -60,6 +63,27 @@ function renderPlayers(players: PlayerPublic[], hostId: string): void {
   }
 }
 
+function renderSpectators(spectators: SpectatorPublic[]): void {
+  const amSpectator = spectators.some((s) => s.id === session.playerId);
+  spectatorsBox.style.display = spectators.length ? "block" : "none";
+  spectatorsEl.innerHTML = "";
+  for (const s of spectators) {
+    const li = document.createElement("li");
+    const name = document.createElement("span");
+    name.textContent = "👀 " + s.nickname + (s.id === session.playerId ? " (you)" : "");
+    li.appendChild(name);
+
+    const badge = document.createElement("span");
+    badge.className = "badge" + (s.connected ? "" : " off");
+    badge.textContent = s.connected ? "online" : "away";
+    li.appendChild(badge);
+
+    spectatorsEl.appendChild(li);
+  }
+  // A watcher who ended up back in the lobby can take a seat for the next game.
+  joinAsPlayerBtn.style.display = amSpectator ? "inline-block" : "none";
+}
+
 function fits(meta: GameMeta, count: number): boolean {
   return count >= meta.minPlayers && count <= meta.maxPlayers;
 }
@@ -97,6 +121,18 @@ function updateGameButtons(players: PlayerPublic[], hostId: string): void {
 socket.on("roomState", (msg) => {
   renderPlayers(msg.players, msg.hostId);
   updateGameButtons(msg.players, msg.hostId);
+  renderSpectators(msg.spectators ?? []);
+  // If we were a watcher and have now been seated, we're a normal player again.
+  if (msg.players.some((p) => p.id === session.playerId)) session.role = "player";
+});
+
+socket.on("joined", (msg) => {
+  session.role = msg.role ?? "player";
+  renderSpectators(msg.spectators ?? []);
+});
+
+joinAsPlayerBtn.addEventListener("click", () => {
+  socket.send({ type: "joinNextRound" });
 });
 
 // When a game begins (started by anyone, incl. us) go to that game's page.

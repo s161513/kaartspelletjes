@@ -4,6 +4,7 @@ const KEYS = {
   nickname: "cg.nickname",
   roomCode: "cg.roomCode",
   playerId: "cg.playerId",
+  role: "cg.role",
 } as const;
 
 export const session = {
@@ -28,8 +29,17 @@ export const session = {
     sessionStorage.setItem(KEYS.playerId, v);
   },
 
+  /** "spectator" while watching, "player" (default) once seated. */
+  get role(): "player" | "spectator" {
+    return sessionStorage.getItem(KEYS.role) === "spectator" ? "spectator" : "player";
+  },
+  set role(v: "player" | "spectator") {
+    sessionStorage.setItem(KEYS.role, v);
+  },
+
   clearRoom(): void {
     sessionStorage.removeItem(KEYS.roomCode);
     sessionStorage.removeItem(KEYS.playerId);
+    sessionStorage.removeItem(KEYS.role);
   },
 };

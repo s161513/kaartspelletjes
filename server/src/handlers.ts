@@ -88,6 +88,7 @@ export function attachConnection(ws: WebSocket, manager: RoomManager): void {
   });
 
   ws.on("close", () => {
+    manager.unwatchRooms(ws);
     if (!conn.roomCode || !conn.playerId) return;
     const room = manager.getRoom(conn.roomCode);
     if (!room) return;
@@ -111,7 +112,8 @@ function handle(conn: Conn, manager: RoomManager, msg: ClientMessage): void {
     case "create": {
       const nickname = sanitizeNick(msg.nickname);
       if (!nickname) return err(ws, "bad_nick", "Nickname required");
-      const room = manager.createRoom();
+      const name = sanitizeText(msg.roomName, 32) ?? `${nickname}'s room`;
+      const room = manager.createRoom(name, sanitizeText(msg.password, 64));
       bindNewPlayer(conn, manager, room, nickname);
       return;
     }
@@ -119,15 +121,16 @@ function handle(conn: Conn, manager: RoomManager, msg: ClientMessage): void {
     case "join": {
       const nickname = sanitizeNick(msg.nickname);
       if (!nickname) return err(ws, "bad_nick", "Nickname required");
-      const room = manager.getRoom(msg.roomCode);
+      const room = manager.getRoom(String(msg.roomCode ?? ""));
       if (!room) return err(ws, "no_room", "Room not found");
+      if (!manager.checkPassword(room, msg.password)) return err(ws, "bad_password", "Wrong password");
       if (room.runtime) return err(ws, "in_progress", "Game already started");
       bindNewPlayer(conn, manager, room, nickname);
       return;
     }
 
     case "rejoin": {
-      const room = manager.getRoom(msg.roomCode);
+      const room = manager.getRoom(String(msg.roomCode ?? ""));
       if (!room) return err(ws, "no_room", "Room not found");
 
       // A watcher reconnecting: restore their spectator seat, re-send the safe view.
@@ -143,6 +146,7 @@ function handle(conn: Conn, manager: RoomManager, msg: ClientMessage): void {
           type: "joined",
           playerId: spectator.id,
           roomCode: room.code,
+          ...manager.roomInfo(room),
           players: manager.publicPlayers(room),
           hostId: room.hostId ?? "",
           role: "spectator",
@@ -171,6 +175,7 @@ function handle(conn: Conn, manager: RoomManager, msg: ClientMessage): void {
         type: "joined",
         playerId: player.id,
         roomCode: room.code,
+        ...manager.roomInfo(room),
         players: manager.publicPlayers(room),
         hostId: room.hostId ?? "",
       });
@@ -287,11 +292,13 @@ function handle(conn: Conn, manager: RoomManager, msg: ClientMessage): void {
     case "spectate": {
       const nickname = sanitizeNick(msg.nickname);
       if (!nickname) return err(ws, "bad_nick", "Nickname required");
-      const room = manager.getRoom(msg.roomCode);
+      const room = manager.getRoom(String(msg.roomCode ?? ""));
       if (!room) return err(ws, "no_room", "Room not found");
+      if (!manager.checkPassword(room, msg.password)) return err(ws, "bad_password", "Wrong password");
       if (!room.runtime) return err(ws, "not_in_progress", "Nothing to watch — join as a player");
 
       const spectator: Player = { id: randomUUID(), nickname, ws, connected: true };
+      manager.unwatchRooms(ws);
       manager.addSpectator(room, spectator);
       conn.roomCode = room.code;
       conn.playerId = spectator.id;
@@ -301,6 +308,7 @@ function handle(conn: Conn, manager: RoomManager, msg: ClientMessage): void {
         type: "joined",
         playerId: spectator.id,
         roomCode: room.code,
+        ...manager.roomInfo(room),
         players: manager.publicPlayers(room),
         hostId: room.hostId ?? "",
         role: "spectator",
@@ -341,6 +349,37 @@ function handle(conn: Conn, manager: RoomManager, msg: ClientMessage): void {
       return;
     }
 
+    case "endGame": {
+      const room = requireRoom(conn, manager);
+      if (!room) return;
+      if (conn.isSpectator || room.hostId !== conn.playerId)
+        return err(ws, "not_host", "Only the host can end the game");
+      if (!room.runtime && !room.lastGame) return err(ws, "no_game", "No game to end");
+
+      clearTimeout(room.runtime?.timer);
+      room.runtime = null;
+      room.lastGame = undefined;
+      // Watchers stay watchers in the lobby; a queued "join next round" is moot.
+      for (const s of room.spectators.values()) delete s.wantsPlay;
+
+      const by = room.players.get(conn.playerId!)?.nickname ?? "The host";
+      manager.broadcast(room, { type: "gameEnded", by });
+      manager.broadcast(room, { type: "chat", from: "🛑", text: `${by} ended the game`, ts: Date.now() });
+      sendRoomState(manager, room);
+      return;
+    }
+
+    case "watchRooms": {
+      if (conn.roomCode) return; // already in a room — the list is for the landing page
+      manager.watchRooms(ws);
+      return;
+    }
+
+    case "unwatchRooms": {
+      manager.unwatchRooms(ws);
+      return;
+    }
+
     default:
       return err(ws, "unknown_type", "Unknown message type");
   }
@@ -358,6 +397,7 @@ function bindNewPlayer(
     ws: conn.ws,
     connected: true,
   };
+  manager.unwatchRooms(conn.ws);
   manager.addPlayer(room, player);
   conn.roomCode = room.code;
   conn.playerId = player.id;
@@ -366,6 +406,7 @@ function bindNewPlayer(
     type: "joined",
     playerId: player.id,
     roomCode: room.code,
+    ...manager.roomInfo(room),
     players: manager.publicPlayers(room),
     hostId: room.hostId ?? "",
   });
@@ -393,6 +434,12 @@ function requireRoom(conn: Conn, manager: RoomManager): Room | null {
 }
 
 function sanitizeNick(raw: unknown): string | null {
-  const s = String(raw ?? "").trim().slice(0, 24);
+  return sanitizeText(raw, 24);
+}
+
+/** Trimmed, length-capped text, or null when missing/empty. */
+function sanitizeText(raw: unknown, max: number): string | null {
+  if (raw === undefined || raw === null) return null;
+  const s = String(raw).trim().slice(0, max);
   return s.length > 0 ? s : null;
 }

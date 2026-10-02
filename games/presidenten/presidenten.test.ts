@@ -27,6 +27,7 @@ function makeState(hands: Record<string, string>, over: Partial<PresidentenState
     currentCount: null, currentRankValue: null, runRankValue: null, runCount: 0,
     lastPlayerId: null, passedThisTrick: [], phase: "PLAY", winner: null, version: 0,
     deadline: null, round: 1, roles: null, exchange: null, left: [], lastTrick: null,
+    joining: [],
     ...over,
   };
 }

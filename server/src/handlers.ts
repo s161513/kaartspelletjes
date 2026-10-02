@@ -9,6 +9,8 @@ interface Conn {
   ws: WebSocket;
   roomCode: string | null;
   playerId: string | null;
+  /** This socket is a watcher, not a seated player. */
+  isSpectator: boolean;
 }
 
 function send(ws: WebSocket, msg: ServerMessage): void {
@@ -30,8 +32,11 @@ function publish(manager: RoomManager, room: Room, next: unknown): void {
     room.runtime = null;
     sendRoomState(manager, room);
   } else {
+    // Seat any committed watcher the new state has dealt in, before projecting.
+    const migrated = manager.reconcileJoiners(room);
     manager.sendGame(room, "gameState");
     manager.scheduleGame(room);
+    if (migrated.length) sendRoomState(manager, room);
   }
 }
 
@@ -57,16 +62,11 @@ function playerLeftGame(manager: RoomManager, room: Room, playerId: string): voi
 
 /** Broadcast the current room snapshot to everyone in it. */
 function sendRoomState(manager: RoomManager, room: Room): void {
-  manager.broadcast(room, {
-    type: "roomState",
-    players: manager.publicPlayers(room),
-    hostId: room.hostId ?? "",
-    currentGameId: manager.currentGameId(room),
-  });
+  manager.sendRoomState(room);
 }
 
 export function attachConnection(ws: WebSocket, manager: RoomManager): void {
-  const conn: Conn = { ws, roomCode: null, playerId: null };
+  const conn: Conn = { ws, roomCode: null, playerId: null, isSpectator: false };
 
   ws.on("message", (raw) => {
     let msg: ClientMessage;
@@ -93,8 +93,12 @@ export function attachConnection(ws: WebSocket, manager: RoomManager): void {
     if (!room) return;
     // A newer socket may already own this seat (page navigation or a reload
     // whose rejoin arrived before this close). Then this close means nothing.
-    if (room.players.get(conn.playerId)?.ws !== ws) return;
-    manager.disconnect(room, conn.playerId);
+    const seat = conn.isSpectator
+      ? room.spectators.get(conn.playerId)
+      : room.players.get(conn.playerId);
+    if (seat?.ws !== ws) return;
+    if (conn.isSpectator) manager.disconnectSpectator(room, conn.playerId);
+    else manager.disconnect(room, conn.playerId);
     // Room may have been pruned; only broadcast if it still exists.
     if (manager.getRoom(conn.roomCode)) sendRoomState(manager, room);
   });
@@ -125,11 +129,39 @@ function handle(conn: Conn, manager: RoomManager, msg: ClientMessage): void {
     case "rejoin": {
       const room = manager.getRoom(msg.roomCode);
       if (!room) return err(ws, "no_room", "Room not found");
+
+      // A watcher reconnecting: restore their spectator seat, re-send the safe view.
+      const spectator = room.spectators.get(msg.playerId);
+      if (spectator) {
+        manager.cancelPrune(room);
+        spectator.ws = ws;
+        spectator.connected = true;
+        conn.roomCode = room.code;
+        conn.playerId = spectator.id;
+        conn.isSpectator = true;
+        send(ws, {
+          type: "joined",
+          playerId: spectator.id,
+          roomCode: room.code,
+          players: manager.publicPlayers(room),
+          hostId: room.hostId ?? "",
+          role: "spectator",
+          spectators: manager.publicSpectators(room),
+          joinable: manager.joinable(room),
+        });
+        if (room.runtime || room.lastGame) {
+          manager.sendSpectate(room, room.runtime ? "gameStarted" : "gameOver", { only: spectator.id });
+        }
+        sendRoomState(manager, room);
+        return;
+      }
+
       const player = room.players.get(msg.playerId);
       if (!player) return err(ws, "no_seat", "No seat to rejoin");
       manager.cancelPrune(room); // recovered before deletion — keep it alive
       player.ws = ws;
       player.connected = true;
+      conn.isSpectator = false;
       manager.updateGamePlayers(room);
       if (!room.hostId) room.hostId = player.id;
       conn.roomCode = room.code;
@@ -153,12 +185,14 @@ function handle(conn: Conn, manager: RoomManager, msg: ClientMessage): void {
     case "chat": {
       const room = requireRoom(conn, manager);
       if (!room) return;
-      const player = room.players.get(conn.playerId!);
+      const sender = conn.isSpectator
+        ? room.spectators.get(conn.playerId!)
+        : room.players.get(conn.playerId!);
       const text = String(msg.text ?? "").slice(0, 500).trim();
-      if (!player || !text) return;
+      if (!sender || !text) return;
       manager.broadcast(room, {
         type: "chat",
-        from: player.nickname,
+        from: conn.isSpectator ? `👀 ${sender.nickname}` : sender.nickname,
         text,
         ts: Date.now(),
       });
@@ -195,6 +229,7 @@ function handle(conn: Conn, manager: RoomManager, msg: ClientMessage): void {
     case "move": {
       const room = requireRoom(conn, manager);
       if (!room) return;
+      if (conn.isSpectator) return err(ws, "spectating", "Spectators cannot make moves");
       if (!room.runtime) return err(ws, "no_game", "No game in progress");
 
       const { game, state } = room.runtime;
@@ -210,21 +245,99 @@ function handle(conn: Conn, manager: RoomManager, msg: ClientMessage): void {
     case "leave": {
       const room = manager.getRoom(conn.roomCode ?? "");
       if (room && conn.playerId) {
-        const nickname = room.players.get(conn.playerId)?.nickname ?? "A player";
-        manager.removePlayer(room, conn.playerId);
-        if (manager.getRoom(room.code)) {
-          manager.broadcast(room, {
-            type: "chat",
-            from: "🚪",
-            text: `${nickname} left the room`,
-            ts: Date.now(),
-          });
-          if (room.runtime) playerLeftGame(manager, room, conn.playerId);
-          sendRoomState(manager, room);
+        if (conn.isSpectator) {
+          const spec = room.spectators.get(conn.playerId);
+          const nickname = spec?.nickname ?? "A watcher";
+          // A committed watcher who never got dealt in: drop them from the game's queue.
+          if (spec?.wantsPlay && room.runtime?.game.playerLeft) {
+            room.runtime.state = room.runtime.game.playerLeft(room.runtime.state, conn.playerId);
+            manager.sendGame(room, "gameState");
+          }
+          manager.removeSpectator(room, conn.playerId);
+          if (manager.getRoom(room.code)) {
+            manager.broadcast(room, {
+              type: "chat",
+              from: "👀",
+              text: `${nickname} stopped watching`,
+              ts: Date.now(),
+            });
+            sendRoomState(manager, room);
+          }
+        } else {
+          const nickname = room.players.get(conn.playerId)?.nickname ?? "A player";
+          manager.removePlayer(room, conn.playerId);
+          if (manager.getRoom(room.code)) {
+            manager.broadcast(room, {
+              type: "chat",
+              from: "🚪",
+              text: `${nickname} left the room`,
+              ts: Date.now(),
+            });
+            if (room.runtime) playerLeftGame(manager, room, conn.playerId);
+            sendRoomState(manager, room);
+          }
         }
       }
       conn.roomCode = null;
       conn.playerId = null;
+      conn.isSpectator = false;
+      return;
+    }
+
+    case "spectate": {
+      const nickname = sanitizeNick(msg.nickname);
+      if (!nickname) return err(ws, "bad_nick", "Nickname required");
+      const room = manager.getRoom(msg.roomCode);
+      if (!room) return err(ws, "no_room", "Room not found");
+      if (!room.runtime) return err(ws, "not_in_progress", "Nothing to watch — join as a player");
+
+      const spectator: Player = { id: randomUUID(), nickname, ws, connected: true };
+      manager.addSpectator(room, spectator);
+      conn.roomCode = room.code;
+      conn.playerId = spectator.id;
+      conn.isSpectator = true;
+
+      send(ws, {
+        type: "joined",
+        playerId: spectator.id,
+        roomCode: room.code,
+        players: manager.publicPlayers(room),
+        hostId: room.hostId ?? "",
+        role: "spectator",
+        spectators: manager.publicSpectators(room),
+        joinable: manager.joinable(room),
+      });
+      // Hand this watcher the current safe snapshot.
+      manager.sendSpectate(room, room.runtime ? "gameStarted" : "gameOver", { only: spectator.id });
+      sendRoomState(manager, room);
+      return;
+    }
+
+    case "joinNextRound": {
+      const room = requireRoom(conn, manager);
+      if (!room) return;
+      if (!conn.isSpectator) return err(ws, "not_spectating", "Only watchers can join");
+      const spectator = room.spectators.get(conn.playerId!);
+      if (!spectator) return err(ws, "no_seat", "No watcher seat");
+
+      // In the lobby (no game running) a watcher simply takes a seat.
+      if (!room.runtime) {
+        manager.migrateToPlayer(room, spectator.id);
+        conn.isSpectator = false;
+        const nickname = spectator.nickname;
+        manager.broadcast(room, {
+          type: "chat", from: "👋", text: `${nickname} joined as a player`, ts: Date.now(),
+        });
+        sendRoomState(manager, room);
+        return;
+      }
+
+      // Mid-game: only if the game supports it. Queue them for the next round.
+      if (!manager.joinable(room)) return err(ws, "not_joinable", "This game can't be joined mid-game");
+      if (spectator.wantsPlay) return; // already committed
+      spectator.wantsPlay = true;
+      room.runtime.state = room.runtime.game.addPlayer!(room.runtime.state, spectator.id);
+      sendRoomState(manager, room);
       return;
     }
 
@@ -269,7 +382,10 @@ function requireRoom(conn: Conn, manager: RoomManager): Room | null {
     err(conn.ws, "no_room", "Room no longer exists");
     return null;
   }
-  if (room.players.get(conn.playerId)?.ws !== conn.ws) {
+  const seat = conn.isSpectator
+    ? room.spectators.get(conn.playerId)
+    : room.players.get(conn.playerId);
+  if (seat?.ws !== conn.ws) {
     err(conn.ws, "no_seat", "This connection no longer owns a seat");
     return null;
   }

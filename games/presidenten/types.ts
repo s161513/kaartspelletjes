@@ -62,6 +62,7 @@ export interface PresidentenState {
   exchange: ExchangeState | null; // present only during the EXCHANGE phase
   left: string[]; // ids that have left the room and must be dropped on re-deal
   lastTrick: LastTrick | null; // most recent completed trick this hand (null on a fresh deal)
+  joining: string[]; // watchers queued to be dealt in (as citizens) at the next hand
 }
 
 // The exchange view a client receives while the EXCHANGE phase is active.

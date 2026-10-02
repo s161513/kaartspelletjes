@@ -1,41 +1,87 @@
-/* Presidenten table — a round felt with seats around it, same look as the other
-   games. Cards come from games/_ui/cards.css; every class is prefixed `pr-`. */
+/* Presidenten table — same look as poker/hartenjagen. Every class is prefixed
+   with `pr-`; cards come from games/_ui/cards.css. */
 
-.pr-game {
-  margin-top: 1rem;
-  --ui-card-w: 66px;
-  --pr-seat-rx: 48%;
-  --pr-seat-ry: 44%;
-  --pr-trick-rx: 17%;
-  --pr-trick-ry: 23%;
-  --pr-felt: #215e43;
-  --pr-felt-edge: #0e2e22;
+/* ------------------------------------------------------------------ page */
+
+body.pr-wide .wrap {
+  max-width: 1320px;
+  padding: 0.75rem 1rem;
+}
+
+body.pr-wide .game-header {
+  margin-bottom: 0.6rem;
+}
+
+body.pr-wide h1 {
+  font-size: 1.5rem;
+}
+
+body.pr-wide .wrap > .card {
+  padding: 0.75rem 1rem;
+  margin-bottom: 0.75rem;
+}
+
+@media (min-width: 1000px) {
+  body.pr-wide .wrap {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 300px;
+    column-gap: 1rem;
+    align-items: start;
+  }
+
+  body.pr-wide .game-header {
+    grid-column: 1 / -1;
+  }
+
+  body.pr-wide .chat-log {
+    height: calc(100dvh - 210px);
+    min-height: 200px;
+  }
+}
+
+.pr {
   --pr-gold: #f5c451;
+  --pr-gold-deep: #c8912a;
+  --pr-felt: #1f7a4c;
+  --pr-felt-edge: #0b3f27;
   --pr-glass: rgba(10, 16, 30, 0.82);
+  --pr-line: rgba(255, 255, 255, 0.12);
+  --pr-seat-rx: 46%;
+  --pr-seat-ry: 43%;
+  --ui-card-w: 52px;
+
   display: flex;
   flex-direction: column;
-  gap: .5rem;
+  gap: 0.5rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.pr [hidden] {
+  display: none !important;
 }
 
 /* ------------------------------------------------------------------ table */
 
-.pr-table-wrap {
+.pr-table {
   position: relative;
-  width: 100%;
-  max-width: 780px;
-  aspect-ratio: 16 / 10;
-  margin: .5rem auto 1rem;
+  width: min(100%, calc((100dvh - 440px) * 16 / 9));
+  min-width: min(100%, 460px);
+  aspect-ratio: 16 / 9;
+  margin: 1.6rem auto 1.4rem;
 }
 
 .pr-rail {
   position: absolute;
-  inset: 4% 4%;
+  inset: 6% 7%;
   border-radius: 999px;
-  padding: 12px;
-  background: linear-gradient(160deg, rgba(255, 255, 255, .18), transparent 40%),
+  padding: 14px;
+  background:
+    linear-gradient(160deg, rgba(255, 255, 255, 0.18), transparent 40%),
     linear-gradient(180deg, #5b3a22, #2e1b0f);
-  box-shadow: 0 24px 50px rgba(0, 0, 0, .55), 0 0 0 2px #1a0f08,
-    inset 0 2px 3px rgba(255, 255, 255, .25);
+  box-shadow:
+    0 30px 60px rgba(0, 0, 0, 0.55),
+    0 0 0 2px #1a0f08,
+    inset 0 2px 3px rgba(255, 255, 255, 0.25);
 }
 
 .pr-felt {
@@ -43,60 +89,110 @@
   width: 100%;
   height: 100%;
   border-radius: 999px;
-  background: radial-gradient(ellipse at 50% 35%, rgba(255, 255, 255, .1), transparent 60%),
+  background:
+    radial-gradient(ellipse at 50% 35%, rgba(255, 255, 255, 0.12), transparent 60%),
     radial-gradient(ellipse at center, var(--pr-felt) 0%, var(--pr-felt-edge) 100%);
-  box-shadow: inset 0 0 0 2px rgba(245, 196, 81, .22), inset 0 10px 40px rgba(0, 0, 0, .55);
+  box-shadow:
+    inset 0 0 0 2px rgba(245, 196, 81, 0.25),
+    inset 0 10px 40px rgba(0, 0, 0, 0.55);
 }
 
-.pr-info {
+.pr-felt::after {
+  content: "";
+  position: absolute;
+  inset: 12%;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  pointer-events: none;
+}
+
+/* ------------------------------------------------------------------ pile */
+
+.pr-pile,
+.pr-sweep {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.pr-sweep {
+  z-index: 4;
+}
+
+.pr-pile-card {
   position: absolute;
   left: 50%;
-  bottom: 9%;
-  transform: translateX(-50%);
-  max-width: 80%;
-  margin: 0;
-  color: #d3e8d8;
-  font-size: .9rem;
-  text-align: center;
+  top: 50%;
+  transform: translate(calc(-50% + var(--dx, 0px)), calc(-50% + var(--dy, 0px))) rotate(var(--rot, 0deg));
 }
-.pr-winner { color: #b6f7c5; font-weight: 700; font-size: 1.1rem; }
 
-/* Last completed trick, pinned to the top-right of the felt. */
-.pr-last-trick {
-  position: absolute; top: .6rem; right: .6rem; z-index: 3; max-width: 240px;
-  text-align: left; display: flex; flex-direction: column; gap: .3rem;
-  background: rgba(0, 0, 0, .32); border-radius: 10px; padding: .5rem .6rem;
-  font-size: .78rem; color: #d7ebdc; backdrop-filter: blur(2px);
-  --ui-card-w: 38px;
+.pr-pile-card.is-top .ui-card {
+  box-shadow:
+    0 0 0 2px var(--pr-gold),
+    0 6px 16px rgba(0, 0, 0, 0.5);
 }
-.pr-last-trick[hidden] { display: none; }
-.pr-lt-title { font-weight: 600; color: #b6f7c5; }
-.pr-lt-who { overflow-wrap: anywhere; }
-.pr-lt-cards { display: flex; gap: .2rem; flex-wrap: wrap; }
 
-/* ------------------------------------------------------------------ the trick */
-
-.pr-trick, .pr-sweep { position: absolute; inset: 0; z-index: 1; pointer-events: none; }
-
-.pr-played {
+.pr-pile-empty {
   position: absolute;
-  left: calc(50% + var(--x) * var(--pr-trick-rx));
-  top: calc(50% + var(--y) * var(--pr-trick-ry));
+  left: 50%;
+  top: 50%;
   transform: translate(-50%, -50%);
-  display: flex;
-  --ui-card-w: 52px;
+  color: rgba(226, 232, 240, 0.6);
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
 }
-.pr-played .ui-card + .ui-card { margin-left: calc(var(--ui-card-w) * -0.45); }
-.pr-played.is-winning .ui-card {
-  animation: pr-win .25s ease .05s both;
+
+.pr-pile-badge {
+  position: absolute;
+  left: 50%;
+  bottom: 12%;
+  transform: translateX(-50%);
+  padding: 0.12rem 0.6rem;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.4);
+  color: #d3e8d8;
+  font-size: 0.72rem;
+  font-weight: 700;
+  white-space: nowrap;
 }
-@keyframes pr-win {
-  to { box-shadow: 0 0 0 3px var(--pr-gold), 0 0 22px rgba(245, 196, 81, .6); }
+
+.pr-banner {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 5;
+  transform: translate(-50%, -50%);
+  min-width: 200px;
+  max-width: 82%;
+  padding: 0.7rem 1rem;
+  border-radius: 12px;
+  background: var(--pr-glass);
+  border: 1px solid rgba(245, 196, 81, 0.5);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  text-align: center;
+  animation: pr-pop 0.35s ease-out;
+}
+
+.pr-banner-title {
+  color: var(--pr-gold);
+  font-weight: 800;
+  margin-bottom: 0.2rem;
+}
+
+.pr-banner-sub {
+  color: #e2e8f0;
+  font-size: 0.85rem;
 }
 
 /* ------------------------------------------------------------------ seats */
 
-.pr-seats { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
+.pr-seats {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+}
 
 .pr-seat {
   position: absolute;
@@ -108,149 +204,427 @@
   align-items: center;
   gap: 4px;
   width: 150px;
-  transition: opacity .3s ease;
+  transition: opacity 0.3s ease;
 }
 
 .pr-plate {
   position: relative;
   display: flex;
   align-items: center;
-  gap: .5rem;
-  min-width: 118px;
-  padding: .3rem .8rem .3rem .3rem;
+  gap: 0.5rem;
+  min-width: 120px;
+  padding: 0.3rem 0.8rem 0.3rem 0.3rem;
   border-radius: 999px;
   background: var(--pr-glass);
-  border: 1.5px solid rgba(255, 255, 255, .12);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, .45);
+  border: 1.5px solid var(--pr-line);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
   backdrop-filter: blur(6px);
-  transition: border-color .2s ease, box-shadow .2s ease;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .pr-avatar {
-  display: grid; place-items: center; flex: none;
-  width: 32px; height: 32px; border-radius: 50%;
-  background: linear-gradient(135deg, #4f9d6c, #2b6b47);
-  color: #fff; font-weight: 800; font-size: .95rem;
-}
-.pr-seat.is-me .pr-avatar {
-  background: linear-gradient(135deg, var(--pr-gold), #c8912a); color: #3a2605;
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #4ade80, #166534);
+  color: #06281a;
+  font-weight: 800;
+  font-size: 0.95rem;
 }
 
-.pr-seat-info { min-width: 0; line-height: 1.15; text-align: left; }
-.pr-seat-name {
-  max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  font-size: .82rem; font-weight: 600; color: #fff;
+.pr-seat.is-me .pr-avatar {
+  background: linear-gradient(135deg, var(--pr-gold), var(--pr-gold-deep));
+  color: #3a2605;
 }
-.pr-seat-sub { font-size: .78rem; font-weight: 600; color: var(--pr-gold); }
+
+.pr-info-box {
+  min-width: 0;
+  line-height: 1.15;
+  text-align: left;
+}
+
+.pr-name {
+  max-width: 96px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #fff;
+}
+
+.pr-role {
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: var(--pr-gold);
+}
+
+.pr-role.is-bad {
+  color: #fca5a5;
+}
 
 .pr-seat-meta {
-  display: flex; flex-wrap: wrap; justify-content: center; align-items: center;
-  gap: .25rem .4rem; min-height: 20px;
-}
-.pr-backs { display: flex; align-items: center; --ui-card-w: 18px; }
-.pr-backs .ui-card + .ui-card { margin-left: -11px; }
-.pr-backs .ui-card.is-back { box-shadow: 0 1px 3px rgba(0, 0, 0, .4), inset 0 0 0 1.5px #fff; }
-.pr-count { margin-left: .3rem; font-size: .72rem; font-weight: 700; color: rgba(255, 255, 255, .75); }
-.pr-seat-tag {
-  padding: .1rem .5rem; border-radius: 999px; background: rgba(148, 163, 184, .22);
-  color: #cbd5e1; font-size: .68rem; font-weight: 800; letter-spacing: .04em; white-space: nowrap;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 0.25rem 0.4rem;
+  min-height: 22px;
 }
 
-.pr-seat.is-turn .pr-plate { border-color: var(--pr-gold); animation: pr-pulse 1.4s ease-in-out infinite; }
+.pr-backs {
+  display: flex;
+  align-items: center;
+  --ui-card-w: 16px;
+}
+
+.pr-backs .ui-card + .ui-card {
+  margin-left: -10px;
+}
+
+.pr-backs .ui-card.is-back {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4), inset 0 0 0 1.5px #fff;
+}
+
+.pr-count {
+  margin-left: 0.3rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.pr-tag {
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.22);
+  color: #cbd5e1;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+
+.pr-tag.is-done {
+  background: rgba(245, 196, 81, 0.22);
+  color: var(--pr-gold);
+}
+
+.pr-seat.is-turn .pr-plate {
+  border-color: var(--pr-gold);
+  animation: pr-pulse 1.4s ease-in-out infinite;
+}
+
 .pr-seat.is-winner .pr-plate {
   border-color: var(--pr-gold);
-  box-shadow: 0 0 0 3px rgba(245, 196, 81, .35), 0 0 24px rgba(245, 196, 81, .6);
+  box-shadow:
+    0 0 0 3px rgba(245, 196, 81, 0.35),
+    0 0 24px rgba(245, 196, 81, 0.6);
 }
-.pr-seat.is-passed { opacity: .5; }
-.pr-seat.away { opacity: .4; filter: grayscale(1); }
 
-@keyframes pr-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(245, 196, 81, .55), 0 6px 18px rgba(0, 0, 0, .45); }
-  50% { box-shadow: 0 0 0 8px rgba(245, 196, 81, 0), 0 6px 18px rgba(0, 0, 0, .45); }
+.pr-seat.is-gone {
+  opacity: 0.4;
+  filter: grayscale(1);
+}
+
+.pr-seat.is-out .pr-plate {
+  opacity: 0.75;
+}
+
+.pr-seat.is-passed {
+  opacity: 0.5;
 }
 
 /* ------------------------------------------------------------------ your hand */
 
-.pr-countdown { display: flex; align-items: center; justify-content: center; gap: .6rem; }
-.pr-countdown[hidden] { display: none; }
-.pr-countdown progress { width: 180px; height: .6rem; }
-.pr-time { color: var(--muted); font-size: .85rem; min-width: 5.5em; }
-
-.pr-hand-heading { gap: 1rem; align-items: center; justify-content: space-between; }
-.pr-actions { display: flex; gap: .5rem; }
-.pr-hand { display: flex; gap: .4rem; flex-wrap: wrap; margin-top: .5rem; justify-content: center; }
-.pr-card-button { background: none; border: none; padding: 0; cursor: pointer; border-radius: 8px; }
-.pr-card-button:disabled { cursor: default; opacity: .9; }
-.pr-card-button.pr-dim { opacity: .3; }
-.pr-card-button .ui-card { transition: transform .1s ease; }
-.pr-card-button:not(:disabled):hover .ui-card { transform: translateY(-6px); }
-.ui-card.pr-selected { transform: translateY(-12px); outline: 3px solid var(--accent-2); }
-.pr-help { font-size: .85rem; color: var(--muted); margin-top: 1rem; }
-
-/* ------------------------------------------------------------------ exchange popup */
-
-.pr-overlay {
-  position: fixed; inset: 0; z-index: 50;
-  display: flex; align-items: center; justify-content: center; padding: 1rem;
-  background: rgba(0, 0, 0, .6); backdrop-filter: blur(2px);
+.pr-hand-area {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
 }
-.pr-overlay[hidden] { display: none; }
-.pr-overlay-panel {
-  background: var(--card, #1b1f2a); border-radius: 16px; padding: 1.25rem;
-  max-width: min(680px, 95vw); max-height: 90dvh; overflow-y: auto;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, .5); text-align: center;
-}
-.pr-overlay-title { margin: 0 0 .5rem; font-size: 1.05rem; font-weight: 600; }
-.pr-overlay-msg { margin: 0 0 1rem; color: var(--muted); font-size: .9rem; }
-.pr-overlay-hand { display: flex; gap: .4rem; flex-wrap: wrap; justify-content: center; }
-.pr-overlay-hand[hidden] { display: none; }
 
-/* The rank picker: card-shaped faces showing only a rank — no suit, you're guessing. */
-.pr-ranks { display: flex; flex-wrap: wrap; gap: .4rem; justify-content: center; --ui-card-w: 56px; }
-.pr-ranks[hidden] { display: none; }
-.pr-rank-btn { background: none; border: none; padding: 0; cursor: pointer; border-radius: 8px; }
-.pr-rank-btn:disabled { cursor: default; opacity: .5; }
-.pr-rank-card { display: flex; align-items: center; justify-content: center; transition: transform .1s ease; }
-.pr-rank-btn:not(:disabled):hover .pr-rank-card { transform: translateY(-6px); }
+.pr-prompt {
+  min-height: 1.3rem;
+  color: var(--pr-gold);
+  font-weight: 700;
+  font-size: 0.95rem;
+  text-align: center;
+}
+
+.pr-countdown {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.pr-countdown progress {
+  width: 180px;
+  height: 0.5rem;
+}
+
+.pr-time {
+  color: #d3e8d8;
+  font-size: 0.82rem;
+  min-width: 4.5em;
+  text-align: left;
+}
+
+.pr-hand {
+  --ui-card-w: 64px;
+  --overlap: min(
+    calc(var(--ui-card-w) * -0.1),
+    max(calc(var(--ui-card-w) * -0.62), calc((100% - var(--n) * var(--ui-card-w)) / (var(--n) - 1)))
+  );
+  display: flex;
+  justify-content: center;
+  width: min(100%, 820px);
+  padding: 14px 0 10px;
+  min-height: 40px;
+}
+
+.pr .pr-card {
+  position: relative;
+  padding: 0;
+  border: none;
+  background: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transform: translateY(calc(var(--i) * var(--i) * 0.3px)) rotate(calc(var(--i) * 1.1deg));
+  transform-origin: 50% 120%;
+  transition: transform 0.15s ease, filter 0.15s ease;
+}
+
+.pr .pr-card + .pr-card {
+  margin-left: var(--overlap);
+}
+
+.pr .pr-card.is-dimmed {
+  cursor: default;
+}
+
+.pr .pr-card.is-dimmed .ui-card {
+  filter: brightness(0.5) saturate(0.55);
+}
+
+.pr .pr-card.is-playable:hover {
+  transform: translateY(-12px) rotate(calc(var(--i) * 1.1deg));
+  z-index: 3;
+}
+
+.pr .pr-card.is-selected {
+  transform: translateY(-22px) rotate(calc(var(--i) * 1.1deg));
+  z-index: 2;
+}
+
+.pr .pr-card.is-selected .ui-card {
+  box-shadow:
+    0 0 0 3px var(--pr-gold),
+    0 8px 18px rgba(0, 0, 0, 0.45);
+}
+
+.pr-hand-empty {
+  color: var(--muted, #94a3b8);
+  margin: 0;
+}
+
+.pr-actions {
+  display: flex;
+  justify-content: center;
+  gap: 0.6rem;
+  min-height: 0;
+}
+
+.pr .pr-btn {
+  min-width: 140px;
+  padding: 0.65rem 1.2rem;
+  border-radius: 10px;
+  background: linear-gradient(180deg, var(--pr-gold), var(--pr-gold-deep));
+  color: #3a2605;
+  font-weight: 800;
+  box-shadow: 0 4px 0 rgba(0, 0, 0, 0.35);
+}
+
+.pr .pr-btn.secondary {
+  background: linear-gradient(180deg, #64748b, #475569);
+  color: #f8fafc;
+}
+
+.pr .pr-btn:disabled {
+  opacity: 0.55;
+  box-shadow: none;
+  cursor: default;
+}
+
+.pr .pr-btn:active:not(:disabled) {
+  transform: translateY(2px);
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.35);
+}
+
+.pr-help {
+  font-size: 0.8rem;
+  color: var(--muted, #94a3b8);
+  text-align: center;
+  margin: 0.2rem 0 0;
+}
+
+/* ------------------------------------------------------------------ exchange panel */
+
+/* Sits on the felt (like the banner) so your own hand stays visible below. */
+.pr-exchange {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 5;
+  transform: translate(-50%, -50%);
+  width: max-content;
+  max-width: 88%;
+  padding: 0.6rem 0.9rem 0.75rem;
+  border-radius: 12px;
+  background: var(--pr-glass);
+  border: 1px solid rgba(245, 196, 81, 0.5);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  text-align: center;
+  animation: pr-pop 0.35s ease-out;
+}
+
+.pr-exchange-title {
+  margin: 0 0 0.2rem;
+  color: var(--pr-gold);
+  font-weight: 800;
+}
+
+.pr-exchange-msg {
+  margin: 0 0 0.5rem;
+  color: #e2e8f0;
+  font-size: 0.85rem;
+}
+
+.pr-ranks {
+  display: grid;
+  grid-template-columns: repeat(7, auto);
+  justify-content: center;
+  gap: 0.3rem;
+  --ui-card-w: 38px;
+}
+
+.pr .pr-rank-btn {
+  padding: 0;
+  border: none;
+  background: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.pr-rank-btn:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.pr-rank-card {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.pr-rank-btn:not(:disabled):hover .pr-rank-card {
+  transform: translateY(-4px);
+  box-shadow:
+    0 0 0 2px var(--pr-gold),
+    0 6px 14px rgba(0, 0, 0, 0.45);
+}
+
 .pr-rank-face {
-  font-family: Georgia, "Times New Roman", serif; font-weight: 700; color: #16181d;
-  font-size: calc(var(--ui-card-w, 46px) * 0.5); letter-spacing: -0.04em;
+  font-family: Georgia, "Times New Roman", serif;
+  font-weight: 700;
+  color: #16181d;
+  font-size: calc(var(--ui-card-w) * 0.5);
+  letter-spacing: -0.04em;
 }
 
-/* ------------------------------------------------------------------ page + motion */
+/* ------------------------------------------------------------------ motion */
 
-@media (min-width: 1000px) {
-  body.presidenten-wide .wrap {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) 300px;
-    column-gap: 1rem;
-    align-items: start;
+@keyframes pr-pop {
+  from {
+    opacity: 0;
+    scale: 0.85;
   }
-  body.presidenten-wide .game-header { grid-column: 1 / -1; }
-  body.presidenten-wide .chat-log { height: calc(100dvh - 210px); min-height: 200px; }
 }
 
-@media (max-width: 760px) {
-  .pr-game {
-    --ui-card-w: 54px;
-    --pr-seat-rx: 44%;
-    --pr-trick-rx: 20%;
-    --pr-trick-ry: 20%;
+@keyframes pr-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(245, 196, 81, 0.55), 0 6px 18px rgba(0, 0, 0, 0.45);
   }
-  .pr-table-wrap { aspect-ratio: 4 / 5; }
-  .pr-rail { inset: 6% 6%; padding: 9px; }
-  .pr-seat { width: 104px; }
-  .pr-plate { min-width: 0; padding: .2rem .5rem .2rem .2rem; gap: .3rem; }
-  .pr-avatar { width: 24px; height: 24px; font-size: .75rem; }
-  .pr-seat-name { max-width: 62px; font-size: .72rem; }
-  .pr-seat-sub { font-size: .7rem; }
-  .pr-last-trick {
-    position: static; max-width: none; margin-top: .5rem; --ui-card-w: 34px;
+  50% {
+    box-shadow: 0 0 0 8px rgba(245, 196, 81, 0), 0 6px 18px rgba(0, 0, 0, 0.45);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .pr-game *, .pr-game *::before, .pr-game *::after {
-    animation: none !important; transition: none !important;
+  .pr *,
+  .pr *::before,
+  .pr *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+/* ------------------------------------------------------------------ small screens */
+
+@media (max-width: 700px) {
+  .pr {
+    --ui-card-w: 40px;
+    --pr-seat-rx: 40%;
+    --pr-seat-ry: 44%;
+  }
+
+  .pr-table {
+    width: 100%;
+    min-width: 0;
+    aspect-ratio: 4 / 5;
+    margin: 1.4rem 0 1.2rem;
+  }
+
+  .pr-rail {
+    inset: 8% 6%;
+    padding: 9px;
+  }
+
+  .pr-seat {
+    width: 104px;
+  }
+
+  .pr-plate {
+    min-width: 0;
+    padding: 0.2rem 0.5rem 0.2rem 0.2rem;
+    gap: 0.3rem;
+  }
+
+  .pr-avatar {
+    width: 24px;
+    height: 24px;
+    font-size: 0.75rem;
+  }
+
+  .pr-name {
+    max-width: 64px;
+    font-size: 0.72rem;
+  }
+
+  .pr-hand {
+    --ui-card-w: 50px;
+  }
+
+  .pr-ranks {
+    --ui-card-w: 30px;
+  }
+
+  .pr-exchange {
+    max-width: 94%;
+    padding: 0.5rem 0.6rem 0.6rem;
   }
 }

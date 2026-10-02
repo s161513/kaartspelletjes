@@ -207,7 +207,7 @@ export function applyMove(
     if (run.burned) {
       // Pile is burned; whoever laid the 4th leads a fresh trick (or the next
       // active player, if that was their last card).
-      next.lastTrick = { by: playerId, cards: picked };
+      next.lastTrick = { by: playerId, cards: picked, pile: [...next.pile], burned: true };
       clearTrick(next);
       resumeAfterTrickWin(next, seat);
     } else {
@@ -301,7 +301,7 @@ function advanceTurn(s: PresidentenState, fromSeat: number): void {
   const lastSeat = lastId === null ? -1 : s.players.indexOf(lastId);
   // The trick is won once nobody but the last player is still contending.
   if (next === -1 || next === lastSeat) {
-    if (lastId !== null) s.lastTrick = { by: lastId, cards: s.top ?? [] };
+    if (lastId !== null) s.lastTrick = { by: lastId, cards: s.top ?? [], pile: [...s.pile], burned: false };
     clearTrick(s);
     if (lastSeat >= 0) resumeAfterTrickWin(s, lastSeat);
     return;
@@ -432,6 +432,7 @@ export function playerView(
         passed: state.passedThisTrick.includes(id),
       };
     }),
+    pile: structuredClone(state.pile),
     pileCount: state.pile.length,
     pileTop: state.top ? structuredClone(state.top) : null,
     topBy: state.lastPlayerId,

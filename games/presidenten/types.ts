@@ -14,10 +14,12 @@ export type Role =
   | "scum";
 
 // The most recently completed trick, shown in the corner: who took it and the
-// cards they took it with.
+// cards they took it with. `pile` and `burned` drive the sweep animation.
 export interface LastTrick {
   by: string;
-  cards: Card[];
+  cards: Card[]; // the winning group
+  pile: Card[]; // the whole pile that was won/burned, so it can all sweep away
+  burned: boolean; // cleared by four of a kind rather than won by passes
 }
 
 export interface ExchangePair {
@@ -83,6 +85,7 @@ export interface PresidentenView {
     role: Role | null;
     passed: boolean; // out of the current trick (passed or auto-skipped)
   }[];
+  pile: Card[]; // the full (public, face-up) pile, for a stacked look
   pileCount: number;
   pileTop: Card[] | null; // the cards of the current top play (for display)
   topBy: string | null; // who laid the current top (so their play can fly in from their seat)

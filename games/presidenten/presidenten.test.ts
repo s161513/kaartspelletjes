@@ -140,7 +140,12 @@ test("two matching pairs in a row burn the pile; the fourth-layer leads", () => 
   s = applyMove(s, "b", play([id("7d"), id("7c")]));
   assert.equal(s.pile.length, 0, "pile burned");
   assert.equal(s.currentCount, null);
-  assert.equal(s.players[s.turnIndex], "b", "b laid the fourth and still holds 3h, so b leads");
+  assert.equal(s.players[s.turnIndex], "b", "b laid the fourth and still holds 3h, so b leads");  assert.equal(s.lastTrick?.burned, true, "recorded as a burn");
+  assert.deepEqual(
+    s.lastTrick?.pile.map((c) => c.id),
+    [id("7h"), id("7s"), id("7d"), id("7c")],
+    "the whole burned pile is kept for the animation",
+  );
 });
 
 test("four of a rank at once burns; the player keeps the lead", () => {
@@ -246,6 +251,8 @@ test("the last completed trick is recorded (winner + cards)", () => {
   s = applyMove(s, "c", pass);
   assert.equal(s.lastTrick?.by, "a", "a took the trick");
   assert.deepEqual(s.lastTrick?.cards.map((c) => c.id), [id("7h")], "with the 7 it led");
+  assert.equal(s.lastTrick?.burned, false);
+  assert.deepEqual(s.lastTrick?.pile.map((c) => c.id), [id("7h")], "the whole won pile");
 });
 
 test("the ♣3 holder opens the first hand", () => {

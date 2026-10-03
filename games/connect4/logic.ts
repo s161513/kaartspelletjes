@@ -61,37 +61,67 @@ function winningColour(board: Cell[]): "R" | "Y" | null {
   return winningLine(board)?.colour ?? null;
 }
 
-/** Find the playerId of the winner from the board + discs, or null. */
-function winningPlayer(state: Connect4State): string | null {
-  const colour = winningColour(state.board);
-  if (!colour) return null;
-  // Map the winning colour back to the player who owns it.
-  const owner = Object.entries(state.discs).find(([, d]) => d === colour);
-  return owner ? owner[0] : null;
-}
+const emptyBoard = (): Cell[] => Array<Cell>(COLS * ROWS).fill(null);
+
+/** The player who isn't `playerId` (2-player game). */
+const opponent = (state: Connect4State, playerId: string): string =>
+  state.players.find((id) => id !== playerId)!;
+
+/** A move is a "start next round" request rather than a disc drop. */
+const isAgain = (move: Connect4Move): move is { again: true } => "again" in move;
 
 const connect4: Game<Connect4State, Connect4Move> = {
   init(playerIds) {
     // First player is Red and moves first.
     const [p1, p2] = playerIds;
     return {
-      board: Array<Cell>(COLS * ROWS).fill(null),
+      board: emptyBoard(),
       turn: p1,
       discs: { [p1]: "R", [p2]: "Y" },
+      players: [p1, p2],
+      phase: "playing",
+      result: null,
+      scores: { [p1]: 0, [p2]: 0 },
+      draws: 0,
+      round: 1,
+      starter: p1,
     };
   },
 
   validateMove(state, playerId, move) {
-    if (state.turn === null) return { ok: false, error: "Game is over" };
+    if (!state.players.includes(playerId)) {
+      return { ok: false, error: "Not a player" };
+    }
+
+    if (state.phase === "intermission") {
+      // Either player may start the next round; drops are not accepted.
+      if (
+        typeof move !== "object" ||
+        move === null ||
+        (move as { again?: unknown }).again !== true
+      ) {
+        return { ok: false, error: "Round is over — play again" };
+      }
+      return { ok: true, move: { again: true } };
+    }
+
+    // phase === "playing": only disc drops on your turn.
+    if (
+      typeof move === "object" &&
+      move !== null &&
+      (move as { again?: unknown }).again === true
+    ) {
+      return { ok: false, error: "Game in progress" };
+    }
     if (state.turn !== playerId) return { ok: false, error: "Not your turn" };
     if (
       typeof move !== "object" ||
       move === null ||
-      typeof (move as Connect4Move).col !== "number"
+      typeof (move as { col?: unknown }).col !== "number"
     ) {
       return { ok: false, error: "Malformed move" };
     }
-    const col = (move as Connect4Move).col;
+    const col = (move as { col: number }).col;
     if (!Number.isInteger(col) || col < 0 || col >= COLS) {
       return { ok: false, error: "Column out of range" };
     }
@@ -102,32 +132,53 @@ const connect4: Game<Connect4State, Connect4Move> = {
   },
 
   applyMove(state, playerId, move) {
+    // Start the next round: fresh board, the loser goes first.
+    if (isAgain(move)) {
+      const prev = state.result;
+      const starter =
+        prev === "draw" || prev === null
+          ? opponent(state, state.starter) // alternate after a draw
+          : opponent(state, prev); // loser of the last round starts
+      return {
+        ...state,
+        board: emptyBoard(),
+        phase: "playing",
+        result: null,
+        round: state.round + 1,
+        starter,
+        turn: starter,
+      };
+    }
+
+    // Drop a disc.
     const board = state.board.slice();
     const row = lowestEmptyRow(board, move.col);
     board[idx(row, move.col)] = state.discs[playerId];
 
-    const next: Connect4State = {
-      board,
-      turn: state.turn,
-      discs: state.discs,
-    };
-
-    // If this move ends the game, clear the turn; otherwise hand off.
     const won = winningColour(board) !== null;
     const full = board.every((c) => c !== null);
+
     if (won || full) {
-      next.turn = null;
-    } else {
-      const other = Object.keys(state.discs).find((id) => id !== playerId)!;
-      next.turn = other;
+      const winner = won ? playerId : "draw";
+      const scores = { ...state.scores };
+      if (winner !== "draw") scores[winner] = (scores[winner] ?? 0) + 1;
+      return {
+        ...state,
+        board,
+        turn: null,
+        phase: "intermission",
+        result: winner,
+        scores,
+        draws: winner === "draw" ? state.draws + 1 : state.draws,
+      };
     }
-    return next;
+
+    return { ...state, board, turn: opponent(state, playerId) };
   },
 
-  result(state) {
-    const winner = winningPlayer(state);
-    if (winner) return { over: true, winner };
-    if (state.board.every((c) => c !== null)) return { over: true, winner: "draw" };
+  // The session plays forever: it only ends when the host presses "End game"
+  // (framework `endGame`) or a player leaves. So a round ending is never "over".
+  result() {
     return { over: false };
   },
 };

@@ -26,6 +26,8 @@ export interface DobbleView {
 export interface DobbleState {
   playerIds: string[];
   activeIds: string[];
+  /** Watchers queued to be dealt in at the start of the next round. */
+  joining: string[];
   scores: Record<string, number>;
   target: number;
   paused: boolean;

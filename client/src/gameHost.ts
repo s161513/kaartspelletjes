@@ -100,7 +100,7 @@ export function setupGamePage<State>(
     const myPending =
       committedJoin || spectators.some((s) => s.id === session.playerId && s.pendingPlayer);
     if (isSpectator && myPending) {
-      joinSwitch.textContent = "✓ Joining next round as citizen";
+      joinSwitch.textContent = "✓ Joining next round";
       joinSwitch.disabled = true;
       joinSwitch.style.display = "inline-block";
     } else if (isSpectator && joinable) {

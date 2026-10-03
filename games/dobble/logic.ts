@@ -22,7 +22,7 @@ const dobble: Game<DobbleState, DobbleMove> = {
       throw new Error("Dobble needs 2–8 distinct players");
     }
     return {
-      playerIds: [...playerIds], activeIds: [...playerIds],
+      playerIds: [...playerIds], activeIds: [...playerIds], joining: [],
       scores: Object.fromEntries(playerIds.map(id => [id, 0])),
       target: TARGET_SCORE, paused: false, winnerId: null, blockedUntil: {},
       round: nextRound(playerIds),
@@ -87,7 +87,31 @@ const dobble: Game<DobbleState, DobbleMove> = {
   },
   advance(state) {
     if (state.paused || state.winnerId || state.round.status !== "completed") return state;
-    return { ...state, round: nextRound(state.activeIds, state.round) };
+    // Deal any mid-game joiner in from this fresh round: add them to the roster
+    // and scoreboard, then clear the queue.
+    const incoming = state.joining.filter(id => !state.activeIds.includes(id) && !state.playerIds.includes(id));
+    const activeIds = [...state.activeIds, ...incoming];
+    const playerIds = [...state.playerIds, ...incoming];
+    const scores = { ...state.scores };
+    for (const id of incoming) scores[id] ??= 0;
+    return { ...state, activeIds, playerIds, scores, joining: [], round: nextRound(activeIds, state.round) };
+  },
+  // Queue a watcher to be dealt in at the next round (see advance).
+  addPlayer(state, playerId) {
+    if (state.winnerId || state.activeIds.includes(playerId) || state.playerIds.includes(playerId)
+      || state.joining.includes(playerId) || state.activeIds.length + state.joining.length >= 8) {
+      return state;
+    }
+    return { ...state, joining: [...state.joining, playerId] };
+  },
+  seatedPlayers(state) {
+    return state.activeIds;
+  },
+  // A committed watcher who left before a round dealt them in: just dequeue.
+  // Dealt-in players leaving are handled by playersChanged (the activeIds filter).
+  playerLeft(state, playerId) {
+    if (!state.joining.includes(playerId)) return state;
+    return { ...state, joining: state.joining.filter(id => id !== playerId) };
   },
   playersChanged(state, connectedIds, memberIds) {
     const activeIds = state.activeIds.filter(id => memberIds.includes(id));

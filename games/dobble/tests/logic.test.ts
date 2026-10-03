@@ -10,6 +10,31 @@ import type { DobbleState, DobbleMove } from "../types.js";
 function match(state: DobbleState, id = "a"): DobbleMove {
   return { type:"symbolClick", roundId:state.round.id, symbolId:state.round.hands[id].find(s => state.round.center.includes(s))! };
 }
+test("a watcher queued mid-game is dealt in from the next round", () => {
+  let s = dobble.init(["a", "b"]);
+  // Queued, not yet dealt in — the live round's seating is unchanged.
+  s = dobble.addPlayer!(s, "c");
+  assert.deepEqual(s.joining, ["c"]);
+  assert.deepEqual(dobble.seatedPlayers!(s), ["a", "b"]);
+  // Complete the current round, then advance into the next one.
+  s = dobble.applyMove(s, "a", match(s));
+  assert.equal(s.round.status, "completed");
+  s = dobble.advance!(s);
+  assert.ok(s.activeIds.includes("c") && s.playerIds.includes("c"), "c is now seated");
+  assert.equal(s.scores.c, 0);
+  assert.ok(s.round.hands.c?.length > 0, "c was dealt a hand");
+  assert.deepEqual(s.joining, []);
+});
+
+test("a queued dobble watcher who leaves before a round is just dequeued", () => {
+  let s = dobble.init(["a", "b"]);
+  s = dobble.addPlayer!(s, "z");
+  assert.deepEqual(s.joining, ["z"]);
+  s = dobble.playerLeft!(s, "z");
+  assert.deepEqual(s.joining, []);
+  assert.ok(!s.activeIds.includes("z") && !s.playerIds.includes("z"));
+});
+
 test("57 cards, 8 distinct symbols each, all 1,596 intersections and symbol assets", () => {
   assert.equal(DECK.length,57); assert.equal(SYMBOLS.length,57);
   assert.equal(new Set(SYMBOLS.map(s=>s[0])).size,57);

@@ -228,6 +228,29 @@ test("the game ends only when fewer than three players remain", () => {
   assert.equal(game.result(after).winner, "a", "the first finisher wins the shortened game");
 });
 
+test("a mid-game joiner waits in the queue and is dealt into the next hand", () => {
+  let s = makeState({ a: "", b: "", c: "9h" }, { finished: ["a", "b"], turnIndex: 2 });
+  // addPlayer only queues them; the running hand's seating is untouched.
+  s = game.addPlayer!(s, "d");
+  assert.deepEqual(s.joining, ["d"]);
+  assert.deepEqual(game.seatedPlayers!(s), ["a", "b", "c"]);
+  // c plays out, ending the hand and dealing a fresh one that includes d.
+  const after = applyMove(s, "c", play([id("9h")]));
+  assert.ok(after.players.includes("d"), "the joiner now has a seat");
+  assert.ok(after.hands.d.length > 0, "and was dealt a hand");
+  assert.deepEqual(after.joining, [], "the queue is cleared once dealt in");
+  assert.equal(after.roles?.d, "citizen", "a late-joiner enters as a neutral citizen, no inherited standing");
+});
+
+test("a queued joiner who leaves before being dealt in is just dequeued", () => {
+  let s = makeState({ a: "7h", b: "8h", c: "9h" });
+  s = game.addPlayer!(s, "d");
+  assert.deepEqual(s.joining, ["d"]);
+  s = game.playerLeft!(s, "d");
+  assert.deepEqual(s.joining, []);
+  assert.ok(!s.players.includes("d"), "no seat was created");
+});
+
 // ---------------------------------------------------------------------------
 // Sticky passes: once you pass, you are out for the rest of the trick
 // ---------------------------------------------------------------------------

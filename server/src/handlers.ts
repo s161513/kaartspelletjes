@@ -16,6 +16,8 @@ interface Conn {
   ws: WebSocket;
   roomCode: string | null;
   playerId: string | null;
+  /** This socket is a watcher, not a seated player. */
+  isSpectator: boolean;
   /** Token-bucket state for rate limiting. */
   tokens: number;
   lastRefill: number;
@@ -51,8 +53,11 @@ function publish(manager: RoomManager, room: Room, next: unknown): void {
     room.runtime = null;
     sendRoomState(manager, room);
   } else {
+    // Seat any committed watcher the new state has dealt in, before projecting.
+    const migrated = manager.reconcileJoiners(room);
     manager.sendGame(room, "gameState");
     manager.scheduleGame(room);
+    if (migrated.length) sendRoomState(manager, room);
   }
 }
 
@@ -78,21 +83,13 @@ function playerLeftGame(manager: RoomManager, room: Room, playerId: string): voi
 
 /** Broadcast the current room snapshot to everyone in it. */
 function sendRoomState(manager: RoomManager, room: Room): void {
-  manager.broadcast(room, {
-    type: "roomState",
-    players: manager.publicPlayers(room),
-    hostId: room.hostId ?? "",
-    currentGameId: manager.currentGameId(room),
-  });
+  manager.sendRoomState(room);
 }
 
 export function attachConnection(ws: WebSocket, manager: RoomManager): void {
   const conn: Conn = {
-    ws,
-    roomCode: null,
-    playerId: null,
-    tokens: BURST,
-    lastRefill: Date.now(),
+    ws, roomCode: null, playerId: null, isSpectator: false,
+    tokens: BURST, lastRefill: Date.now(),
   };
 
   ws.on("message", (raw) => {
@@ -122,13 +119,18 @@ export function attachConnection(ws: WebSocket, manager: RoomManager): void {
   });
 
   ws.on("close", () => {
+    manager.unwatchRooms(ws);
     if (!conn.roomCode || !conn.playerId) return;
     const room = manager.getRoom(conn.roomCode);
     if (!room) return;
     // A newer socket may already own this seat (page navigation or a reload
     // whose rejoin arrived before this close). Then this close means nothing.
-    if (room.players.get(conn.playerId)?.ws !== ws) return;
-    manager.disconnect(room, conn.playerId);
+    const seat = conn.isSpectator
+      ? room.spectators.get(conn.playerId)
+      : room.players.get(conn.playerId);
+    if (seat?.ws !== ws) return;
+    if (conn.isSpectator) manager.disconnectSpectator(room, conn.playerId);
+    else manager.disconnect(room, conn.playerId);
     // Room may have been pruned; only broadcast if it still exists.
     if (manager.getRoom(conn.roomCode)) sendRoomState(manager, room);
   });
@@ -141,9 +143,10 @@ function handle(conn: Conn, manager: RoomManager, msg: ClientMessage): void {
     case "create": {
       const nickname = sanitizeNick(msg.nickname);
       if (!nickname) return err(ws, "bad_nick", "Nickname required");
+      const name = sanitizeText(msg.roomName, 32) ?? `${nickname}'s room`;
       let room: Room;
       try {
-        room = manager.createRoom();
+        room = manager.createRoom(name, sanitizeText(msg.password, 64));
       } catch (e) {
         if (e instanceof ServerFullError)
           return err(ws, "server_full", "Server is at capacity, try later");
@@ -156,38 +159,56 @@ function handle(conn: Conn, manager: RoomManager, msg: ClientMessage): void {
     case "join": {
       const nickname = sanitizeNick(msg.nickname);
       if (!nickname) return err(ws, "bad_nick", "Nickname required");
-      const room = manager.getRoom(msg.roomCode);
+      const room = manager.getRoom(String(msg.roomCode ?? ""));
       if (!room) return err(ws, "no_room", "Room not found");
-      // Late-join: a game in progress accepts newcomers as spectators (they are
-      // dealt in at the next round via the game's playersChanged hook), up to
-      // the running game's max player count.
-      if (room.runtime) {
-        const max = games.get(room.runtime.gameId)?.meta.maxPlayers ?? Infinity;
-        if (room.players.size >= max)
-          return err(ws, "room_full", "This game is full");
-      }
-      const player = bindNewPlayer(conn, manager, room, nickname);
-      // Fold the newcomer into the live game and hand them the current snapshot
-      // so their client navigates straight onto the board as a spectator.
-      if (room.runtime) {
-        manager.updateGamePlayers(room);
-        manager.sendGame(room, "gameStarted", { only: player.id });
-      }
+      if (!manager.checkPassword(room, msg.password)) return err(ws, "bad_password", "Wrong password");
+      if (room.runtime) return err(ws, "in_progress", "Game already started");
+      bindNewPlayer(conn, manager, room, nickname);
       return;
     }
 
     case "rejoin": {
-      const room = manager.getRoom(msg.roomCode);
+      const room = manager.getRoom(String(msg.roomCode ?? ""));
       if (!room) return err(ws, "no_room", "Room not found");
+
+      // A watcher reconnecting: restore their spectator seat, re-send the safe view.
+      const spectator = room.spectators.get(msg.playerId);
+      if (spectator) {
+        if (spectator.secret !== msg.secret) return err(ws, "bad_secret", "No seat to rejoin");
+        manager.cancelPrune(room);
+        spectator.ws = ws;
+        spectator.connected = true;
+        conn.roomCode = room.code;
+        conn.playerId = spectator.id;
+        conn.isSpectator = true;
+        send(ws, {
+          type: "joined",
+          playerId: spectator.id,
+          roomCode: room.code,
+          ...manager.roomInfo(room),
+          players: manager.publicPlayers(room),
+          hostId: room.hostId ?? "",
+          role: "spectator",
+          spectators: manager.publicSpectators(room),
+          joinable: manager.joinable(room),
+          secret: spectator.secret,
+        });
+        if (room.runtime || room.lastGame) {
+          manager.sendSpectate(room, room.runtime ? "gameStarted" : "gameOver", { only: spectator.id });
+        }
+        sendRoomState(manager, room);
+        return;
+      }
+
       const player = room.players.get(msg.playerId);
       if (!player) return err(ws, "no_seat", "No seat to rejoin");
       // The public playerId is known to everyone in the room; the private secret
       // is not. Require it so a playerId alone cannot hijack someone's seat.
-      if (player.secret !== msg.secret)
-        return err(ws, "bad_secret", "No seat to rejoin");
+      if (player.secret !== msg.secret) return err(ws, "bad_secret", "No seat to rejoin");
       manager.cancelPrune(room); // recovered before deletion — keep it alive
       player.ws = ws;
       player.connected = true;
+      conn.isSpectator = false;
       manager.updateGamePlayers(room);
       if (!room.hostId) room.hostId = player.id;
       conn.roomCode = room.code;
@@ -197,6 +218,7 @@ function handle(conn: Conn, manager: RoomManager, msg: ClientMessage): void {
         type: "joined",
         playerId: player.id,
         roomCode: room.code,
+        ...manager.roomInfo(room),
         players: manager.publicPlayers(room),
         hostId: room.hostId ?? "",
         secret: player.secret,
@@ -212,12 +234,14 @@ function handle(conn: Conn, manager: RoomManager, msg: ClientMessage): void {
     case "chat": {
       const room = requireRoom(conn, manager);
       if (!room) return;
-      const player = room.players.get(conn.playerId!);
+      const sender = conn.isSpectator
+        ? room.spectators.get(conn.playerId!)
+        : room.players.get(conn.playerId!);
       const text = String(msg.text ?? "").slice(0, 500).trim();
-      if (!player || !text) return;
+      if (!sender || !text) return;
       manager.broadcast(room, {
         type: "chat",
-        from: player.nickname,
+        from: conn.isSpectator ? `👀 ${sender.nickname}` : sender.nickname,
         text,
         ts: Date.now(),
       });
@@ -254,6 +278,7 @@ function handle(conn: Conn, manager: RoomManager, msg: ClientMessage): void {
     case "move": {
       const room = requireRoom(conn, manager);
       if (!room) return;
+      if (conn.isSpectator) return err(ws, "spectating", "Spectators cannot make moves");
       if (!room.runtime) return err(ws, "no_game", "No game in progress");
 
       const { game, state } = room.runtime;
@@ -274,21 +299,134 @@ function handle(conn: Conn, manager: RoomManager, msg: ClientMessage): void {
     case "leave": {
       const room = manager.getRoom(conn.roomCode ?? "");
       if (room && conn.playerId) {
-        const nickname = room.players.get(conn.playerId)?.nickname ?? "A player";
-        manager.removePlayer(room, conn.playerId);
-        if (manager.getRoom(room.code)) {
-          manager.broadcast(room, {
-            type: "chat",
-            from: "🚪",
-            text: `${nickname} left the room`,
-            ts: Date.now(),
-          });
-          if (room.runtime) playerLeftGame(manager, room, conn.playerId);
-          sendRoomState(manager, room);
+        if (conn.isSpectator) {
+          const spec = room.spectators.get(conn.playerId);
+          const nickname = spec?.nickname ?? "A watcher";
+          // A committed watcher who never got dealt in: drop them from the game's queue.
+          if (spec?.wantsPlay && room.runtime?.game.playerLeft) {
+            room.runtime.state = room.runtime.game.playerLeft(room.runtime.state, conn.playerId);
+            manager.sendGame(room, "gameState");
+          }
+          manager.removeSpectator(room, conn.playerId);
+          if (manager.getRoom(room.code)) {
+            manager.broadcast(room, {
+              type: "chat",
+              from: "👀",
+              text: `${nickname} stopped watching`,
+              ts: Date.now(),
+            });
+            sendRoomState(manager, room);
+          }
+        } else {
+          const nickname = room.players.get(conn.playerId)?.nickname ?? "A player";
+          manager.removePlayer(room, conn.playerId);
+          if (manager.getRoom(room.code)) {
+            manager.broadcast(room, {
+              type: "chat",
+              from: "🚪",
+              text: `${nickname} left the room`,
+              ts: Date.now(),
+            });
+            if (room.runtime) playerLeftGame(manager, room, conn.playerId);
+            sendRoomState(manager, room);
+          }
         }
       }
       conn.roomCode = null;
       conn.playerId = null;
+      conn.isSpectator = false;
+      return;
+    }
+
+    case "spectate": {
+      const nickname = sanitizeNick(msg.nickname);
+      if (!nickname) return err(ws, "bad_nick", "Nickname required");
+      const room = manager.getRoom(String(msg.roomCode ?? ""));
+      if (!room) return err(ws, "no_room", "Room not found");
+      if (!manager.checkPassword(room, msg.password)) return err(ws, "bad_password", "Wrong password");
+      if (!room.runtime) return err(ws, "not_in_progress", "Nothing to watch — join as a player");
+
+      const spectator: Player = { id: randomUUID(), nickname, secret: randomUUID(), ws, connected: true };
+      manager.unwatchRooms(ws);
+      manager.addSpectator(room, spectator);
+      conn.roomCode = room.code;
+      conn.playerId = spectator.id;
+      conn.isSpectator = true;
+
+      send(ws, {
+        type: "joined",
+        playerId: spectator.id,
+        roomCode: room.code,
+        ...manager.roomInfo(room),
+        players: manager.publicPlayers(room),
+        hostId: room.hostId ?? "",
+        role: "spectator",
+        spectators: manager.publicSpectators(room),
+        joinable: manager.joinable(room),
+        secret: spectator.secret,
+      });
+      // Hand this watcher the current safe snapshot.
+      manager.sendSpectate(room, room.runtime ? "gameStarted" : "gameOver", { only: spectator.id });
+      sendRoomState(manager, room);
+      return;
+    }
+
+    case "joinNextRound": {
+      const room = requireRoom(conn, manager);
+      if (!room) return;
+      if (!conn.isSpectator) return err(ws, "not_spectating", "Only watchers can join");
+      const spectator = room.spectators.get(conn.playerId!);
+      if (!spectator) return err(ws, "no_seat", "No watcher seat");
+
+      // In the lobby (no game running) a watcher simply takes a seat.
+      if (!room.runtime) {
+        manager.migrateToPlayer(room, spectator.id);
+        conn.isSpectator = false;
+        const nickname = spectator.nickname;
+        manager.broadcast(room, {
+          type: "chat", from: "👋", text: `${nickname} joined as a player`, ts: Date.now(),
+        });
+        sendRoomState(manager, room);
+        return;
+      }
+
+      // Mid-game: only if the game supports it. Queue them for the next round.
+      if (!manager.joinable(room)) return err(ws, "not_joinable", "This game can't be joined mid-game");
+      if (spectator.wantsPlay) return; // already committed
+      spectator.wantsPlay = true;
+      room.runtime.state = room.runtime.game.addPlayer!(room.runtime.state, spectator.id);
+      sendRoomState(manager, room);
+      return;
+    }
+
+    case "endGame": {
+      const room = requireRoom(conn, manager);
+      if (!room) return;
+      if (conn.isSpectator || room.hostId !== conn.playerId)
+        return err(ws, "not_host", "Only the host can end the game");
+      if (!room.runtime && !room.lastGame) return err(ws, "no_game", "No game to end");
+
+      clearTimeout(room.runtime?.timer);
+      room.runtime = null;
+      room.lastGame = undefined;
+      // Watchers stay watchers in the lobby; a queued "join next round" is moot.
+      for (const s of room.spectators.values()) delete s.wantsPlay;
+
+      const by = room.players.get(conn.playerId!)?.nickname ?? "The host";
+      manager.broadcast(room, { type: "gameEnded", by });
+      manager.broadcast(room, { type: "chat", from: "🛑", text: `${by} ended the game`, ts: Date.now() });
+      sendRoomState(manager, room);
+      return;
+    }
+
+    case "watchRooms": {
+      if (conn.roomCode) return; // already in a room — the list is for the landing page
+      manager.watchRooms(ws);
+      return;
+    }
+
+    case "unwatchRooms": {
+      manager.unwatchRooms(ws);
       return;
     }
 
@@ -302,7 +440,7 @@ function bindNewPlayer(
   manager: RoomManager,
   room: Room,
   nickname: string,
-): Player {
+): void {
   const player: Player = {
     id: randomUUID(),
     nickname,
@@ -310,6 +448,7 @@ function bindNewPlayer(
     ws: conn.ws,
     connected: true,
   };
+  manager.unwatchRooms(conn.ws);
   manager.addPlayer(room, player);
   conn.roomCode = room.code;
   conn.playerId = player.id;
@@ -318,12 +457,12 @@ function bindNewPlayer(
     type: "joined",
     playerId: player.id,
     roomCode: room.code,
+    ...manager.roomInfo(room),
     players: manager.publicPlayers(room),
     hostId: room.hostId ?? "",
     secret: player.secret,
   });
   sendRoomState(manager, room);
-  return player;
 }
 
 function requireRoom(conn: Conn, manager: RoomManager): Room | null {
@@ -336,7 +475,10 @@ function requireRoom(conn: Conn, manager: RoomManager): Room | null {
     err(conn.ws, "no_room", "Room no longer exists");
     return null;
   }
-  if (room.players.get(conn.playerId)?.ws !== conn.ws) {
+  const seat = conn.isSpectator
+    ? room.spectators.get(conn.playerId)
+    : room.players.get(conn.playerId);
+  if (seat?.ws !== conn.ws) {
     err(conn.ws, "no_seat", "This connection no longer owns a seat");
     return null;
   }
@@ -344,10 +486,16 @@ function requireRoom(conn: Conn, manager: RoomManager): Room | null {
 }
 
 function sanitizeNick(raw: unknown): string | null {
-  // Reject non-strings and absurd lengths before any coercion, then strip
-  // control characters (incl. newlines) so a nickname stays a single clean line.
+  return sanitizeText(raw, 24);
+}
+
+/** Trimmed, length-capped text, or null when missing/empty. */
+function sanitizeText(raw: unknown, max: number): string | null {
+  if (raw === undefined || raw === null) return null;
+  // Reject absurd input before coercion, then strip control characters (incl.
+  // newlines) so the value stays a single clean line.
   if (typeof raw !== "string" || raw.length > 1000) return null;
   // eslint-disable-next-line no-control-regex
-  const s = raw.replace(/[\u0000-\u001F\u007F]/g, "").trim().slice(0, 24);
+  const s = raw.replace(/[\u0000-\u001F\u007F]/g, "").trim().slice(0, max);
   return s.length > 0 ? s : null;
 }

@@ -1,4 +1,5 @@
 import type { GameSocket } from "./ws.js";
+import { hue } from "./ui.js";
 
 /**
  * Wire a chat log + form to the socket. Shared by the lobby and game pages.
@@ -14,6 +15,7 @@ export function setupChat(
     line.className = "msg";
     const who = document.createElement("span");
     who.className = "who";
+    who.style.setProperty("--hue", String(hue(msg.from)));
     who.textContent = `${msg.from}: `;
     line.appendChild(who);
     line.appendChild(document.createTextNode(msg.text));

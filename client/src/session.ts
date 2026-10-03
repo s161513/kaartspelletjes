@@ -7,6 +7,7 @@ const KEYS = {
   roomCode: "cg.roomCode",
   playerId: "cg.playerId",
   secret: "cg.secret",
+  role: "cg.role",
 } as const;
 
 export const session = {
@@ -39,9 +40,18 @@ export const session = {
     localStorage.setItem(KEYS.secret, v);
   },
 
+  /** "spectator" while watching, "player" (default) once seated. */
+  get role(): "player" | "spectator" {
+    return localStorage.getItem(KEYS.role) === "spectator" ? "spectator" : "player";
+  },
+  set role(v: "player" | "spectator") {
+    localStorage.setItem(KEYS.role, v);
+  },
+
   clearRoom(): void {
     localStorage.removeItem(KEYS.roomCode);
     localStorage.removeItem(KEYS.playerId);
     localStorage.removeItem(KEYS.secret);
+    localStorage.removeItem(KEYS.role);
   },
 };

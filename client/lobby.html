@@ -4,38 +4,47 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Lobby · Classroom Games</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
-    <div class="wrap">
-      <h1>Lobby</h1>
+    <div class="wrap wide">
+      <header class="page-header">
+        <h1 class="brand-title"><span class="brandmark" aria-hidden="true"><span class="bm-back">♥</span><span class="bm-front">♠</span></span><span id="roomName">Lobby</span></h1>
+        <button id="leave" class="secondary">Leave room</button>
+      </header>
 
-      <div class="card">
-        <label>Room code — share this to invite others</label>
-        <div class="room-code" id="roomCode">----</div>
-      </div>
+      <div class="lobby-grid">
+        <div class="lobby-main">
+          <div class="card">
+            <label>Players</label>
+            <ul class="players" id="players"></ul>
+            <div id="spectatorsBox" hidden>
+              <label>Watching</label>
+              <ul class="players" id="spectators"></ul>
+              <div class="row" style="margin-top: 0.75rem">
+                <button id="joinAsPlayer" hidden>Join as a player</button>
+              </div>
+            </div>
+          </div>
 
-      <div class="card">
-        <label>Players</label>
-        <ul class="players" id="players"></ul>
-      </div>
-
-      <div class="card">
-        <label>Choose a game</label>
-        <div class="game-list" id="gameList"></div>
-        <p id="hint" class="error"></p>
-        <div class="row" style="margin-top: 0.5rem">
-          <button id="leave" class="secondary">Leave room</button>
+          <div class="card">
+            <label>Choose a game</label>
+            <div class="game-grid" id="gameList"></div>
+            <p id="hint" class="hint"></p>
+          </div>
         </div>
-      </div>
 
-      <div class="card">
-        <label>Chat</label>
-        <div class="chat-log" id="chatLog"></div>
-        <form class="chat-form" id="chatForm">
-          <input id="chatInput" type="text" placeholder="Say something…" maxlength="500" autocomplete="off" />
-          <button type="submit">Send</button>
-        </form>
+        <div class="card chat-card">
+          <label>Chat</label>
+          <div class="chat-log" id="chatLog"></div>
+          <form class="chat-form" id="chatForm">
+            <input id="chatInput" type="text" placeholder="Say something…" maxlength="500" autocomplete="off" />
+            <button type="submit">Send</button>
+          </form>
+        </div>
       </div>
     </div>
     <script type="module" src="/src/lobby.ts"></script>

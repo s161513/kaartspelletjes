@@ -54,7 +54,7 @@ export function createGame(
     exchange: null,
     left: [],
     lastTrick: null,
-    pending: [],
+    joining: [],
   };
   state.turnIndex = openerSeat(state); // the ♣3 holder opens
   armTimer(state, now);
@@ -348,13 +348,11 @@ function checkHandOver(s: PresidentenState): void {
     return;
   }
 
-  // Late-joiners waiting in `pending` are dealt into this fresh hand as plain
-  // citizens (no standing, so no role and no exchange obligation).
-  const incoming = s.pending.filter((id) => !present.includes(id));
   const roles = assignRoles(present);
   const pairs = exchangePairs(present);
-  dealNewHand(s, present, incoming); // deal the next hand first, so winners have cards to give back
+  const joiners = dealNewHand(s, present); // deal next hand first (winners need cards to give back)
   s.roles = roles;
+  for (const id of joiners) s.roles[id] = "citizen"; // watchers join as citizens (burgers)
   s.winner = null;
   if (pairs.length === 0) {
     s.phase = "PLAY"; // no winner/loser pairs to exchange — play begins immediately
@@ -366,12 +364,18 @@ function checkHandOver(s: PresidentenState): void {
   }
 }
 
-/** Re-seat to the finishing order and deal everyone a fresh hand (President leads). */
-function dealNewHand(s: PresidentenState, present: string[], incoming: string[] = []): void {
-  const roster = [...present, ...incoming];
-  const { hands } = deal(roster.length, { minCardsPerPlayer: MIN_CARDS_PER_PLAYER, rng: secureRandom });
-  s.players = roster;
-  s.hands = Object.fromEntries(roster.map((id, i) => [id, hands[i]]));
+/**
+ * Re-seat to the finishing order, append any queued watchers (dealt in fresh),
+ * and deal everyone a hand (President leads). Returns the ids that just joined.
+ */
+function dealNewHand(s: PresidentenState, present: string[]): string[] {
+  const joiners = s.joining.filter(
+    (id) => !s.left.includes(id) && !present.includes(id),
+  );
+  const seats = [...present, ...joiners];
+  const { hands } = deal(seats.length, { minCardsPerPlayer: MIN_CARDS_PER_PLAYER, rng: secureRandom });
+  s.players = seats;
+  s.hands = Object.fromEntries(seats.map((id, i) => [id, hands[i]]));
   s.pile = [];
   s.top = null;
   s.finished = [];
@@ -382,10 +386,11 @@ function dealNewHand(s: PresidentenState, present: string[], incoming: string[] 
   s.lastPlayerId = null;
   s.passedThisTrick = [];
   s.left = [];
+  s.joining = [];
   s.lastTrick = null;
-  s.pending = s.pending.filter((id) => !roster.includes(id)); // dealt-in players leave the queue
   s.round++;
   s.turnIndex = 0; // placeholder; the real opener is set once play starts
+  return joiners;
 }
 
 /** Close the exchange and hand off to play; the dealt hands stand as they are. */
@@ -464,34 +469,35 @@ export function playerView(
           }
         : null,
     lastTrick: state.lastTrick ? structuredClone(state.lastTrick) : null,
-    spectating: !state.players.includes(playerId),
   };
 }
 
-/**
- * Room membership changed. We only act on arrivals: a late-joiner is parked in
- * `pending` and dealt into the next hand (see checkHandOver). Departures are
- * handled by playerLeft / the turn-timeout auto-pass, so existing play is
- * untouched here. `pending` is kept in sync with who is still in the room.
- */
-export function playersChanged(
-  state: PresidentenState,
-  _connectedIds: string[],
-  memberIds: string[],
-): PresidentenState {
-  const seated = new Set(state.players);
-  const kept = state.pending.filter((id) => memberIds.includes(id));
-  const added = memberIds.filter((id) => !seated.has(id) && !kept.includes(id));
-  const pending = [...kept, ...added];
-  const same = pending.length === state.pending.length
-    && pending.every((id, i) => id === state.pending[i]);
-  if (same) return state;
+/** Queue a watcher to be dealt in (as a citizen) at the start of the next hand. */
+export function addPlayer(state: PresidentenState, playerId: string): PresidentenState {
+  if (
+    state.phase === "GAME_OVER" ||
+    state.players.includes(playerId) ||
+    state.joining.includes(playerId)
+  ) {
+    return state;
+  }
   const next = structuredClone(state);
-  next.pending = pending;
+  next.joining.push(playerId);
   return next;
 }
 
+/** Ids the game currently treats as seated (used to detect when a joiner is in). */
+export function seatedPlayers(state: PresidentenState): string[] {
+  return [...state.players];
+}
+
 export function playerLeft(state: PresidentenState, playerId: string): PresidentenState {
+  // A watcher who committed but hasn't been dealt in yet: just drop them from the queue.
+  if (state.joining.includes(playerId)) {
+    const next = structuredClone(state);
+    next.joining = next.joining.filter((id) => id !== playerId);
+    return next;
+  }
   if (!state.players.includes(playerId) || state.phase === "GAME_OVER") return state;
   const next: PresidentenState = structuredClone(state);
   const now = Date.now();
@@ -549,7 +555,8 @@ export default {
   }),
   playerView,
   playerLeft,
-  playersChanged,
+  addPlayer,
+  seatedPlayers,
   nextUpdateIn: (state) =>
     state.deadline === null ? null : Math.max(0, state.deadline - Date.now()),
   advance: (state) => advance(state),

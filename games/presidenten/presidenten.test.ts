@@ -27,7 +27,7 @@ function makeState(hands: Record<string, string>, over: Partial<PresidentenState
     currentCount: null, currentRankValue: null, runRankValue: null, runCount: 0,
     lastPlayerId: null, passedThisTrick: [], phase: "PLAY", winner: null, version: 0,
     deadline: null, round: 1, roles: null, exchange: null, left: [], lastTrick: null,
-    pending: [],
+    joining: [],
     ...over,
   };
 }
@@ -218,22 +218,6 @@ test("a finished hand rolls into the exchange, dealing fresh and keeping roles",
   assert.deepEqual(after.exchange?.pairs, [{ winner: "a", loser: "c" }]);
   assert.equal(game.result(after).over, false, "the game continues");
   assert.ok(after.hands.a.length > 0 && after.hands.c.length > 0, "everyone was re-dealt");
-});
-
-test("a late-joiner waits in `pending` and is dealt into the next hand", () => {
-  const joined = makeState({ a: "", b: "", c: "9h" }, { finished: ["a", "b"], turnIndex: 2 });
-  // Someone joins mid-hand: they are parked, not added to the live seating.
-  const parked = game.playersChanged!(joined, ["a", "b", "c", "d"], ["a", "b", "c", "d"]);
-  assert.deepEqual(parked.pending, ["d"], "the newcomer is queued, not seated");
-  assert.ok(!parked.players.includes("d"), "the running hand is untouched");
-  assert.equal(game.playerView!(parked, "d").spectating, true, "the newcomer is spectating");
-
-  // c plays their last card, ending the hand and dealing a fresh one.
-  const after = applyMove(parked, "c", play([id("9h")]));
-  assert.ok(after.players.includes("d"), "the newcomer is now seated");
-  assert.ok(after.hands.d.length > 0, "and was dealt a hand");
-  assert.deepEqual(after.pending, [], "the queue is cleared once dealt in");
-  assert.equal(after.roles?.d ?? null, null, "a late-joiner carries no standing");
 });
 
 test("the game ends only when fewer than three players remain", () => {

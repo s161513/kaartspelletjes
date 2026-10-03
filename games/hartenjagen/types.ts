@@ -46,8 +46,6 @@ export interface HeartsState {
   history: RoundResult[];
   /** Players who left; the game ends as soon as anyone leaves. */
   left: string[];
-  /** Late-joiners spectating now; dealt in at the start of the next round. */
-  pending: string[];
 }
 
 export type HeartsMove =

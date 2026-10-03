@@ -90,18 +90,8 @@ const dobble: Game<DobbleState, DobbleMove> = {
     return { ...state, round: nextRound(state.activeIds, state.round) };
   },
   playersChanged(state, connectedIds, memberIds) {
-    // Drop players who left the room, then register any late-joiners: they go on
-    // the scoreboard immediately and are dealt a hand from the next round (their
-    // `own` is empty until then, which the view renders as "spectating").
     const activeIds = state.activeIds.filter(id => memberIds.includes(id));
-    const playerIds = [...state.playerIds];
-    const scores = { ...state.scores };
-    for (const id of memberIds) {
-      if (!activeIds.includes(id)) activeIds.push(id);
-      if (!playerIds.includes(id)) playerIds.push(id);
-      scores[id] ??= 0;
-    }
-    return { ...state, playerIds, activeIds, scores, paused: activeIds.filter(id => connectedIds.includes(id)).length < 2 };
+    return { ...state, activeIds, paused: activeIds.filter(id => connectedIds.includes(id)).length < 2 };
   },
 };
 

@@ -8,6 +8,14 @@ export type MoveResult<Move> =
   | { ok: false; error: string };
 
 /**
+ * The id used to project a spectator-safe view through an existing `playerView`.
+ * It is namespaced so it can never collide with a real player id (those are
+ * `randomUUID()`s), so `playerView(state, SPECTATOR_VIEW_ID)` reveals no private
+ * hand — a spectator is "a player who owns nothing". See `Game.spectatorView`.
+ */
+export const SPECTATOR_VIEW_ID = "spectator:00000000-0000-0000-0000-000000000000";
+
+/**
  * Game rules, run authoritatively on the server (games/<id>/logic.ts).
  *
  * `State` is internal; private games provide playerView for wire payloads.
@@ -40,6 +48,24 @@ export interface Game<State = unknown, Move = unknown> {
    * cards and the deck). Without it every player receives the full state.
    */
   playerView?(state: State, playerId: string): unknown;
+
+  /**
+   * Optional: the state shown to spectators (who hold no seat and no cards).
+   * Without it, the server falls back to `playerView(state, SPECTATOR_VIEW_ID)`
+   * for games that hide info, or the full state for games that don't.
+   */
+  spectatorView?(state: State): unknown;
+
+  /**
+   * Optional: accept a new player mid-game (e.g. queue them to be dealt in at
+   * the next round). Return the new state. A game supports mid-game join only if
+   * it implements BOTH `addPlayer` and `seatedPlayers`; the server watches
+   * `seatedPlayers` to learn when a queued joiner has actually been seated.
+   */
+  addPlayer?(state: State, playerId: string): State;
+
+  /** Optional: ids the game currently treats as seated players. */
+  seatedPlayers?(state: State): string[];
 
   /**
    * Optional: a player left the room mid-game (e.g. fold their hand and drop
@@ -77,6 +103,10 @@ export interface GameContext {
   nickname(playerId: string): string;
   /** Players in the room (with online status), supplied by the host page. */
   players?: readonly PlayerPublic[];
+  /** Whether this client is watching, not seated. `sendMove` is a no-op then. */
+  readonly isSpectator?: boolean;
+  /** Spectators watching the room (with online status), supplied by the host page. */
+  readonly spectators?: readonly PlayerPublic[];
   /** Whether the socket is currently open. */
   connected?: boolean;
   /** Send a move payload (validated server-side). */

@@ -1,10 +1,13 @@
 import type { WebSocket } from "ws";
-import type {
-  Game,
-  GameId,
-  GameState,
-  PlayerPublic,
-  ServerMessage,
+import {
+  SPECTATOR_VIEW_ID,
+  type Game,
+  type GameId,
+  type GameState,
+  type PlayerPublic,
+  type RoomSummary,
+  type ServerMessage,
+  type SpectatorPublic,
 } from "@app/shared";
 
 export interface Player {
@@ -14,6 +17,8 @@ export interface Player {
   secret: string;
   ws: WebSocket | null; // null while disconnected (seat kept for rejoin)
   connected: boolean;
+  /** Spectator only: they flipped "join next round" and are queued to be dealt in. */
+  wantsPlay?: boolean;
 }
 
 export interface GameRuntime {
@@ -25,7 +30,13 @@ export interface GameRuntime {
 
 export interface Room {
   code: string;
+  /** Shown in the room list. */
+  name: string;
+  /** Required to join or watch; null for an open room. Never sent to clients. */
+  password: string | null;
   players: Map<string, Player>;
+  /** Watchers with no seat. Never passed to game logic; see spectatorView. */
+  spectators: Map<string, Player>;
   hostId: string | null;
   runtime: GameRuntime | null;
   /** Finished state retained for reconnect, cleared on the next start. */
@@ -42,8 +53,6 @@ const CODE_LEN = 4;
 // generous so a slow reload or brief network blip still recovers the seat.
 const GRACE_MS = 120_000;
 // Hard cap on simultaneous rooms so a flood of `create` can't exhaust memory.
-// 4-char codes from a 32-char alphabet give ~1M possibilities, so this is tiny
-// by comparison and purely a safety valve.
 const MAX_ROOMS = 5_000;
 
 /** Thrown by createRoom when the server is at capacity. */
@@ -51,6 +60,9 @@ export class ServerFullError extends Error {}
 
 export class RoomManager {
   private rooms = new Map<string, Room>();
+  /** Sockets on the landing page that want the live room list. */
+  private roomWatchers = new Set<WebSocket>();
+  private listQueued = false;
 
   private generateCode(): string {
     let code: string;
@@ -63,12 +75,15 @@ export class RoomManager {
     return code;
   }
 
-  createRoom(): Room {
+  createRoom(name = "Room", password: string | null = null): Room {
     if (this.rooms.size >= MAX_ROOMS) throw new ServerFullError("server full");
     const code = this.generateCode();
     const room: Room = {
       code,
+      name,
+      password,
       players: new Map(),
+      spectators: new Map(),
       hostId: null,
       runtime: null,
       pruneTimer: null,
@@ -81,10 +96,98 @@ export class RoomManager {
     return this.rooms.get(code.toUpperCase());
   }
 
+  /** Does `attempt` open this room? Open rooms accept anything. */
+  checkPassword(room: Room, attempt: unknown): boolean {
+    return room.password === null || String(attempt ?? "").trim() === room.password;
+  }
+
+  /** Name + lock flag, spread into every joined/roomState message. */
+  roomInfo(room: Room): { roomName: string; locked: boolean } {
+    return { roomName: room.name, locked: room.password !== null };
+  }
+
+  /** Rooms worth listing: someone is actually connected (not just in the grace window). */
+  roomList(): RoomSummary[] {
+    const list: RoomSummary[] = [];
+    for (const room of this.rooms.values()) {
+      const players = [...room.players.values()].filter((p) => p.connected).length;
+      if (players === 0) continue;
+      list.push({
+        code: room.code,
+        name: room.name,
+        hostName: (room.hostId && room.players.get(room.hostId)?.nickname) || null,
+        players,
+        spectators: [...room.spectators.values()].filter((s) => s.connected).length,
+        locked: room.password !== null,
+        gameId: this.currentGameId(room),
+      });
+    }
+    // Waiting rooms first (you can join those), then by name.
+    return list.sort((a, b) => Number(a.gameId !== null) - Number(b.gameId !== null) || a.name.localeCompare(b.name));
+  }
+
+  watchRooms(ws: WebSocket): void {
+    this.roomWatchers.add(ws);
+    this.sendRoomList(ws);
+  }
+
+  unwatchRooms(ws: WebSocket): void {
+    this.roomWatchers.delete(ws);
+  }
+
+  private sendRoomList(ws: WebSocket): void {
+    if (ws.readyState !== 1) return;
+    ws.send(JSON.stringify({ type: "roomList", rooms: this.roomList() } satisfies ServerMessage));
+  }
+
+  /** Push the list to every watcher; coalesced so one change sends one update. */
+  notifyRoomWatchers(): void {
+    if (this.listQueued || this.roomWatchers.size === 0) return;
+    this.listQueued = true;
+    queueMicrotask(() => {
+      this.listQueued = false;
+      for (const ws of this.roomWatchers) {
+        if (ws.readyState > 1) this.roomWatchers.delete(ws); // closing/closed
+        else this.sendRoomList(ws);
+      }
+    });
+  }
+
   addPlayer(room: Room, player: Player): void {
     this.cancelPrune(room);
     room.players.set(player.id, player);
     if (!room.hostId) room.hostId = player.id;
+  }
+
+  /** Seat a watcher. Never becomes host and is never passed to game logic. */
+  addSpectator(room: Room, spectator: Player): void {
+    this.cancelPrune(room);
+    room.spectators.set(spectator.id, spectator);
+  }
+
+  /** Fully remove a watcher (explicit leave). */
+  removeSpectator(room: Room, spectatorId: string): void {
+    room.spectators.delete(spectatorId);
+    this.pruneIfEmpty(room);
+  }
+
+  /** Mark a watcher disconnected; keep them for a possible rejoin. */
+  disconnectSpectator(room: Room, spectatorId: string): void {
+    const s = room.spectators.get(spectatorId);
+    if (!s) return;
+    s.connected = false;
+    s.ws = null;
+    this.pruneIfEmpty(room);
+  }
+
+  /** Move a watcher into a real seat (e.g. once the game has dealt them in). */
+  migrateToPlayer(room: Room, spectatorId: string): Player | null {
+    const s = room.spectators.get(spectatorId);
+    if (!s) return null;
+    room.spectators.delete(spectatorId);
+    delete s.wantsPlay;
+    this.addPlayer(room, s);
+    return s;
   }
 
   /** Cancel a pending deletion — call whenever someone (re)joins a room. */
@@ -134,6 +237,7 @@ export class RoomManager {
       if (stillEmpty) {
         clearTimeout(room.runtime?.timer);
         this.rooms.delete(room.code);
+        this.notifyRoomWatchers();
       }
     }, GRACE_MS);
   }
@@ -146,8 +250,23 @@ export class RoomManager {
     }));
   }
 
+  publicSpectators(room: Room): SpectatorPublic[] {
+    return [...room.spectators.values()].map((s) => ({
+      id: s.id,
+      nickname: s.nickname,
+      connected: s.connected,
+      pendingPlayer: !!s.wantsPlay,
+    }));
+  }
+
   currentGameId(room: Room): GameId | null {
     return room.runtime ? room.runtime.gameId : null;
+  }
+
+  /** Whether the running game supports a spectator joining mid-game. */
+  joinable(room: Room): boolean {
+    const game = room.runtime?.game;
+    return !!(game?.addPlayer && game?.seatedPlayers);
   }
 
   /** One projection path for initial state, updates, results and reconnects. */
@@ -156,6 +275,19 @@ export class RoomManager {
     return runtime.game.playerView
       ? runtime.game.playerView(runtime.state, playerId)
       : runtime.state;
+  }
+
+  /**
+   * The spectator-safe projection. A watcher is never handed a real player's
+   * view: an explicit `spectatorView` wins; otherwise a game that hides info is
+   * projected as "a player who owns nothing" via SPECTATOR_VIEW_ID; a game with
+   * no `playerView` has no secrets, so the full state is fine.
+   */
+  spectatorView(room: Room): GameState {
+    const runtime = (room.runtime ?? room.lastGame)!;
+    if (runtime.game.spectatorView) return runtime.game.spectatorView(runtime.state);
+    if (runtime.game.playerView) return runtime.game.playerView(runtime.state, SPECTATOR_VIEW_ID);
+    return runtime.state;
   }
 
   /**
@@ -181,6 +313,59 @@ export class RoomManager {
           : { type, state };
       player.ws.send(JSON.stringify(msg));
     }
+    // A targeted send (rejoin resend) is handled by the caller; otherwise every
+    // player-facing game message also reaches the watchers (incl. timer-driven).
+    if (!opts.only) this.sendSpectate(room, type, opts);
+  }
+
+  /** Send a game message to every connected watcher (or only `opts.only`). */
+  sendSpectate(
+    room: Room,
+    type: "gameStarted" | "gameState" | "gameOver",
+    opts: { only?: string; winner?: string } = {},
+  ): void {
+    const runtime = room.runtime ?? room.lastGame;
+    if (!runtime || room.spectators.size === 0) return;
+    const state = this.spectatorView(room); // same for all watchers — compute once
+    const msg: ServerMessage = type === "gameStarted"
+      ? { type, gameId: runtime.gameId, state }
+      : type === "gameOver"
+        ? { type, gameId: runtime.gameId, winner: opts.winner ?? runtime.game.result(runtime.state).winner ?? "draw", state }
+        : { type, state };
+    const data = JSON.stringify(msg);
+    for (const s of room.spectators.values()) {
+      if (opts.only && s.id !== opts.only) continue;
+      if (!s.connected || s.ws?.readyState !== 1) continue;
+      s.ws.send(data);
+    }
+  }
+
+  /**
+   * After a state change, seat any committed watcher the game has now dealt in:
+   * a `wantsPlay` spectator whose id appears in `seatedPlayers` is migrated into
+   * a real seat and handed their private view. Returns the migrated players so
+   * the caller can refresh the room snapshot.
+   */
+  reconcileJoiners(room: Room): Player[] {
+    const runtime = room.runtime;
+    if (!runtime?.game.seatedPlayers) return [];
+    if (![...room.spectators.values()].some((s) => s.wantsPlay)) return [];
+    const seated = new Set(runtime.game.seatedPlayers(runtime.state));
+    const migrated: Player[] = [];
+    for (const s of [...room.spectators.values()]) {
+      if (!s.wantsPlay || !seated.has(s.id)) continue;
+      const player = this.migrateToPlayer(room, s.id);
+      if (!player) continue;
+      migrated.push(player);
+      this.sendGame(room, "gameStarted", { only: player.id }); // their private view
+      this.broadcast(room, {
+        type: "chat",
+        from: "👀",
+        text: `${player.nickname} joined the game!`,
+        ts: Date.now(),
+      });
+    }
+    return migrated;
   }
 
   updateGamePlayers(room: Room): void {
@@ -208,13 +393,12 @@ export class RoomManager {
         this.sendGame(room, "gameOver");
         room.lastGame = runtime;
         room.runtime = null;
-        this.broadcast(room, {
-          type: "roomState", players: this.publicPlayers(room),
-          hostId: room.hostId ?? "", currentGameId: this.currentGameId(room),
-        });
+        this.sendRoomState(room);
       } else {
+        const migrated = this.reconcileJoiners(room);
         this.sendGame(room, "gameState");
         this.scheduleGame(room);
+        if (migrated.length) this.sendRoomState(room);
       }
     }, Math.max(0, delay));
   }
@@ -227,9 +411,24 @@ export class RoomManager {
     }
   }
 
+  /** Broadcast the current room snapshot (players + watchers) to everyone. */
+  sendRoomState(room: Room): void {
+    this.broadcast(room, {
+      type: "roomState",
+      ...this.roomInfo(room),
+      players: this.publicPlayers(room),
+      hostId: room.hostId ?? "",
+      currentGameId: this.currentGameId(room),
+      spectators: this.publicSpectators(room),
+      joinable: this.joinable(room),
+    });
+    this.notifyRoomWatchers();
+  }
+
   broadcast(room: Room, msg: ServerMessage): void {
     const data = JSON.stringify(msg);
-    for (const p of room.players.values()) {
+    const recipients = [...room.players.values(), ...room.spectators.values()];
+    for (const p of recipients) {
       if (p.connected && p.ws && p.ws.readyState === 1 /* OPEN */) {
         p.ws.send(data);
       }

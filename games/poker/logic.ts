@@ -60,21 +60,6 @@ function deal(state: PokerState, count: number): Card[] {
 // ---------------------------------------------------------------------------
 
 function startHand(state: PokerState): void {
-  // Seat anyone who joined mid-game with a fresh stack (a rebuy), before the
-  // button/blinds are recomputed below. Appended at the end so existing seat
-  // indexes (and the persisted dealer index) stay valid.
-  if (state.pending.length) {
-    for (const id of state.pending) {
-      if (!state.seats.some((s) => s.id === id)) {
-        state.seats.push({
-          id, chips: STARTING_CHIPS, hole: [], bet: 0, totalBet: 0,
-          folded: false, allIn: false, out: false, acted: false,
-        });
-      }
-    }
-    state.pending = [];
-  }
-
   for (const seat of state.seats) {
     if (seat.chips === 0) seat.out = true;
     Object.assign(seat, { hole: [], bet: 0, totalBet: 0, folded: false, allIn: false, acted: false });
@@ -266,7 +251,6 @@ const poker: Game<PokerState, PokerMove> = {
       blinds: { small: SMALL_BLIND, big: BIG_BLIND },
       lastResult: null,
       log: [],
-      pending: [],
     };
     startHand(state);
     return state;
@@ -380,18 +364,6 @@ const poker: Game<PokerState, PokerMove> = {
       else if (state.seats.filter(inHand).length === 1) winUncontested(state);
     }
     return state;
-  },
-
-  // Park late-joiners until the next hand seats them (see startHand). Keep the
-  // queue in sync with the room; departures are handled by playerLeft.
-  playersChanged(state, _connectedIds, memberIds) {
-    const seated = new Set(state.seats.map((s) => s.id));
-    const kept = state.pending.filter((id) => memberIds.includes(id));
-    const added = memberIds.filter((id) => !seated.has(id) && !kept.includes(id));
-    const pending = [...kept, ...added];
-    const same = pending.length === state.pending.length
-      && pending.every((id, i) => id === state.pending[i]);
-    return same ? state : { ...state, pending };
   },
 
   playerView(state, playerId) {

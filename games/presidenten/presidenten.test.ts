@@ -76,6 +76,25 @@ test("a leading pass is allowed and rotates the lead to the next player", () => 
   assert.equal(after.players[after.turnIndex], "b", "lead moved to b");
 });
 
+test("the ♣3 holder must open the hand with the ♣3", () => {
+  const s = makeState({ a: "3c 3h 7h", b: "8h", c: "9h" });
+  assert.equal(validateMove(s, "a", pass).ok, false, "the opener cannot pass the ♣3 off");
+  assert.equal(validateMove(s, "a", play([id("7h")])).ok, false, "cannot open with another card");
+  assert.equal(validateMove(s, "a", play([id("3c")])).ok, true, "opening with the ♣3 is allowed");
+  assert.equal(
+    validateMove(s, "a", play([id("3c"), id("3h")])).ok,
+    true,
+    "the ♣3 may be grouped with another 3",
+  );
+});
+
+test("a timed-out opener auto-plays the ♣3", () => {
+  const s = makeState({ a: "3c 3h 7h", b: "8h", c: "9h" }, { deadline: 1000 });
+  const after = advance(s, 2000);
+  assert.ok(after.pile.some((card) => card.id === id("3c")), "the ♣3 was played");
+  assert.ok(!after.hands.a.some((card) => card.id === id("3c")), "the ♣3 left the opener's hand");
+});
+
 test("a follower must beat the rank and may play more cards, but never fewer", () => {
   let s = makeState({ a: "7h", b: "6h 8h 8s", c: "9h Th" });
   s = applyMove(s, "a", play([id("7h")])); // leads a single 7

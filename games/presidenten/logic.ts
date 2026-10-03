@@ -12,7 +12,8 @@ import type {
 
 const secureRandom = () => randomInt(0x100000000) / 0x100000000;
 
-// The 3 of clubs (from deck 0) always leads a hand.
+// The 3 of clubs (from deck 0) opens every hand: its holder both leads and is
+// required to play it (see `mustOpenWithClubs`).
 const OPENER_ID = "clubs-3#0";
 
 /** Seat of the ♣3 holder — the opener — or the first player still holding cards. */
@@ -21,6 +22,12 @@ function openerSeat(s: PresidentenState): number {
   if (seat >= 0) return seat;
   const anyWithCards = s.players.findIndex((id) => hasCards(s, id));
   return anyWithCards >= 0 ? anyWithCards : 0;
+}
+
+/** On a fresh lead, the ♣3 holder must open with (a group including) the ♣3. */
+function mustOpenWithClubs(s: PresidentenState, playerId: string): boolean {
+  return s.currentCount === null
+    && (s.hands[playerId] ?? []).some((c) => c.id === OPENER_ID);
 }
 
 export function createGame(
@@ -126,7 +133,9 @@ export function validateMove(
 
   if (move.type === "pass") {
     if (Object.keys(move).some((k) => k !== "type")) return fail("Unexpected pass fields");
-    // Pass is always allowed on your turn — leading passes simply rotate the lead.
+    // The ♣3 holder must open the hand — they cannot pass it off.
+    if (mustOpenWithClubs(state, playerId)) return fail("You must open with the ♣3");
+    // Pass is otherwise always allowed on your turn — leading passes rotate the lead.
     return { ok: true, move: { type: "pass" } };
   }
 
@@ -146,6 +155,12 @@ export function validateMove(
     const cards = (ids as string[]).map((id) => hand.find((c) => c.id === id));
     if (cards.some((c) => c === undefined)) return fail("You do not own those cards");
     const picked = cards as Card[];
+
+    // Opening the hand: the ♣3 holder's play must include the ♣3 (grouping it
+    // with other 3s / wild 2s is fine — effectiveRank handles the rest).
+    if (mustOpenWithClubs(state, playerId) && !(ids as string[]).includes(OPENER_ID)) {
+      return fail("You must open with the ♣3");
+    }
 
     const eff = effectiveRank(picked);
     if (!eff.ok) return fail(eff.error);
@@ -406,10 +421,16 @@ export function advance(state: PresidentenState, now = Date.now()): PresidentenS
   const cur = state.players[state.turnIndex];
   let move: PresidentenMove;
   if (state.currentCount === null) {
-    const lowest = state.hands[cur]
-      .filter((c) => c.rank !== "2")
-      .sort((a, b) => RANK_VALUES[a.rank] - RANK_VALUES[b.rank])[0];
-    move = lowest ? { type: "play", cardIds: [lowest.id] } : { type: "pass" };
+    if (mustOpenWithClubs(state, cur)) {
+      // The opener is required to lead the ♣3 — auto-play it rather than a card
+      // the server would reject.
+      move = { type: "play", cardIds: [OPENER_ID] };
+    } else {
+      const lowest = state.hands[cur]
+        .filter((c) => c.rank !== "2")
+        .sort((a, b) => RANK_VALUES[a.rank] - RANK_VALUES[b.rank])[0];
+      move = lowest ? { type: "play", cardIds: [lowest.id] } : { type: "pass" };
+    }
   } else {
     move = { type: "pass" };
   }

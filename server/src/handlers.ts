@@ -1,8 +1,15 @@
 import { randomUUID } from "node:crypto";
 import type { WebSocket } from "ws";
 import type { ClientMessage, ServerMessage } from "@app/shared";
-import { RoomManager, type Player, type Room } from "./rooms.js";
+import { RoomManager, ServerFullError, type Player, type Room } from "./rooms.js";
 import { games } from "./games/loader.js";
+
+/** Reject frames larger than this before parsing (guards against memory spikes). */
+const MAX_MESSAGE_BYTES = 32_768;
+// Token-bucket rate limit per connection: refill RATE tokens/sec, hold up to
+// BURST. One message costs one token. Enough for fast play, not for flooding.
+const RATE_PER_SEC = 20;
+const BURST = 40;
 
 /** Per-connection state: which room/player this socket is bound to. */
 interface Conn {
@@ -11,6 +18,20 @@ interface Conn {
   playerId: string | null;
   /** This socket is a watcher, not a seated player. */
   isSpectator: boolean;
+  /** Token-bucket state for rate limiting. */
+  tokens: number;
+  lastRefill: number;
+}
+
+/** Refill the bucket and try to spend one token. Returns false if rate-limited. */
+function allowMessage(conn: Conn): boolean {
+  const now = Date.now();
+  const elapsed = (now - conn.lastRefill) / 1000;
+  conn.tokens = Math.min(BURST, conn.tokens + elapsed * RATE_PER_SEC);
+  conn.lastRefill = now;
+  if (conn.tokens < 1) return false;
+  conn.tokens -= 1;
+  return true;
 }
 
 function send(ws: WebSocket, msg: ServerMessage): void {
@@ -52,7 +73,7 @@ function playerLeftGame(manager: RoomManager, room: Room, playerId: string): voi
   }
   if (runtime.game.playersChanged) return;
 
-  const remaining = [...room.players.values()];
+  const remaining = [...room.players.values()].filter((p) => p.connected);
   clearTimeout(runtime.timer);
   manager.sendGame(room, "gameOver", {
     winner: remaining.length === 1 ? remaining[0].id : "draw",
@@ -66,12 +87,22 @@ function sendRoomState(manager: RoomManager, room: Room): void {
 }
 
 export function attachConnection(ws: WebSocket, manager: RoomManager): void {
-  const conn: Conn = { ws, roomCode: null, playerId: null, isSpectator: false };
+  const conn: Conn = {
+    ws, roomCode: null, playerId: null, isSpectator: false,
+    tokens: BURST, lastRefill: Date.now(),
+  };
 
   ws.on("message", (raw) => {
+    const text = raw.toString();
+    if (text.length > MAX_MESSAGE_BYTES) {
+      return err(ws, "too_large", "Message too large");
+    }
+    if (!allowMessage(conn)) {
+      return err(ws, "rate_limited", "Slow down");
+    }
     let msg: ClientMessage;
     try {
-      msg = JSON.parse(raw.toString()) as ClientMessage;
+      msg = JSON.parse(text) as ClientMessage;
     } catch {
       return err(ws, "bad_json", "Could not parse message");
     }
@@ -113,7 +144,14 @@ function handle(conn: Conn, manager: RoomManager, msg: ClientMessage): void {
       const nickname = sanitizeNick(msg.nickname);
       if (!nickname) return err(ws, "bad_nick", "Nickname required");
       const name = sanitizeText(msg.roomName, 32) ?? `${nickname}'s room`;
-      const room = manager.createRoom(name, sanitizeText(msg.password, 64));
+      let room: Room;
+      try {
+        room = manager.createRoom(name, sanitizeText(msg.password, 64));
+      } catch (e) {
+        if (e instanceof ServerFullError)
+          return err(ws, "server_full", "Server is at capacity, try later");
+        throw e;
+      }
       bindNewPlayer(conn, manager, room, nickname);
       return;
     }
@@ -136,6 +174,7 @@ function handle(conn: Conn, manager: RoomManager, msg: ClientMessage): void {
       // A watcher reconnecting: restore their spectator seat, re-send the safe view.
       const spectator = room.spectators.get(msg.playerId);
       if (spectator) {
+        if (spectator.secret !== msg.secret) return err(ws, "bad_secret", "No seat to rejoin");
         manager.cancelPrune(room);
         spectator.ws = ws;
         spectator.connected = true;
@@ -152,6 +191,7 @@ function handle(conn: Conn, manager: RoomManager, msg: ClientMessage): void {
           role: "spectator",
           spectators: manager.publicSpectators(room),
           joinable: manager.joinable(room),
+          secret: spectator.secret,
         });
         if (room.runtime || room.lastGame) {
           manager.sendSpectate(room, room.runtime ? "gameStarted" : "gameOver", { only: spectator.id });
@@ -162,6 +202,9 @@ function handle(conn: Conn, manager: RoomManager, msg: ClientMessage): void {
 
       const player = room.players.get(msg.playerId);
       if (!player) return err(ws, "no_seat", "No seat to rejoin");
+      // The public playerId is known to everyone in the room; the private secret
+      // is not. Require it so a playerId alone cannot hijack someone's seat.
+      if (player.secret !== msg.secret) return err(ws, "bad_secret", "No seat to rejoin");
       manager.cancelPrune(room); // recovered before deletion — keep it alive
       player.ws = ws;
       player.connected = true;
@@ -178,6 +221,7 @@ function handle(conn: Conn, manager: RoomManager, msg: ClientMessage): void {
         ...manager.roomInfo(room),
         players: manager.publicPlayers(room),
         hostId: room.hostId ?? "",
+        secret: player.secret,
       });
       // Restore the private snapshot before the room can redirect the client.
       if (room.runtime || room.lastGame) {
@@ -240,6 +284,11 @@ function handle(conn: Conn, manager: RoomManager, msg: ClientMessage): void {
       const { game, state } = room.runtime;
       const validated = game.validateMove(state, conn.playerId!, msg.move);
       if (!validated.ok) {
+        // Let the game record private penalty state (e.g. a wrong-guess
+        // cooldown) without validateMove mutating its input. Not broadcast.
+        if (game.onInvalidMove) {
+          room.runtime.state = game.onInvalidMove(state, conn.playerId!, msg.move);
+        }
         return err(ws, "bad_move", validated.error);
       }
 
@@ -297,7 +346,7 @@ function handle(conn: Conn, manager: RoomManager, msg: ClientMessage): void {
       if (!manager.checkPassword(room, msg.password)) return err(ws, "bad_password", "Wrong password");
       if (!room.runtime) return err(ws, "not_in_progress", "Nothing to watch — join as a player");
 
-      const spectator: Player = { id: randomUUID(), nickname, ws, connected: true };
+      const spectator: Player = { id: randomUUID(), nickname, secret: randomUUID(), ws, connected: true };
       manager.unwatchRooms(ws);
       manager.addSpectator(room, spectator);
       conn.roomCode = room.code;
@@ -314,6 +363,7 @@ function handle(conn: Conn, manager: RoomManager, msg: ClientMessage): void {
         role: "spectator",
         spectators: manager.publicSpectators(room),
         joinable: manager.joinable(room),
+        secret: spectator.secret,
       });
       // Hand this watcher the current safe snapshot.
       manager.sendSpectate(room, room.runtime ? "gameStarted" : "gameOver", { only: spectator.id });
@@ -394,6 +444,7 @@ function bindNewPlayer(
   const player: Player = {
     id: randomUUID(),
     nickname,
+    secret: randomUUID(),
     ws: conn.ws,
     connected: true,
   };
@@ -409,6 +460,7 @@ function bindNewPlayer(
     ...manager.roomInfo(room),
     players: manager.publicPlayers(room),
     hostId: room.hostId ?? "",
+    secret: player.secret,
   });
   sendRoomState(manager, room);
 }
@@ -440,6 +492,10 @@ function sanitizeNick(raw: unknown): string | null {
 /** Trimmed, length-capped text, or null when missing/empty. */
 function sanitizeText(raw: unknown, max: number): string | null {
   if (raw === undefined || raw === null) return null;
-  const s = String(raw).trim().slice(0, max);
+  // Reject absurd input before coercion, then strip control characters (incl.
+  // newlines) so the value stays a single clean line.
+  if (typeof raw !== "string" || raw.length > 1000) return null;
+  // eslint-disable-next-line no-control-regex
+  const s = raw.replace(/[\u0000-\u001F\u007F]/g, "").trim().slice(0, max);
   return s.length > 0 ? s : null;
 }

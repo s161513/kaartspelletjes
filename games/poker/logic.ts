@@ -60,6 +60,21 @@ function deal(state: PokerState, count: number): Card[] {
 // ---------------------------------------------------------------------------
 
 function startHand(state: PokerState): void {
+  // Seat any mid-game joiner with a fresh stack (a rebuy), before the button and
+  // blinds are recomputed below. Appended at the end so existing seat indexes
+  // (and the persisted dealer index) stay valid.
+  if (state.joining.length) {
+    for (const id of state.joining) {
+      if (!state.seats.some((s) => s.id === id)) {
+        state.seats.push({
+          id, chips: STARTING_CHIPS, hole: [], bet: 0, totalBet: 0,
+          folded: false, allIn: false, out: false, acted: false,
+        });
+      }
+    }
+    state.joining = [];
+  }
+
   for (const seat of state.seats) {
     if (seat.chips === 0) seat.out = true;
     Object.assign(seat, { hole: [], bet: 0, totalBet: 0, folded: false, allIn: false, acted: false });
@@ -251,6 +266,7 @@ const poker: Game<PokerState, PokerMove> = {
       blinds: { small: SMALL_BLIND, big: BIG_BLIND },
       lastResult: null,
       log: [],
+      joining: [],
     };
     startHand(state);
     return state;
@@ -349,8 +365,28 @@ const poker: Game<PokerState, PokerMove> = {
     return left.length === 1 ? { over: true, winner: left[0].id } : { over: false };
   },
 
+  // Queue a watcher to be seated (fresh stack) at the next hand.
+  addPlayer(state, playerId) {
+    const over = state.phase === "showdown" && state.seats.filter((s) => s.chips > 0).length === 1;
+    const seated = state.seats.filter((s) => !s.out).length;
+    if (over || state.seats.some((s) => s.id === playerId) || state.joining.includes(playerId)
+      || seated + state.joining.length >= 8) {
+      return state;
+    }
+    return { ...state, joining: [...state.joining, playerId] };
+  },
+
+  seatedPlayers(state) {
+    return state.seats.map((s) => s.id);
+  },
+
   playerLeft(prev, playerId) {
     const state = structuredClone(prev);
+    // A watcher who committed to join but hasn't been seated yet: just dequeue.
+    if (state.joining.includes(playerId)) {
+      state.joining = state.joining.filter((id) => id !== playerId);
+      return state;
+    }
     const i = state.seats.findIndex((s) => s.id === playerId);
     const seat = state.seats[i];
     if (!seat || seat.out) return state;

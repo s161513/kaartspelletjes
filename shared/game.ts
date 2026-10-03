@@ -31,6 +31,15 @@ export interface Game<State = unknown, Move = unknown> {
   /** Apply a validated move, returning the next state. */
   applyMove(state: State, playerId: string, move: Move): State;
 
+  /**
+   * Optional: a move was *rejected* by validateMove. Lets a game persist private
+   * penalty bookkeeping (e.g. a brief per-player cooldown after a wrong guess)
+   * without validateMove mutating its input. Return the new state; it is stored
+   * but not broadcast (the player still receives the validation error). Keep it
+   * side-effect-only on private fields — it must never change public/game state.
+   */
+  onInvalidMove?(state: State, playerId: string, move: unknown): State;
+
   /** Whether the game is over and, if so, who won. */
   result(state: State): { over: boolean; winner?: string | "draw" };
 

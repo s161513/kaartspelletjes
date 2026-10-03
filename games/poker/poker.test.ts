@@ -161,6 +161,34 @@ test("all-in preflop runs out the board and splits side pots", () => {
   assert.notEqual(s.seats[s.toAct!].id, "c");
 });
 
+test("a watcher queued mid-game is seated with a fresh stack next hand", () => {
+  let s = game.init(["a", "b", "c"]);
+  // Queued, not yet seated — the running hand is untouched.
+  s = game.addPlayer!(s, "d");
+  assert.deepEqual(s.joining, ["d"]);
+  assert.deepEqual(game.seatedPlayers!(s), ["a", "b", "c"]);
+  // Finish the hand (everyone folds to the raiser) and start the next one.
+  s = move(s, { type: "raise", to: 60 });
+  s = move(s, { type: "fold" });
+  s = move(s, { type: "fold" });
+  assert.equal(s.phase, "showdown");
+  s = move(s, { type: "nextHand" }, "a");
+  const d = s.seats.find((seat) => seat.id === "d");
+  assert.ok(d && !d.out, "the joiner now holds a seat");
+  assert.equal(d!.chips + d!.totalBet, STARTING_CHIPS, "seated with a fresh stack");
+  assert.deepEqual(s.joining, []);
+  assert.deepEqual(game.seatedPlayers!(s), ["a", "b", "c", "d"]);
+});
+
+test("a queued watcher who leaves before being seated is just dequeued", () => {
+  let s = game.init(["a", "b"]);
+  s = game.addPlayer!(s, "z");
+  assert.deepEqual(s.joining, ["z"]);
+  s = game.playerLeft!(s, "z");
+  assert.deepEqual(s.joining, []);
+  assert.equal(s.seats.length, 2, "no seat was created");
+});
+
 test("game ends when one player has all the chips", () => {
   let s = game.init(["a", "b"]);
   rig(s, ["Ah As", "2c 7d"], "Ad Kc 4c 3h 8h");

@@ -52,6 +52,8 @@ export interface RejoinMsg {
   type: "rejoin";
   playerId: string;
   roomCode: string;
+  /** Private seat token issued in `joined`; proves ownership of the seat. */
+  secret: string;
 }
 
 export interface ChatSendMsg {
@@ -92,6 +94,12 @@ export interface JoinedMsg {
   roomCode: string;
   players: PlayerPublic[];
   hostId: string;
+  /**
+   * Private seat token, sent only to the owning client. Must be echoed back in
+   * `rejoin` to reclaim this seat, so a public `playerId` alone cannot be used
+   * to hijack another player's seat.
+   */
+  secret: string;
 }
 
 export interface RoomStateMsg {

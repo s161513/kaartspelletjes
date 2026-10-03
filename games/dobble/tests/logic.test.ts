@@ -27,9 +27,12 @@ test("2–8 players, distinct private hands and no private metadata on the wire"
 });
 test("wrong click, cooldown, malformed and foreign actions never award points",t=>{
   let now=1000;t.mock.method(Date,"now",()=>now);
-  const state=dobble.init(["a","b"]), correct=match(state);
+  let state=dobble.init(["a","b"]); const correct=match(state);
   const wrong=state.round.hands.a.find(s=>!state.round.center.includes(s))!;
   assert.equal(dobble.validateMove(state,"a",{...correct,symbolId:wrong}).ok,false);
+  // The server records the wrong-guess cooldown via onInvalidMove (validateMove
+  // itself is side-effect-free), so mirror that here before the next click.
+  state=dobble.onInvalidMove!(state,"a",{...correct,symbolId:wrong});
   assert.equal(dobble.validateMove(state,"a",correct).ok,false); assert.equal(state.scores.a,0);
   now+=400;assert.equal(dobble.validateMove(state,"a",correct).ok,true);
   for(const move of [null,{}, {...correct,symbolId:NaN},{...correct,symbolId:57}, {...correct,roundId:"old"}]) assert.equal(dobble.validateMove(state,"a",move).ok,false);

@@ -521,6 +521,10 @@ function updateTimer(): void {
 
 function updateStatus(view: PresidentenView, ctx: GameContext): void {
   const round = `Round ${view.round}`;
+  if (view.spectating && view.phase !== "GAME_OVER") {
+    ctx.setStatus(`${round} · spectating — you'll be dealt in next hand 👀`);
+    return;
+  }
   if (view.phase === "GAME_OVER") ctx.setStatus("Game over");
   else if (view.phase === "EXCHANGE") {
     ctx.setStatus(view.exchange?.activeWinner === ctx.playerId ? `${round} · your exchange` : `${round} · card exchange`);

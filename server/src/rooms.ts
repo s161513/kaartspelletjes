@@ -10,6 +10,8 @@ import type {
 export interface Player {
   id: string;
   nickname: string;
+  /** Private seat token (never sent to other players); checked on rejoin. */
+  secret: string;
   ws: WebSocket | null; // null while disconnected (seat kept for rejoin)
   connected: boolean;
 }
@@ -36,8 +38,16 @@ const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no easily-confused cha
 const CODE_LEN = 4;
 // How long an empty room survives before deletion. This window lets a player
 // navigate between pages (landing -> lobby -> game) — which drops and reopens
-// the socket — without the room being pruned out from under their rejoin.
-const GRACE_MS = 30_000;
+// the socket — without the room being pruned out from under their rejoin. Kept
+// generous so a slow reload or brief network blip still recovers the seat.
+const GRACE_MS = 120_000;
+// Hard cap on simultaneous rooms so a flood of `create` can't exhaust memory.
+// 4-char codes from a 32-char alphabet give ~1M possibilities, so this is tiny
+// by comparison and purely a safety valve.
+const MAX_ROOMS = 5_000;
+
+/** Thrown by createRoom when the server is at capacity. */
+export class ServerFullError extends Error {}
 
 export class RoomManager {
   private rooms = new Map<string, Room>();
@@ -54,6 +64,7 @@ export class RoomManager {
   }
 
   createRoom(): Room {
+    if (this.rooms.size >= MAX_ROOMS) throw new ServerFullError("server full");
     const code = this.generateCode();
     const room: Room = {
       code,

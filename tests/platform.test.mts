@@ -94,7 +94,7 @@ test("real platform sockets: discovery, lobby, 8 players, private start/update/r
     assert.equal(Object.values(state.hands).flat().length,52);
     const resumeIndex=callers[0];const oldHand=structuredClone(state.hands[sessions[resumeIndex].playerId]);
     await seated[resumeIndex].close();const resumed=await connect();seated[resumeIndex]=resumed;
-    resumed.send({type:"rejoin",playerId:sessions[resumeIndex].playerId,roomCode:room.code});
+    resumed.send({type:"rejoin",playerId:sessions[resumeIndex].playerId,roomCode:room.code,secret:sessions[resumeIndex].secret});
     await resumed.wait(m=>m.type==="joined");
     const restored=view(await resumed.wait(m=>m.type==="gameStarted"));
     assert.deepEqual(restored.myHand,oldHand);assert.equal(restored.phase,"RESOLVING_CHALLENGE");
@@ -139,7 +139,7 @@ test("real platform sockets: discovery, lobby, 8 players, private start/update/r
     assert.equal(room.runtime,null);assert.ok(room.lastGame);
     for(let i=0;i<8;i++)privatePayload(room.lastGame!.state as BullshitState,sessions[i].playerId,view(endings[i]));
     await seated[winnerIndex].close();const recovered=await connect();seated[winnerIndex]=recovered;
-    recovered.send({type:"rejoin",playerId:sessions[winnerIndex].playerId,roomCode:room.code});
+    recovered.send({type:"rejoin",playerId:sessions[winnerIndex].playerId,roomCode:room.code,secret:sessions[winnerIndex].secret});
     await recovered.wait(m=>m.type==="joined");const finalResume=await recovered.wait(m=>m.type==="gameOver");assert.equal(view(finalResume).winner,winner);
     const hostIndex=sessions.findIndex(s=>s.playerId===room.hostId);
     seated[hostIndex].send({type:"startGame",gameId:"bullshit"});

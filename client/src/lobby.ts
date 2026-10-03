@@ -105,6 +105,13 @@ socket.on("gameStarted", (msg) => {
 });
 
 socket.on("error", (msg) => {
+  // Our seat is gone (server restarted, room pruned, or stale token): drop the
+  // dead session and return to landing instead of being stuck in a dead lobby.
+  if (msg.code === "no_room" || msg.code === "no_seat" || msg.code === "bad_secret") {
+    session.clearRoom();
+    location.href = "/";
+    return;
+  }
   hintEl.textContent = msg.message;
 });
 

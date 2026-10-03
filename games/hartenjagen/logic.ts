@@ -22,6 +22,13 @@ const nextPlayer = (state: HeartsState, id: string) =>
   state.players[(state.players.indexOf(id) + 1) % state.players.length];
 
 function startRound(state: HeartsState): void {
+  // Seat anyone who joined mid-game; they get a fresh hand and a 0 score.
+  if (state.pending.length) {
+    const incoming = state.pending.filter((id) => !state.players.includes(id) && !state.left.includes(id));
+    state.players = [...state.players, ...incoming];
+    for (const id of incoming) state.scores[id] ??= 0;
+    state.pending = [];
+  }
   state.roundNumber += 1;
   const hands = dealHands(state.players);
   state.hands = Object.fromEntries(state.players.map((id) => [id, sortHand(hands[id])]));
@@ -109,6 +116,7 @@ const hartenjagen: Game<HeartsState, HeartsMove> = {
       scores: Object.fromEntries(playerIds.map((id) => [id, 0])),
       history: [],
       left: [],
+      pending: [],
     };
     startRound(state);
     return state;
@@ -192,6 +200,19 @@ const hartenjagen: Game<HeartsState, HeartsMove> = {
   // Hearts can't continue with a player missing: the game ends, lowest score wins.
   playerLeft(state, playerId) {
     return { ...state, left: [...state.left, playerId], toPlay: null };
+  },
+
+  // Park late-joiners until the next round deals them in (see startRound). Keep
+  // the queue in sync with who is still in the room; departures are handled by
+  // playerLeft, so the running round is untouched here.
+  playersChanged(state, _connectedIds, memberIds) {
+    const seated = new Set(state.players);
+    const kept = state.pending.filter((id) => memberIds.includes(id));
+    const added = memberIds.filter((id) => !seated.has(id) && !kept.includes(id));
+    const pending = [...kept, ...added];
+    const same = pending.length === state.pending.length
+      && pending.every((id, i) => id === state.pending[i]);
+    return same ? state : { ...state, pending };
   },
 
   playerView(state, playerId) {

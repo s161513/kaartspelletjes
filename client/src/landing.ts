@@ -7,8 +7,13 @@ const createBtn = document.getElementById("create") as HTMLButtonElement;
 const joinBtn = document.getElementById("join") as HTMLButtonElement;
 const errEl = document.getElementById("error") as HTMLParagraphElement;
 
-// Fresh landing: forget any old seat so we don't auto-rejoin a stale room.
-session.clearRoom();
+// Auto-resume: if we still hold a seat (reload, reopened tab, browser restart),
+// head to the lobby, which reconnects and rejoins. A failed rejoin there clears
+// the stale seat and bounces back here. Creating/joining below overwrites the
+// seat from the server's `joined` reply, so starting fresh still works.
+if (session.roomCode && session.playerId) {
+  location.href = "/lobby.html";
+}
 nickEl.value = session.nickname;
 
 const socket = new GameSocket();
@@ -16,6 +21,7 @@ const socket = new GameSocket();
 socket.on("joined", (msg) => {
   session.playerId = msg.playerId;
   session.roomCode = msg.roomCode;
+  session.secret = msg.secret;
   location.href = "/lobby.html";
 });
 

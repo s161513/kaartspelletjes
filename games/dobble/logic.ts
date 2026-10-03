@@ -40,11 +40,27 @@ const dobble: Game<DobbleState, DobbleMove> = {
     if (move.roundId !== state.round.id || state.round.status !== "active") return { ok: false, error: "Deze ronde is al voorbij." };
     if (Date.now() < (state.blockedUntil[playerId] ?? 0)) return { ok: false, error: "Wacht even voor je opnieuw klikt." };
     if (!state.round.hands[playerId]?.includes(move.symbolId) || !state.round.center.includes(move.symbolId)) {
-      // Cooldowns are private metadata; a wrong click never changes cards/scores.
-      state.blockedUntil[playerId] = Date.now() + WRONG_CLICK_DELAY_MS;
+      // The cooldown for this wrong guess is recorded in onInvalidMove so that
+      // validateMove stays side-effect-free (per the Game contract).
       return { ok: false, error: "Dat is niet de match. Probeer opnieuw!" };
     }
     return { ok: true, move: { type: "symbolClick", roundId: move.roundId, symbolId: move.symbolId } };
+  },
+  onInvalidMove(state, playerId, raw) {
+    // Mirror validateMove's wrong-guess branch: a well-formed click on the live
+    // round that simply isn't the match earns a brief per-player cooldown (anti
+    // brute-force). Every other rejection — and a click already cooling down —
+    // is a no-op, matching the original behaviour.
+    if (!state.activeIds.includes(playerId) || state.winnerId || state.paused) return state;
+    if (!raw || typeof raw !== "object") return state;
+    const move = raw as DobbleMove;
+    if (move.type !== "symbolClick" || typeof move.roundId !== "string" ||
+        !Number.isInteger(move.symbolId) || move.symbolId < 0 || move.symbolId >= 57) return state;
+    if (move.roundId !== state.round.id || state.round.status !== "active") return state;
+    if (Date.now() < (state.blockedUntil[playerId] ?? 0)) return state;
+    const matches = state.round.hands[playerId]?.includes(move.symbolId) && state.round.center.includes(move.symbolId);
+    if (matches) return state;
+    return { ...state, blockedUntil: { ...state.blockedUntil, [playerId]: Date.now() + WRONG_CLICK_DELAY_MS } };
   },
   applyMove(state, playerId, move) {
     const scores = { ...state.scores, [playerId]: state.scores[playerId] + 1 };
@@ -74,8 +90,18 @@ const dobble: Game<DobbleState, DobbleMove> = {
     return { ...state, round: nextRound(state.activeIds, state.round) };
   },
   playersChanged(state, connectedIds, memberIds) {
+    // Drop players who left the room, then register any late-joiners: they go on
+    // the scoreboard immediately and are dealt a hand from the next round (their
+    // `own` is empty until then, which the view renders as "spectating").
     const activeIds = state.activeIds.filter(id => memberIds.includes(id));
-    return { ...state, activeIds, paused: activeIds.filter(id => connectedIds.includes(id)).length < 2 };
+    const playerIds = [...state.playerIds];
+    const scores = { ...state.scores };
+    for (const id of memberIds) {
+      if (!activeIds.includes(id)) activeIds.push(id);
+      if (!playerIds.includes(id)) playerIds.push(id);
+      scores[id] ??= 0;
+    }
+    return { ...state, playerIds, activeIds, scores, paused: activeIds.filter(id => connectedIds.includes(id)).length < 2 };
   },
 };
 

@@ -60,6 +60,8 @@ export interface PokerState {
   blinds: { small: number; big: number };
   lastResult: HandResult | null;
   log: LogEntry[];
+  /** Late-joiners spectating now; seated with a fresh stack at the next hand. */
+  pending: string[];
 }
 
 export type PokerMove =

@@ -65,7 +65,7 @@ test("real sockets: wrong click, reconnect restores hand/score, host migration a
   await until(()=>manager.getRoom(joined.roomCode)?.players.get(joined.playerId)?.connected===false?true:undefined);
   assert.equal(manager.getRoom(joined.roomCode)!.hostId,b.messages.find(m=>m.type==="joined")!.playerId);
   assert.equal(b.view()!.paused,true);
-  const again=await connect();await again.request({type:"rejoin",playerId:joined.playerId,roomCode:joined.roomCode},"gameStarted");
+  const again=await connect();await again.request({type:"rejoin",playerId:joined.playerId,roomCode:joined.roomCode,secret:joined.secret},"gameStarted");
   assert.deepEqual(again.view()!.round,saved.round);assert.equal(again.view()!.scores[joined.playerId],1);assert.equal(again.view()!.paused,false);
   b.send({type:"leave"});await until(()=>again.view()?.paused===true?true:undefined);
   assert.equal(manager.getRoom(joined.roomCode)!.players.size,1);
@@ -73,7 +73,7 @@ test("real sockets: wrong click, reconnect restores hand/score, host migration a
 test("real sockets: reconnect replacement's old close cannot disconnect the new seat",async t=>{
   const {connect,manager}=await fixture(t);const a=await connect();const joined=await a.request({type:"create",nickname:"A"},"joined");
   const b=await connect();await b.request({type:"join",nickname:"B",roomCode:joined.roomCode},"joined");await a.request({type:"startGame",gameId:"dobble"},"gameStarted");
-  const replacement=await connect();await replacement.request({type:"rejoin",roomCode:joined.roomCode,playerId:joined.playerId},"gameStarted");a.ws.close();await sleep(30);
+  const replacement=await connect();await replacement.request({type:"rejoin",roomCode:joined.roomCode,playerId:joined.playerId,secret:joined.secret},"gameStarted");a.ws.close();await sleep(30);
   assert.equal(manager.getRoom(joined.roomCode)!.players.get(joined.playerId)!.connected,true);assert.equal(replacement.view()!.paused,false);
 });
 test("real sockets: existing Tic-Tac-Toe start, invalid turn, win and rematch",async t=>{

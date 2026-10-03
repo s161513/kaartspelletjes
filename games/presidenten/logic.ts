@@ -54,6 +54,7 @@ export function createGame(
     exchange: null,
     left: [],
     lastTrick: null,
+    pending: [],
   };
   state.turnIndex = openerSeat(state); // the ♣3 holder opens
   armTimer(state, now);
@@ -347,9 +348,12 @@ function checkHandOver(s: PresidentenState): void {
     return;
   }
 
+  // Late-joiners waiting in `pending` are dealt into this fresh hand as plain
+  // citizens (no standing, so no role and no exchange obligation).
+  const incoming = s.pending.filter((id) => !present.includes(id));
   const roles = assignRoles(present);
   const pairs = exchangePairs(present);
-  dealNewHand(s, present); // deal the next hand first, so winners have cards to give back
+  dealNewHand(s, present, incoming); // deal the next hand first, so winners have cards to give back
   s.roles = roles;
   s.winner = null;
   if (pairs.length === 0) {
@@ -363,10 +367,11 @@ function checkHandOver(s: PresidentenState): void {
 }
 
 /** Re-seat to the finishing order and deal everyone a fresh hand (President leads). */
-function dealNewHand(s: PresidentenState, present: string[]): void {
-  const { hands } = deal(present.length, { minCardsPerPlayer: MIN_CARDS_PER_PLAYER, rng: secureRandom });
-  s.players = [...present];
-  s.hands = Object.fromEntries(present.map((id, i) => [id, hands[i]]));
+function dealNewHand(s: PresidentenState, present: string[], incoming: string[] = []): void {
+  const roster = [...present, ...incoming];
+  const { hands } = deal(roster.length, { minCardsPerPlayer: MIN_CARDS_PER_PLAYER, rng: secureRandom });
+  s.players = roster;
+  s.hands = Object.fromEntries(roster.map((id, i) => [id, hands[i]]));
   s.pile = [];
   s.top = null;
   s.finished = [];
@@ -378,6 +383,7 @@ function dealNewHand(s: PresidentenState, present: string[]): void {
   s.passedThisTrick = [];
   s.left = [];
   s.lastTrick = null;
+  s.pending = s.pending.filter((id) => !roster.includes(id)); // dealt-in players leave the queue
   s.round++;
   s.turnIndex = 0; // placeholder; the real opener is set once play starts
 }
@@ -458,7 +464,31 @@ export function playerView(
           }
         : null,
     lastTrick: state.lastTrick ? structuredClone(state.lastTrick) : null,
+    spectating: !state.players.includes(playerId),
   };
+}
+
+/**
+ * Room membership changed. We only act on arrivals: a late-joiner is parked in
+ * `pending` and dealt into the next hand (see checkHandOver). Departures are
+ * handled by playerLeft / the turn-timeout auto-pass, so existing play is
+ * untouched here. `pending` is kept in sync with who is still in the room.
+ */
+export function playersChanged(
+  state: PresidentenState,
+  _connectedIds: string[],
+  memberIds: string[],
+): PresidentenState {
+  const seated = new Set(state.players);
+  const kept = state.pending.filter((id) => memberIds.includes(id));
+  const added = memberIds.filter((id) => !seated.has(id) && !kept.includes(id));
+  const pending = [...kept, ...added];
+  const same = pending.length === state.pending.length
+    && pending.every((id, i) => id === state.pending[i]);
+  if (same) return state;
+  const next = structuredClone(state);
+  next.pending = pending;
+  return next;
 }
 
 export function playerLeft(state: PresidentenState, playerId: string): PresidentenState {
@@ -519,6 +549,7 @@ export default {
   }),
   playerView,
   playerLeft,
+  playersChanged,
   nextUpdateIn: (state) =>
     state.deadline === null ? null : Math.max(0, state.deadline - Date.now()),
   advance: (state) => advance(state),

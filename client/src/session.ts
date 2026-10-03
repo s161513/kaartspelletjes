@@ -1,35 +1,47 @@
-// Small typed wrapper around sessionStorage for the current player's identity.
+// Small typed wrapper around localStorage for the current player's identity.
+// localStorage (not sessionStorage) so a reload, a new tab, or a browser
+// restart all keep the seat and can auto-rejoin.
 
 const KEYS = {
   nickname: "cg.nickname",
   roomCode: "cg.roomCode",
   playerId: "cg.playerId",
+  secret: "cg.secret",
 } as const;
 
 export const session = {
   get nickname(): string {
-    return sessionStorage.getItem(KEYS.nickname) ?? "";
+    return localStorage.getItem(KEYS.nickname) ?? "";
   },
   set nickname(v: string) {
-    sessionStorage.setItem(KEYS.nickname, v);
+    localStorage.setItem(KEYS.nickname, v);
   },
 
   get roomCode(): string {
-    return sessionStorage.getItem(KEYS.roomCode) ?? "";
+    return localStorage.getItem(KEYS.roomCode) ?? "";
   },
   set roomCode(v: string) {
-    sessionStorage.setItem(KEYS.roomCode, v);
+    localStorage.setItem(KEYS.roomCode, v);
   },
 
   get playerId(): string {
-    return sessionStorage.getItem(KEYS.playerId) ?? "";
+    return localStorage.getItem(KEYS.playerId) ?? "";
   },
   set playerId(v: string) {
-    sessionStorage.setItem(KEYS.playerId, v);
+    localStorage.setItem(KEYS.playerId, v);
+  },
+
+  /** Private seat token issued in `joined`; echoed back on rejoin. */
+  get secret(): string {
+    return localStorage.getItem(KEYS.secret) ?? "";
+  },
+  set secret(v: string) {
+    localStorage.setItem(KEYS.secret, v);
   },
 
   clearRoom(): void {
-    sessionStorage.removeItem(KEYS.roomCode);
-    sessionStorage.removeItem(KEYS.playerId);
+    localStorage.removeItem(KEYS.roomCode);
+    localStorage.removeItem(KEYS.playerId);
+    localStorage.removeItem(KEYS.secret);
   },
 };

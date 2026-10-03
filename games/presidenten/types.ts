@@ -62,6 +62,7 @@ export interface PresidentenState {
   exchange: ExchangeState | null; // present only during the EXCHANGE phase
   left: string[]; // ids that have left the room and must be dropped on re-deal
   lastTrick: LastTrick | null; // most recent completed trick this hand (null on a fresh deal)
+  pending: string[]; // late-joiners spectating now, dealt in at the next hand
 }
 
 // The exchange view a client receives while the EXCHANGE phase is active.
@@ -101,6 +102,7 @@ export interface PresidentenView {
   round: number;
   exchange: ExchangeView | null;
   lastTrick: LastTrick | null; // winner + winning cards of the last completed trick
+  spectating: boolean; // you joined mid-game; you'll be dealt in next hand
 }
 
 export type PresidentenMove =

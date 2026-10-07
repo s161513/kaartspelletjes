@@ -564,6 +564,98 @@ body.pr-wide .wrap > .card {
   }
 }
 
+/* ------------------------------------------------------------------ adaptive help (assist/) */
+
+/* Hints use cyan so they never look like your own (gold) selection. */
+.pr {
+  --pr-hint: #38bdf8;
+}
+
+.pr .pr-card.pr-hint .ui-card {
+  box-shadow:
+    0 0 0 3px var(--pr-hint),
+    0 0 16px 4px rgba(56, 189, 248, 0.55);
+  animation: pr-hint-pulse 1.6s ease-in-out infinite;
+}
+
+.pr .pr-card.pr-hint.is-selected .ui-card {
+  box-shadow:
+    0 0 0 3px var(--pr-gold),
+    0 0 0 6px var(--pr-hint);
+}
+
+.pr .pr-btn.pr-hint,
+.pr .pr-rank-btn.pr-hint .ui-card {
+  box-shadow: 0 0 0 3px var(--pr-hint), 0 0 14px 3px rgba(56, 189, 248, 0.5);
+}
+
+@keyframes pr-hint-pulse {
+  50% {
+    box-shadow:
+      0 0 0 3px var(--pr-hint),
+      0 0 4px 1px rgba(56, 189, 248, 0.25);
+  }
+}
+
+.pr-assist-tip {
+  margin: 0.5rem auto 0;
+  max-width: 34rem;
+  color: var(--pr-hint);
+  font-size: 0.9rem;
+  text-align: center;
+}
+
+/* Help score under your own name. Grey = no hints this round, blue = hints. */
+.pr-assist-score {
+  margin-top: 2px;
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+  color: #94a3b8;
+}
+
+.pr-assist-score.is-active {
+  color: var(--pr-hint);
+  font-weight: 700;
+}
+
+/* ------------------------------------------------------------------ settings section */
+
+/* Lives in the page's settings menu (outside .pr), so it uses the page variables. */
+.pr-settings-section {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.pr-settings-section + .pr-settings-section {
+  margin-top: 0.7rem;
+  padding-top: 0.7rem;
+  border-top: 1px solid var(--line);
+}
+
+.pr-settings-section h4 {
+  margin: 0;
+  font-size: 0.75rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.pr-settings-section label:has(input:disabled) {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.pr-settings-section p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.pr-settings-section .pr-assist-forget {
+  justify-self: start;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.85rem;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .pr *,
   .pr *::before,

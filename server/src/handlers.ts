@@ -282,6 +282,11 @@ function handle(conn: Conn, manager: RoomManager, msg: ClientMessage): void {
       if (!room.runtime) return err(ws, "no_game", "No game in progress");
 
       const { game, state } = room.runtime;
+      const moveType = (msg.move as { type?: unknown } | null)?.type;
+      if (typeof moveType === "string" && game.hostOnlyMoves?.includes(moveType)
+        && room.hostId !== conn.playerId) {
+        return err(ws, "not_host", "Only the host can do that");
+      }
       const validated = game.validateMove(state, conn.playerId!, msg.move);
       if (!validated.ok) {
         // Let the game record private penalty state (e.g. a wrong-guess

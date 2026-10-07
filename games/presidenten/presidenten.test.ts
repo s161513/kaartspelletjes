@@ -280,6 +280,17 @@ test("standings split the field into thirds and pair winners with losers", () =>
   ]);
   assert.deepEqual(assignRoles(["a", "b", "c"]), { a: "president", b: "citizen", c: "scum" });
   assert.deepEqual(exchangePairs(["a", "b", "c"]), [{ winner: "a", loser: "c" }]);
+  assert.deepEqual(assignRoles(["a", "b", "c", "d"]), {
+    a: "president", b: "citizen", c: "citizen", d: "scum",
+  });
+  const five = ["a", "b", "c", "d", "e"];
+  assert.deepEqual(assignRoles(five), {
+    a: "president", b: "vice-president", c: "citizen", d: "vice-scum", e: "scum",
+  });
+  assert.deepEqual(exchangePairs(five), [
+    { winner: "a", loser: "e" },
+    { winner: "b", loser: "d" },
+  ]);
   const eight = ["a", "b", "c", "d", "e", "f", "g", "h"];
   assert.deepEqual(exchangePairs(eight), [
     { winner: "a", loser: "h" },

@@ -6,6 +6,7 @@ import {
 import type { PresidentenMove, PresidentenView, Role } from "./types.js";
 import { createAssist } from "./assist/panel.js";
 import html from "./view.html?raw";
+import settingsHtml from "./settings.html?raw";
 import "./style.css";
 
 // Presidenten table — same look as poker/hartenjagen. Layout lives in view.html,
@@ -583,30 +584,6 @@ function updateStatus(view: PresidentenView, ctx: GameContext): void {
 }
 
 // ---------------------------------------------------------------------------
-// Settings menu (gear, top-right of the table)
-// ---------------------------------------------------------------------------
-
-/** Open/close the settings popover; it closes on Escape or a click outside. */
-function wireSettings(): void {
-  const btn = $<HTMLButtonElement>(".pr-settings-btn");
-  const menu = $(".pr-settings");
-  const setOpen = (open: boolean) => {
-    menu.hidden = !open;
-    btn.setAttribute("aria-expanded", String(open));
-  };
-  btn.addEventListener("click", () => setOpen(menu.hidden));
-  document.addEventListener("click", (e) => {
-    if (!menu.hidden && !menu.contains(e.target as Node) && !btn.contains(e.target as Node)) setOpen(false);
-  });
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && !menu.hidden) {
-      setOpen(false);
-      btn.focus();
-    }
-  });
-}
-
-// ---------------------------------------------------------------------------
 // GamePage
 // ---------------------------------------------------------------------------
 
@@ -616,8 +593,6 @@ function mount(ctx: GameContext): void {
   ctx.container.innerHTML = html;
   root = ctx.container.querySelector(".pr")!;
   $<HTMLProgressElement>(".pr-countdown progress").max = TURN_MS;
-  assist.mount($(".pr-assist"), ctx);
-  wireSettings();
 
   // The rank picker is fixed (3 … A, then 2); wire each button once. Each looks
   // like a playing card but shows only the rank — no suit, since you are guessing.
@@ -701,8 +676,14 @@ function onGameOver(winner: string | "draw", view: PresidentenView, ctx: GameCon
   updateTimer();
 }
 
+/** Our section of the page's settings menu (the gear next to "Leave game"). */
+function settings(container: HTMLElement, ctx: GameContext): void {
+  container.innerHTML = settingsHtml;
+  assist.mount(container.querySelector(".pr-assist")!, ctx);
+}
+
 function onRoomState(ctx: GameContext): void {
   if (latest) update(latest, ctx);
 }
 
-export default { mount, update, onGameOver, onRoomState } satisfies GamePage<PresidentenView>;
+export default { mount, update, onGameOver, onRoomState, settings } satisfies GamePage<PresidentenView>;

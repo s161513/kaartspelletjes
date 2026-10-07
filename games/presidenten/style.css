@@ -618,61 +618,18 @@ body.pr-wide .wrap > .card {
   font-weight: 700;
 }
 
-/* ------------------------------------------------------------------ settings menu */
+/* ------------------------------------------------------------------ settings section */
 
-.pr .pr-settings-btn {
-  position: absolute;
-  top: 0;
-  right: 0;
-  z-index: 6;
-  width: 36px;
-  height: 36px;
-  padding: 0;
-  border: 1px solid var(--pr-line);
-  border-radius: 50%;
-  background: var(--pr-glass);
-  color: #e2e8f0;
-  font-size: 1.15rem;
-  line-height: 1;
-  cursor: pointer;
-}
-
-.pr .pr-settings-btn:hover,
-.pr .pr-settings-btn[aria-expanded="true"] {
-  color: var(--pr-gold);
-  border-color: var(--pr-gold);
-}
-
-.pr-settings {
-  position: absolute;
-  top: 44px;
-  right: 0;
-  z-index: 7;
-  width: min(320px, 90vw);
-  padding: 0.75rem 0.9rem 0.85rem;
-  border: 1px solid var(--pr-line);
-  border-radius: 12px;
-  background: var(--pr-glass);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
-  color: #e2e8f0;
-  font-size: 0.85rem;
-}
-
-.pr-settings-title {
-  margin: 0 0 0.5rem;
-  color: var(--pr-gold);
-  font-size: 1rem;
-}
-
+/* Lives in the page's settings menu (outside .pr), so it uses the page variables. */
 .pr-settings-section {
   display: grid;
-  gap: 0.4rem;
+  gap: 0.45rem;
 }
 
 .pr-settings-section + .pr-settings-section {
   margin-top: 0.7rem;
   padding-top: 0.7rem;
-  border-top: 1px solid var(--pr-line);
+  border-top: 1px solid var(--line);
 }
 
 .pr-settings-section h4 {
@@ -680,36 +637,23 @@ body.pr-wide .wrap > .card {
   font-size: 0.75rem;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: #94a3b8;
+  color: var(--muted);
 }
 
-.pr .pr-settings-section label {
-  display: flex;
-  gap: 0.5rem;
-  align-items: flex-start;
-  margin: 0;
-  color: #e2e8f0;
-  font-size: 0.85rem;
-  font-weight: 400;
-  letter-spacing: normal;
-  text-transform: none; /* the page styles labels as small caps headings */
-  cursor: pointer;
-}
-
-.pr .pr-settings-section label:has(input:disabled) {
+.pr-settings-section label:has(input:disabled) {
   opacity: 0.55;
   cursor: default;
 }
 
 .pr-settings-section p {
   margin: 0;
-  color: #94a3b8;
+  color: var(--muted);
 }
 
-.pr .pr-assist-forget {
+.pr-settings-section .pr-assist-forget {
   justify-self: start;
-  padding: 0.3rem 0.7rem;
-  font-size: 0.8rem;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.85rem;
 }
 
 @media (prefers-reduced-motion: reduce) {

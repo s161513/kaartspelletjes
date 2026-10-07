@@ -18,8 +18,8 @@
 
 import type { Role } from "../types.js";
 
-/** 0 = no help … 3 = best move plus an explanation. See score.ts. */
-export type HelpLevel = 0 | 1 | 2 | 3;
+/** 0 = no help, 1 = best move highlighted, 2 = plus an explanation. See score.ts. */
+export type HelpLevel = 0 | 1 | 2;
 
 /** One finished round from the point of view of one player. */
 export interface RoundRecord {

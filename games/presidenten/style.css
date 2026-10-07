@@ -571,32 +571,22 @@ body.pr-wide .wrap > .card {
   --pr-hint: #38bdf8;
 }
 
-.pr .pr-card.pr-hint-best .ui-card {
+.pr .pr-card.pr-hint .ui-card {
   box-shadow:
     0 0 0 3px var(--pr-hint),
     0 0 16px 4px rgba(56, 189, 248, 0.55);
   animation: pr-hint-pulse 1.6s ease-in-out infinite;
 }
 
-.pr .pr-card.pr-hint-best.is-selected .ui-card {
+.pr .pr-card.pr-hint.is-selected .ui-card {
   box-shadow:
     0 0 0 3px var(--pr-gold),
     0 0 0 6px var(--pr-hint);
 }
 
-.pr .pr-card.pr-hint-soft .ui-card {
-  outline: 2px dashed var(--pr-hint);
-  outline-offset: 2px;
-}
-
-.pr .pr-btn.pr-hint-best,
-.pr .pr-rank-btn.pr-hint-best .ui-card {
+.pr .pr-btn.pr-hint,
+.pr .pr-rank-btn.pr-hint .ui-card {
   box-shadow: 0 0 0 3px var(--pr-hint), 0 0 14px 3px rgba(56, 189, 248, 0.5);
-}
-
-.pr .pr-btn.pr-hint-soft {
-  outline: 2px dashed var(--pr-hint);
-  outline-offset: 2px;
 }
 
 @keyframes pr-hint-pulse {

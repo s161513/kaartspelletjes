@@ -41,7 +41,7 @@ const SHOW_MS = 950;
 const SWEEP_MS = 650;
 const reducedMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-// Adaptive help (Lab 8): decides per player how strongly to highlight good moves.
+// Adaptive help (Lab 8): decides per player whether to highlight the best move.
 const assist = createAssist(() => {
   if (!latest) return;
   renderTable(latest);
@@ -400,9 +400,7 @@ function renderHand(view: PresidentenView): void {
     button.classList.toggle("is-playable", selectable);
     button.classList.toggle("is-dimmed", myTurn && !selectable);
     button.classList.toggle("is-selected", isSel);
-    const hint = selectable ? marks.cards.get(card.id) : undefined;
-    button.classList.toggle("pr-hint-best", hint === "best");
-    button.classList.toggle("pr-hint-soft", hint === "soft");
+    button.classList.toggle("pr-hint", selectable && marks.cards.has(card.id));
     button.setAttribute("aria-pressed", String(isSel));
     button.append(renderCard(card));
     button.addEventListener("click", () => onCardClick(card));
@@ -470,8 +468,7 @@ function renderActions(view: PresidentenView): void {
   giveBtn.disabled = selected.size !== 1;
 
   const marks = assist.marks();
-  passBtn.classList.toggle("pr-hint-best", marks.pass === "best");
-  passBtn.classList.toggle("pr-hint-soft", marks.pass === "soft");
+  passBtn.classList.toggle("pr-hint", marks.pass);
   const tip = $(".pr-assist-tip");
   tip.hidden = !marks.reason;
   tip.textContent = marks.reason ? `💡 ${marks.reason}` : "";
@@ -512,7 +509,7 @@ function renderExchange(view: PresidentenView): void {
   const hintRank = assist.marks().rank;
   (Array.from(ranks.children) as HTMLButtonElement[]).forEach((b, i) => {
     b.disabled = step !== "request";
-    b.classList.toggle("pr-hint-best", step === "request" && REQUEST_RANKS[i] === hintRank);
+    b.classList.toggle("pr-hint", step === "request" && REQUEST_RANKS[i] === hintRank);
   });
 }
 

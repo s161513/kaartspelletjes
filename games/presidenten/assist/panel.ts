@@ -51,13 +51,13 @@ function savePrefs(prefs: Prefs): void {
 
 /** What view.ts needs to draw the hint for the current view. */
 export interface HintMarks {
-  cards: Map<string, "best" | "soft">; // card id → highlight strength
-  pass: "best" | "soft" | null;
+  cards: Set<string>; // card ids to highlight
+  pass: boolean; // highlight the Pass button
   rank: Rank | null; // exchange: rank to ask for
-  reason: string | null; // level 3 explanation
+  reason: string | null; // level 2 explanation
 }
 
-const NO_MARKS: HintMarks = { cards: new Map(), pass: null, rank: null, reason: null };
+const NO_MARKS: HintMarks = { cards: new Set(), pass: false, rank: null, reason: null };
 
 export interface Assist {
   mount(panel: HTMLElement, ctx: GameContext): void;
@@ -141,25 +141,25 @@ export function createAssist(onChange: () => void): Assist {
       const options = advise(input);
       const hint = hintFor(decision.level, options);
       if (!hint) return none;
-      const marks: HintMarks = { cards: new Map(), pass: null, rank: null, reason: hint.reason };
-      const strength = hint.strong ? "best" : "soft";
-      for (const o of hint.options) {
-        if (o.kind === "pass") marks.pass = strength;
-        else for (const id of o.cardIds) marks.cards.set(id, strength);
-      }
+      const marks: HintMarks = {
+        cards: new Set(hint.best.kind === "play" ? hint.best.cardIds : []),
+        pass: hint.best.kind === "pass",
+        rank: null,
+        reason: hint.reason,
+      };
       return { hint, marks, best: options[0], key };
     }
 
     const ex = v.exchange;
     if (v.phase === "EXCHANGE" && ex && ex.activeWinner === v.selfId) {
-      const marks: HintMarks = { cards: new Map(), pass: null, rank: null, reason: null };
+      const marks: HintMarks = { cards: new Set(), pass: false, rank: null, reason: null };
       if (ex.step === "request") {
         marks.rank = adviseRequest(v.myHand, missed);
-        if (decision.level >= 3) marks.reason = "Ask for a strong rank you don't have yet";
+        if (decision.level >= 2) marks.reason = "Ask for a strong rank you don't have yet";
       } else {
         const id = adviseGiveBack(v.myHand);
-        if (id) marks.cards.set(id, "best");
-        if (decision.level >= 3) marks.reason = "Give back your weakest loose card";
+        if (id) marks.cards.add(id);
+        if (decision.level >= 2) marks.reason = "Give back your weakest loose card";
       }
       return { hint: null, marks, best: null, key: "" };
     }

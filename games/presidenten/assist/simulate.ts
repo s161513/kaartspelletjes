@@ -45,7 +45,7 @@ const BOT_SKILL = 0.4; // chance the opponents play the advisor's best move (an 
 const SKILL_START = 0; // the learner's skill grows linearly …
 const SKILL_END = 1; // … over the run
 /** How likely the learner follows a hint, per help level. */
-const FOLLOW: Record<HelpLevel, number> = { 0: 0, 1: 0.5, 2: 0.75, 3: 0.9 };
+const FOLLOW: Record<HelpLevel, number> = { 0: 0, 1: 0.75, 2: 0.9 };
 const ROUND_MINUTES = 4; // simulated time per round
 const ROUNDS_PER_SESSION = 15; // then a long break → new session
 
@@ -106,7 +106,7 @@ function decide(
   });
   const hint = hintFor(level, options);
   if (hint && rnd() < FOLLOW[level]) {
-    return { move: toMove(hint.options[0]), hinted: true, followed: true };
+    return { move: toMove(hint.best), hinted: true, followed: true };
   }
   const move = toMove(rnd() < skill ? options[0] : pick(options));
   return { move, hinted: hint !== null, followed: hint !== null && followsAdvice(options[0], move) };
@@ -226,7 +226,7 @@ function toSvg(rows: Row[], baseline: Row[]): string {
   const y = (v: number) => T + (1 - v) * (H - T - B);
   const path = (vals: number[]) =>
     vals.map((v, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join("");
-  const levelFill = ["transparent", "#fde68a", "#fdba74", "#fca5a5"];
+  const levelFill = ["transparent", "#bae6fd", "#7dd3fc"];
   const bands = rows.map((r, i) => {
     const w = (W - L - R) / rows.length;
     return `<rect x="${(x(i) - w / 2).toFixed(1)}" y="${T}" width="${(w + 0.5).toFixed(1)}" height="${H - T - B}" fill="${levelFill[r.level]}" opacity="0.55"/>`;
@@ -250,7 +250,7 @@ ${bands}${grid}${xTicks}
 <path d="${path(rows.map((r) => r.rollingWinRate))}" fill="none" stroke="#16a34a" stroke-width="2.5"/>
 <path d="${path(rows.map((r) => r.score))}" fill="none" stroke="#2563eb" stroke-width="2.5"/>
 ${legend}
-<text x="${(L + W - R) / 2}" y="${H - 12}" text-anchor="middle" font-size="13">round (background: help level 0 · 1 · 2 · 3)</text>
+<text x="${(L + W - R) / 2}" y="${H - 12}" text-anchor="middle" font-size="13">round (background: help level 0 · 1 · 2)</text>
 </svg>
 `;
 }
@@ -284,7 +284,7 @@ function ab(): void {
       console.log(`    ${f.label.padEnd(32)} ${f.value.padStart(5)}  +${f.contribution.toFixed(2)}`);
     }
     console.log(hint
-      ? `  → highlight ${hint.options.map(label).join(" | ")}${hint.strong ? " (strong)" : " (subtle)"}`
+      ? `  → highlight ${label(hint.best)}`
         + (hint.reason ? `\n  → "${hint.reason}"` : "")
       : "  → no hint");
     console.log();

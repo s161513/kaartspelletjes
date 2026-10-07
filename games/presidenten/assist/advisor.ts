@@ -15,7 +15,7 @@
 //    keeps you out of the whole trick, so it only wins when every play would
 //    waste several strong cards.
 // The cheapest option is the advice; the rule that dominated its cost becomes
-// the explanation shown at help level 3.
+// the explanation shown at help level 2.
 
 import { RANK_VALUES, type Card, type Rank } from "@app/shared";
 import { orderValue, REQUEST_RANKS } from "../rules.js";
@@ -173,17 +173,15 @@ export function followsAdvice(best: Advice, move: { type: string; cardIds?: stri
 
 /** What the UI should show for a given help level. */
 export interface Hint {
-  options: Advice[]; // the options to light up (best first)
-  strong: boolean; // clear highlight (levels 2–3) or subtle (level 1)
-  reason: string | null; // one-line explanation, level 3 only
+  best: Advice; // the move to highlight
+  reason: string | null; // one-line explanation, level 2 only
 }
 
 /**
- * Level 1 lights up the top 2–3 options subtly, level 2 only the best one
- * clearly, level 3 adds the explanation. Level 0 (or no options) → no hint.
+ * Level 1 highlights the best move, level 2 adds the explanation.
+ * Level 0 (or no options) → no hint.
  */
 export function hintFor(level: number, options: readonly Advice[]): Hint | null {
   if (level <= 0 || options.length === 0) return null;
-  if (level === 1) return { options: options.slice(0, 3), strong: false, reason: null };
-  return { options: [options[0]], strong: true, reason: level >= 3 ? options[0].reason : null };
+  return { best: options[0], reason: level >= 2 ? options[0].reason : null };
 }

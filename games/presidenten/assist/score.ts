@@ -8,10 +8,12 @@
 //         + 0.2 · min(lossStreak/3, 1) short-term tilt (session)
 //         + fatigue bonus              late at night / long session (environment)
 //
-//   score < 0.3 → level 0  no help
-//         < 0.5 → level 1  top 2–3 options lit up subtly
-//         < 0.7 → level 2  only the best option, clearly
-//         else  → level 3  best option plus a one-line explanation
+//   score < 0.7 → level 0  no help
+//         < 0.9 → level 1  best move highlighted in blue
+//         else  → level 2  best move plus a one-line explanation
+//
+// Help is deliberately reserved for players who are clearly struggling: an
+// average player (score ≈ 0.4) plays without hints.
 
 import type { ContextSummary, HelpLevel } from "./context.js";
 
@@ -21,8 +23,8 @@ export const STREAK_CAP = 3;
 /** Small nudge for tired players. */
 export const FATIGUE_BONUS = 0.05;
 export const LONG_SESSION_MINUTES = 60;
-/** Thresholds between levels 0|1, 1|2 and 2|3. */
-export const THRESHOLDS = [0.3, 0.5, 0.7] as const;
+/** Thresholds between levels 0|1 and 1|2. */
+export const THRESHOLDS = [0.7, 0.9] as const;
 
 /** One term of the score, kept separately so the UI can explain it. */
 export interface Factor {
@@ -52,8 +54,7 @@ const pct = (x: number) => `${Math.round(x * 100)}%`;
 export function levelFor(score: number): HelpLevel {
   if (score < THRESHOLDS[0]) return 0;
   if (score < THRESHOLDS[1]) return 1;
-  if (score < THRESHOLDS[2]) return 2;
-  return 3;
+  return 2;
 }
 
 export function computeHelp(summary: ContextSummary, options: HelpOptions = {}): HelpDecision {

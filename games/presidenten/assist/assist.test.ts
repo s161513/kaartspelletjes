@@ -112,11 +112,9 @@ test("following a hint ignores suits", () => {
 test("hint shape per level", () => {
   const options = advise({ hand: hand("4h 6s 9d Kd"), currentCount: 1, currentRankValue: v("3") });
   assert.equal(hintFor(0, options), null);
-  assert.equal(hintFor(1, options)!.options.length, 3);
-  assert.equal(hintFor(1, options)!.strong, false);
-  assert.equal(hintFor(2, options)!.options.length, 1);
-  assert.equal(hintFor(2, options)!.reason, null);
-  assert.ok(hintFor(3, options)!.reason);
+  assert.equal(hintFor(1, options)!.best, options[0], "level 1: only the best move");
+  assert.equal(hintFor(1, options)!.reason, null);
+  assert.ok(hintFor(2, options)!.reason, "level 2: plus an explanation");
 });
 
 // ---------------------------------------------------------------------------
@@ -135,7 +133,7 @@ test("the long-term window only looks at the last rounds", () => {
 test("a new player gets a neutral prior, not 0% or 100%", () => {
   const s = summarize(history(["scum"]), T0);
   assert.ok(s.winRate > 0.2 && s.winRate < 0.34);
-  assert.equal(computeHelp(summarize([], T0)).level, 1, "newcomers get a light hint");
+  assert.equal(computeHelp(summarize([], T0)).level, 0, "an average newcomer plays without hints");
 });
 
 test("losing streak and session reset after a long pause", () => {
@@ -168,17 +166,17 @@ test("MemoryStore round-trips and clears", () => {
 // ---------------------------------------------------------------------------
 
 test("level thresholds", () => {
-  assert.equal(levelFor(0.29), 0);
-  assert.equal(levelFor(0.3), 1);
-  assert.equal(levelFor(0.55), 2);
-  assert.equal(levelFor(0.7), 3);
+  assert.equal(levelFor(0.69), 0);
+  assert.equal(levelFor(0.7), 1);
+  assert.equal(levelFor(0.89), 1);
+  assert.equal(levelFor(0.9), 2);
 });
 
 test("A/B: same hand and table, different history → different help", () => {
   const now = T0 + 120 * MIN;
   const weak = computeHelp(summarize(demoHistory("weak", now), now));
   const strong = computeHelp(summarize(demoHistory("strong", now), now));
-  assert.equal(weak.level, 3);
+  assert.equal(weak.level, 2);
   assert.equal(strong.level, 0);
 
   const options = advise({ hand: hand("5h 8s Jd Ac 7c 7d"), currentCount: 1, currentRankValue: v("6") });

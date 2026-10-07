@@ -29,14 +29,24 @@ export const ROLE_LABEL: Record<Role, string> = {
 };
 
 /**
+ * How many winners (and as many losers) a field of `n` has: roughly a third,
+ * but from 5 players on at least two, so there is always a Vice-President and
+ * Vice-Scum (5 players: P VP · C · VS S).
+ */
+export function tierSize(n: number): number {
+  const third = Math.floor(n / 3);
+  return n >= 5 ? Math.max(2, third) : third;
+}
+
+/**
  * Assign standings from a full finishing order (index 0 = first out = President).
- * The field is split into thirds — the top `floor(n/3)` are winners, the bottom
- * `floor(n/3)` are losers, everyone between is a citizen. The two extremes get
- * the President/Scum (and Vice-) titles.
+ * The top `tierSize(n)` are winners, the bottom `tierSize(n)` are losers,
+ * everyone between is a citizen. The two extremes get the President/Scum
+ * (and Vice-) titles.
  */
 export function assignRoles(finished: readonly string[]): Record<string, Role> {
   const n = finished.length;
-  const tier = Math.floor(n / 3);
+  const tier = tierSize(n);
   const roles: Record<string, Role> = {};
   finished.forEach((id, i) => {
     const fromBottom = n - i; // 1 = last place
@@ -53,11 +63,11 @@ export function assignRoles(finished: readonly string[]): Record<string, Role> {
 
 /**
  * Pair the i-th best winner with the i-th worst loser (President↔Scum first),
- * for `floor(n/3)` pairs. Citizens in the middle do not exchange.
+ * for `tierSize(n)` pairs. Citizens in the middle do not exchange.
  */
 export function exchangePairs(finished: readonly string[]): ExchangePair[] {
   const n = finished.length;
-  const tier = Math.floor(n / 3);
+  const tier = tierSize(n);
   const pairs: ExchangePair[] = [];
   for (let i = 0; i < tier; i++) {
     pairs.push({ winner: finished[i], loser: finished[n - 1 - i] });

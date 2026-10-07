@@ -168,8 +168,8 @@ test("MemoryStore round-trips and clears", () => {
 test("level thresholds", () => {
   assert.equal(levelFor(0.69), 0);
   assert.equal(levelFor(0.7), 1);
-  assert.equal(levelFor(0.89), 1);
-  assert.equal(levelFor(0.9), 2);
+  assert.equal(levelFor(0.79), 1);
+  assert.equal(levelFor(0.8), 2);
 });
 
 test("A/B: same hand and table, different history → different help", () => {

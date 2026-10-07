@@ -9,7 +9,7 @@
 //         + fatigue bonus              late at night / long session (environment)
 //
 //   score < 0.7 → level 0  no help
-//         < 0.9 → level 1  best move highlighted in blue
+//         < 0.8 → level 1  best move highlighted in blue
 //         else  → level 2  best move plus a one-line explanation
 //
 // Help is deliberately reserved for players who are clearly struggling: an
@@ -24,7 +24,7 @@ export const STREAK_CAP = 3;
 export const FATIGUE_BONUS = 0.05;
 export const LONG_SESSION_MINUTES = 60;
 /** Thresholds between levels 0|1 and 1|2. */
-export const THRESHOLDS = [0.7, 0.9] as const;
+export const THRESHOLDS = [0.7, 0.8] as const;
 
 /** One term of the score, kept separately so the UI can explain it. */
 export interface Factor {

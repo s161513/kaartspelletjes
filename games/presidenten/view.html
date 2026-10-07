@@ -13,6 +13,22 @@
       </div>
     </div>
     <div class="pr-seats"></div>
+
+    <!-- Game settings. One <section> per topic; add new settings as new sections. -->
+    <button type="button" class="pr-settings-btn" aria-label="Settings" aria-haspopup="true"
+      aria-expanded="false">⚙</button>
+    <div class="pr-settings" role="dialog" aria-label="Settings" hidden>
+      <h3 class="pr-settings-title">Settings</h3>
+      <section class="pr-settings-section pr-assist">
+        <h4>Help</h4>
+        <label><input type="checkbox" class="pr-assist-helpme" /> Highlight good moves when I'm struggling</label>
+        <label class="pr-assist-host" hidden>
+          <input type="checkbox" class="pr-assist-room" /> Allow help for everyone in this room (host)
+        </label>
+        <p class="pr-assist-hostnote" hidden>The host has turned help off for this room.</p>
+        <button type="button" class="pr-assist-forget secondary">Forget my history</button>
+      </section>
+    </div>
   </div>
 
   <div class="pr-hand-area">
@@ -30,22 +46,6 @@
     <p class="pr-assist-tip" hidden></p>
   </div>
 
-  <!-- Adaptive help (assist/): how much help you get depends on your history. -->
-  <details class="pr-assist">
-    <summary>💡 Help · <span class="pr-assist-level">level 0</span></summary>
-    <div class="pr-assist-body">
-      <label><input type="checkbox" class="pr-assist-helpme" /> Help me (highlight good moves)</label>
-      <label><input type="checkbox" class="pr-assist-history" /> Use my history to decide how much</label>
-      <label class="pr-assist-host" hidden>
-        <input type="checkbox" class="pr-assist-room" /> Allow help in this room (host)
-      </label>
-      <p class="pr-assist-hostnote" hidden>The host has turned help off for this room.</p>
-      <table class="pr-assist-why" aria-label="Why you get this much help"></table>
-      <p class="pr-assist-nocontext" hidden>History ignored: everyone gets the same light hints.</p>
-      <p class="pr-assist-memory"></p>
-      <button type="button" class="pr-assist-forget secondary">Forget my history</button>
-    </div>
-  </details>
 
   <p class="pr-help">A 2 is wild and must be played with another card whose rank it copies.
     Four of a rank in a row burns the pile.</p>

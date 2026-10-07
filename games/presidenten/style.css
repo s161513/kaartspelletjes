@@ -605,65 +605,108 @@ body.pr-wide .wrap > .card {
   text-align: center;
 }
 
-/* "Help mode" marker next to your own name. */
-.pr-seat.is-assisted .pr-name::after {
-  content: " 💡";
+/* Help score under your own name. Grey = no hints this round, blue = hints. */
+.pr-assist-score {
+  margin-top: 2px;
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+  color: #94a3b8;
 }
 
-.pr-assist {
-  width: min(100%, 34rem);
-  margin: 0.6rem auto 0;
-  padding: 0.4rem 0.8rem;
-  border: 1px solid var(--pr-line);
-  border-radius: 10px;
-  background: var(--pr-glass);
-  color: #e2e8f0;
-  font-size: 0.85rem;
-}
-
-.pr-assist summary {
-  cursor: pointer;
+.pr-assist-score.is-active {
   color: var(--pr-hint);
   font-weight: 700;
 }
 
-.pr-assist-body {
-  display: grid;
-  gap: 0.35rem;
-  padding-top: 0.5rem;
-}
+/* ------------------------------------------------------------------ settings menu */
 
-.pr-assist-body label {
-  display: flex;
-  gap: 0.4rem;
-  align-items: center;
+.pr .pr-settings-btn {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 6;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid var(--pr-line);
+  border-radius: 50%;
+  background: var(--pr-glass);
+  color: #e2e8f0;
+  font-size: 1.15rem;
+  line-height: 1;
   cursor: pointer;
 }
 
-.pr-assist-body p {
+.pr .pr-settings-btn:hover,
+.pr .pr-settings-btn[aria-expanded="true"] {
+  color: var(--pr-gold);
+  border-color: var(--pr-gold);
+}
+
+.pr-settings {
+  position: absolute;
+  top: 44px;
+  right: 0;
+  z-index: 7;
+  width: min(320px, 90vw);
+  padding: 0.75rem 0.9rem 0.85rem;
+  border: 1px solid var(--pr-line);
+  border-radius: 12px;
+  background: var(--pr-glass);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  color: #e2e8f0;
+  font-size: 0.85rem;
+}
+
+.pr-settings-title {
+  margin: 0 0 0.5rem;
+  color: var(--pr-gold);
+  font-size: 1rem;
+}
+
+.pr-settings-section {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.pr-settings-section + .pr-settings-section {
+  margin-top: 0.7rem;
+  padding-top: 0.7rem;
+  border-top: 1px solid var(--pr-line);
+}
+
+.pr-settings-section h4 {
+  margin: 0;
+  font-size: 0.75rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #94a3b8;
+}
+
+.pr .pr-settings-section label {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-start;
+  margin: 0;
+  color: #e2e8f0;
+  font-size: 0.85rem;
+  font-weight: 400;
+  letter-spacing: normal;
+  text-transform: none; /* the page styles labels as small caps headings */
+  cursor: pointer;
+}
+
+.pr .pr-settings-section label:has(input:disabled) {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.pr-settings-section p {
   margin: 0;
   color: #94a3b8;
 }
 
-.pr-assist-why {
-  border-collapse: collapse;
-  font-variant-numeric: tabular-nums;
-}
-
-.pr-assist-why td {
-  padding: 0.1rem 0.5rem 0.1rem 0;
-}
-
-.pr-assist-why td:not(:first-child) {
-  text-align: right;
-}
-
-.pr-assist-why .pr-assist-total td {
-  border-top: 1px solid var(--pr-line);
-  font-weight: 700;
-}
-
-.pr-assist-forget {
+.pr .pr-assist-forget {
   justify-self: start;
   padding: 0.3rem 0.7rem;
   font-size: 0.8rem;

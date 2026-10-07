@@ -1,19 +1,19 @@
-// Browser glue for the adaptive help: owns the help panel, keeps the context
-// memory up to date and tells view.ts which cards/buttons to highlight.
+// Browser glue for the adaptive help: keeps the context memory up to date,
+// tells view.ts which cards/buttons to highlight and fills the "Help" section
+// of the game's settings menu.
 //
 // Flow per round:
 //   round starts  → read history → computeHelp() → help level for this round
+//                   (the calculation is logged to the browser console)
 //   my turn       → advise() on what I can see → hintFor(level) → highlights
 //   I make a move → count "hint shown" / "hint followed"
 //   round ends    → append my role + hint stats to the history (localStorage)
 //
-// Three switches decide whether a hint is shown:
+// Two switches decide whether a hint is shown:
 //   - the host's room-wide switch (server state, `view.assistEnabled`)
-//   - the player's own switch ("Help me", localStorage)
-//   - "Use my history": off = everyone gets the same fixed level (no context),
-//     which is the context switch used in the demo.
+//   - the player's own switch (settings menu, localStorage)
 
-import { RANK_VALUES, type GameContext, type Rank } from "@app/shared";
+import { RANK_VALUES, type Card, type GameContext, type Rank } from "@app/shared";
 import type { PresidentenMove, PresidentenView } from "../types.js";
 import {
   advise, adviseGiveBack, adviseRequest, followsAdvice, hintFor, type Advice, type Hint,
@@ -21,23 +21,20 @@ import {
 import {
   appendRound, demoHistory, LocalStorageStore, MemoryStore, summarize, type ContextStore,
 } from "./context.js";
-import { computeHelp, type HelpDecision } from "./score.js";
+import { computeHelp, THRESHOLDS, type HelpDecision } from "./score.js";
 
-/** Level everyone gets when "Use my history" is off: same help for all. */
-const NO_CONTEXT_LEVEL = 1;
 const PREFS_KEY = "presidenten-assist:prefs";
 
 interface Prefs {
   helpMe: boolean;
-  useHistory: boolean;
 }
 
 function loadPrefs(): Prefs {
   try {
     const raw = localStorage.getItem(PREFS_KEY);
-    return { helpMe: true, useHistory: true, ...(raw ? JSON.parse(raw) : {}) };
+    return { helpMe: true, ...(raw ? JSON.parse(raw) : {}) };
   } catch {
-    return { helpMe: true, useHistory: true };
+    return { helpMe: true };
   }
 }
 
@@ -60,21 +57,33 @@ export interface HintMarks {
 const NO_MARKS: HintMarks = { cards: new Set(), pass: false, rank: null, reason: null };
 
 export interface Assist {
-  mount(panel: HTMLElement, ctx: GameContext): void;
+  /** `section` is the Help section inside the game's settings menu. */
+  mount(section: HTMLElement, ctx: GameContext): void;
   /** Call on every new view, before rendering. */
   update(view: PresidentenView, ctx: GameContext): void;
   /** Highlights for the current view (empty when no hint applies). */
   marks(): HintMarks;
   /** Call right before sending a move, to track whether hints are followed. */
   noteMove(move: PresidentenMove): void;
-  /** Whether help is active for me this round (for the seat badge). */
-  active(): boolean;
+  /**
+   * The score label under my own name, or null when help is switched off.
+   * `active` = the score is high enough that I get hints this round.
+   */
+  badge(): { text: string; active: boolean } | null;
 }
+
+// Console output: readable card names instead of ids like "spades-8#0".
+const SUIT_SYMBOL: Record<Card["suit"], string> = { clubs: "♣", diamonds: "♦", hearts: "♥", spades: "♠" };
+const cardName = (id: string) => {
+  const [suit, rest] = id.split("-") as [Card["suit"], string];
+  return `${rest.slice(0, rest.indexOf("#"))}${SUIT_SYMBOL[suit]}`;
+};
+const LEVEL_TEXT = ["no help", "highlight best move", "highlight + explanation"];
 
 /** `onChange` re-renders the table after a local switch is flipped. */
 export function createAssist(onChange: () => void): Assist {
   let ctx: GameContext;
-  let panel: HTMLElement;
+  let section: HTMLElement;
   let view: PresidentenView | undefined;
   let store: ContextStore | null = null;
   let demo: "weak" | "strong" | null = null;
@@ -93,7 +102,7 @@ export function createAssist(onChange: () => void): Assist {
   let missed: Rank[] = [];
   let missedPair = "";
 
-  const $ = <T extends HTMLElement>(sel: string) => panel.querySelector(sel) as T;
+  const $ = <T extends HTMLElement>(sel: string) => section.querySelector(sel) as T;
 
   /** Store per nickname; a demo profile uses a throwaway in-memory history. */
   function getStore(): ContextStore {
@@ -105,9 +114,27 @@ export function createAssist(onChange: () => void): Assist {
     return store;
   }
 
-  function decide(): HelpDecision {
-    const summary = summarize(getStore().load(), Date.now());
-    return computeHelp(summary, { useContext: prefs.useHistory, fixedLevel: NO_CONTEXT_LEVEL });
+  function decide(round: number): HelpDecision {
+    const history = getStore().load();
+    const d = computeHelp(summarize(history, Date.now()));
+    logDecision(round, d, history.length);
+    return d;
+  }
+
+  /** Transparency for the curious (and the report): how the score was built. */
+  function logDecision(round: number, d: HelpDecision, remembered: number): void {
+    console.groupCollapsed(
+      `[assist] round ${round} · score ${d.score.toFixed(2)} → level ${d.level} (${LEVEL_TEXT[d.level]})`,
+    );
+    console.table(Object.fromEntries(d.factors.map((f) => [f.label, {
+      value: f.value,
+      contribution: `+${f.contribution.toFixed(2)}`,
+    }])));
+    console.log(
+      `rounds remembered: ${remembered}${demo ? ` (demo profile "${demo}")` : ""}`
+      + ` · thresholds: ${THRESHOLDS[0]} highlight, ${THRESHOLDS[1]} explanation`,
+    );
+    console.groupEnd();
   }
 
   const seated = (v: PresidentenView) => v.players.some((p) => p.id === v.selfId);
@@ -133,12 +160,11 @@ export function createAssist(onChange: () => void): Assist {
     const key = `${v.round}:${v.version}`;
 
     if (v.phase === "PLAY" && v.turn === v.selfId) {
-      const input = {
+      const options = advise({
         hand: v.myHand,
         currentCount: v.currentCount,
         currentRankValue: v.currentRank ? RANK_VALUES[v.currentRank as Rank] : null,
-      };
-      const options = advise(input);
+      });
       const hint = hintFor(decision.level, options);
       if (!hint) return none;
       const marks: HintMarks = {
@@ -166,61 +192,31 @@ export function createAssist(onChange: () => void): Assist {
     return none;
   }
 
-  function renderPanel(): void {
-    if (!panel || !view) return;
-    const v = view;
-    const d = decision;
-    const isHost = ctx.hostId === v.selfId;
-    const on = enabled(v);
-    const level = d && on ? d.level : 0;
-
-    $(".pr-assist-level").textContent = !v.assistEnabled
-      ? "off (host)"
-      : !prefs.helpMe ? "off" : `level ${level}`;
-    $<HTMLInputElement>(".pr-assist-helpme").checked = prefs.helpMe;
-    $<HTMLInputElement>(".pr-assist-history").checked = prefs.useHistory;
-    const roomBox = $<HTMLInputElement>(".pr-assist-room");
-    roomBox.checked = v.assistEnabled;
-    $(".pr-assist-host").hidden = !isHost;
-    $(".pr-assist-hostnote").hidden = isHost || v.assistEnabled;
-
-    // Transparency: why this level?
-    const why = $(".pr-assist-why");
-    why.innerHTML = "";
-    if (d && d.usedContext) {
-      for (const f of d.factors) {
-        const row = document.createElement("tr");
-        for (const text of [f.label, f.value, `+${f.contribution.toFixed(2)}`]) {
-          const td = document.createElement("td");
-          td.textContent = text;
-          row.append(td);
-        }
-        why.append(row);
-      }
-      const total = document.createElement("tr");
-      total.className = "pr-assist-total";
-      for (const text of ["Help score", "", d.score.toFixed(2)]) {
-        const td = document.createElement("td");
-        td.textContent = text;
-        total.append(td);
-      }
-      why.append(total);
+  /** Recompute the hint; log it to the console the first time it appears. */
+  function refreshMarks(v: PresidentenView): void {
+    current = computeMarks(v);
+    if (current.hint && !shownKeys.has(current.key)) {
+      shownKeys.add(current.key);
+      const best = current.hint.best;
+      const move = best.kind === "pass" ? "pass" : `play ${best.cardIds.map(cardName).join(" ")}`;
+      console.log(`[assist] hint: ${move} — ${best.reason}`);
     }
-    $(".pr-assist-nocontext").hidden = !d || d.usedContext;
+  }
 
-    const history = getStore().load();
-    const summary = summarize(history, Date.now());
-    $(".pr-assist-memory").textContent = demo
-      ? `Demo profile "${demo}" (not saved).`
-      : `${history.length} round(s) remembered for ${ctx.nickname(v.selfId)}`
-        + (summary.hintsShown ? ` · hints followed ${summary.hintsFollowed}/${summary.hintsShown}` : "")
-        + ".";
+  function renderSection(): void {
+    if (!section || !view) return;
+    const isHost = ctx.hostId === view.selfId;
+    $<HTMLInputElement>(".pr-assist-helpme").checked = prefs.helpMe;
+    $<HTMLInputElement>(".pr-assist-helpme").disabled = !view.assistEnabled;
+    $<HTMLInputElement>(".pr-assist-room").checked = view.assistEnabled;
+    $(".pr-assist-host").hidden = !isHost;
+    $(".pr-assist-hostnote").hidden = isHost || view.assistEnabled;
   }
 
   return {
     mount(el, context) {
       ctx = context;
-      panel = el;
+      section = el;
       try {
         const q = new URLSearchParams(location.search).get("assistDemo");
         if (q === "weak" || q === "strong") demo = q;
@@ -231,13 +227,9 @@ export function createAssist(onChange: () => void): Assist {
       $<HTMLInputElement>(".pr-assist-helpme").addEventListener("change", (e) => {
         prefs = { ...prefs, helpMe: (e.target as HTMLInputElement).checked };
         savePrefs(prefs);
-        refresh();
-      });
-      $<HTMLInputElement>(".pr-assist-history").addEventListener("change", (e) => {
-        prefs = { ...prefs, useHistory: (e.target as HTMLInputElement).checked };
-        savePrefs(prefs);
-        decision = decide(); // takes effect immediately, for the demo
-        refresh();
+        if (view) refreshMarks(view);
+        renderSection();
+        onChange();
       });
       $<HTMLInputElement>(".pr-assist-room").addEventListener("change", (e) => {
         ctx.sendMove({ type: "setAssist", enabled: (e.target as HTMLInputElement).checked });
@@ -245,8 +237,10 @@ export function createAssist(onChange: () => void): Assist {
       $(".pr-assist-forget").addEventListener("click", () => {
         if (!confirm("Delete your Presidenten history from this browser?")) return;
         getStore().clear();
-        decision = decide();
-        refresh();
+        if (!view) return;
+        decision = decide(view.round);
+        refreshMarks(view);
+        onChange();
       });
     },
 
@@ -259,7 +253,7 @@ export function createAssist(onChange: () => void): Assist {
       }
       seenRound = v.round;
       if (v.round !== decidedRound) {
-        decision = decide();
+        decision = decide(v.round);
         decidedRound = v.round;
       }
       const pair = v.exchange ? `${v.round}:${v.exchange.done}` : "";
@@ -270,9 +264,8 @@ export function createAssist(onChange: () => void): Assist {
       const miss = v.exchange?.lastMiss as Rank | null | undefined;
       if (miss && !missed.includes(miss)) missed.push(miss);
       view = v;
-      current = computeMarks(v);
-      if (current.hint) shownKeys.add(current.key);
-      renderPanel();
+      refreshMarks(v);
+      renderSection();
     },
 
     marks: () => current.marks,
@@ -281,15 +274,10 @@ export function createAssist(onChange: () => void): Assist {
       if (current.best && current.hint && followsAdvice(current.best, move)) followed++;
     },
 
-    active: () => !!view && !!decision && enabled(view) && decision.level > 0,
+    badge() {
+      if (!view || !decision || !enabled(view)) return null;
+      const active = decision.level > 0;
+      return { text: `${active ? "💡 " : ""}${decision.score.toFixed(2)}`, active };
+    },
   };
-
-  /** Re-render after a local switch change (no new server view needed). */
-  function refresh(): void {
-    if (!view) return;
-    current = computeMarks(view);
-    if (current.hint) shownKeys.add(current.key);
-    renderPanel();
-    onChange();
-  }
 }

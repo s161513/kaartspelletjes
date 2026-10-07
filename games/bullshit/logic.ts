@@ -96,7 +96,9 @@ export function applyMove(state: BullshitState, playerId: string, move: Bullshit
 export function advance(state: BullshitState, now = Date.now()): BullshitState {
   if (state.deadline === null || now < state.deadline ||
       (state.phase !== "CHALLENGE_WINDOW" && state.phase !== "RESOLVING_CHALLENGE")) return state;
-  const next = { ...state, version: state.version + 1, deadline: null };
+  const next = structuredClone(state);
+  next.version = state.version + 1;
+  next.deadline = null;
   if (!next.hands[next.players[next.turnIndex]].length) {
     next.winner = next.players[next.turnIndex];
     next.phase = "GAME_OVER";

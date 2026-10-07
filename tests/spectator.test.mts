@@ -122,7 +122,7 @@ test("spectator: watch a running game safely, chat, join mid-game as a citizen",
     // Disconnect + rejoin restores the watcher seat and a safe snapshot.
     await watcher.close();
     const back = await connect();
-    back.send({ type: "rejoin", playerId: watcherId, roomCode: room.code });
+    back.send({ type: "rejoin", playerId: watcherId, roomCode: room.code, secret: joined.secret });
     const rejoined = await back.wait((m) => m.type === "joined") as JoinedMsg;
     assert.equal(rejoined.role, "spectator");
     assertNoHandLeak(room.runtime!.state as PresidentenState, viewOf(await back.wait((m) => m.type === "gameStarted")));

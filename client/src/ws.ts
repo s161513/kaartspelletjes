@@ -38,6 +38,7 @@ export class GameSocket {
           type: "rejoin",
           roomCode: session.roomCode,
           playerId: session.playerId,
+          secret: session.secret,
         });
       }
       for (const m of this.queue.splice(0)) this.sendNow(m);

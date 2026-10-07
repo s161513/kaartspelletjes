@@ -76,6 +76,25 @@ test("a leading pass is allowed and rotates the lead to the next player", () => 
   assert.equal(after.players[after.turnIndex], "b", "lead moved to b");
 });
 
+test("the ♣3 holder must open the hand with the ♣3", () => {
+  const s = makeState({ a: "3c 3h 7h", b: "8h", c: "9h" });
+  assert.equal(validateMove(s, "a", pass).ok, false, "the opener cannot pass the ♣3 off");
+  assert.equal(validateMove(s, "a", play([id("7h")])).ok, false, "cannot open with another card");
+  assert.equal(validateMove(s, "a", play([id("3c")])).ok, true, "opening with the ♣3 is allowed");
+  assert.equal(
+    validateMove(s, "a", play([id("3c"), id("3h")])).ok,
+    true,
+    "the ♣3 may be grouped with another 3",
+  );
+});
+
+test("a timed-out opener auto-plays the ♣3", () => {
+  const s = makeState({ a: "3c 3h 7h", b: "8h", c: "9h" }, { deadline: 1000 });
+  const after = advance(s, 2000);
+  assert.ok(after.pile.some((card) => card.id === id("3c")), "the ♣3 was played");
+  assert.ok(!after.hands.a.some((card) => card.id === id("3c")), "the ♣3 left the opener's hand");
+});
+
 test("a follower must beat the rank and may play more cards, but never fewer", () => {
   let s = makeState({ a: "7h", b: "6h 8h 8s", c: "9h Th" });
   s = applyMove(s, "a", play([id("7h")])); // leads a single 7
@@ -226,6 +245,29 @@ test("the game ends only when fewer than three players remain", () => {
   const after = applyMove(s, "c", play([id("9h")]));
   assert.equal(after.phase, "GAME_OVER");
   assert.equal(game.result(after).winner, "a", "the first finisher wins the shortened game");
+});
+
+test("a mid-game joiner waits in the queue and is dealt into the next hand", () => {
+  let s = makeState({ a: "", b: "", c: "9h" }, { finished: ["a", "b"], turnIndex: 2 });
+  // addPlayer only queues them; the running hand's seating is untouched.
+  s = game.addPlayer!(s, "d");
+  assert.deepEqual(s.joining, ["d"]);
+  assert.deepEqual(game.seatedPlayers!(s), ["a", "b", "c"]);
+  // c plays out, ending the hand and dealing a fresh one that includes d.
+  const after = applyMove(s, "c", play([id("9h")]));
+  assert.ok(after.players.includes("d"), "the joiner now has a seat");
+  assert.ok(after.hands.d.length > 0, "and was dealt a hand");
+  assert.deepEqual(after.joining, [], "the queue is cleared once dealt in");
+  assert.equal(after.roles?.d, "citizen", "a late-joiner enters as a neutral citizen, no inherited standing");
+});
+
+test("a queued joiner who leaves before being dealt in is just dequeued", () => {
+  let s = makeState({ a: "7h", b: "8h", c: "9h" });
+  s = game.addPlayer!(s, "d");
+  assert.deepEqual(s.joining, ["d"]);
+  s = game.playerLeft!(s, "d");
+  assert.deepEqual(s.joining, []);
+  assert.ok(!s.players.includes("d"), "no seat was created");
 });
 
 // ---------------------------------------------------------------------------

@@ -46,6 +46,16 @@ const roleText = (role: Role) => (role === "president" ? `${ROLE_LABEL[role]} �
 const name = (id: string | null) => (id ? context.nickname(id) : "Player");
 const online = (id: string) => context.players?.find((p) => p.id === id)?.connected !== false;
 
+// The ♣3 (deck 0) must open every hand — mirror the server rule in the UI.
+const OPENER_ID = "clubs-3#0";
+/** It is this player's turn to open a hand and they still hold the ♣3. */
+function mustOpenWithClubs(view: PresidentenView): boolean {
+  return view.phase === "PLAY"
+    && view.turn === view.selfId
+    && view.currentCount === null
+    && view.myHand.some((c) => c.id === OPENER_ID);
+}
+
 function el(tag: string, className: string, text?: string): HTMLElement {
   const node = document.createElement(tag);
   node.className = className;
@@ -351,7 +361,12 @@ function renderHand(view: PresidentenView): void {
 
   const myTurn = view.phase === "PLAY" && view.turn === view.selfId;
   const givingBack = myExchangeStep(view) === "giveBack";
-  const playable = myTurn ? playableCardIds(view) : new Set<string>();
+  // Opening a hand: only cards groupable with the ♣3 (other 3s and wild 2s) count.
+  const playable = !myTurn
+    ? new Set<string>()
+    : mustOpenWithClubs(view)
+      ? new Set(view.myHand.filter((c) => c.rank === "3" || c.rank === "2").map((c) => c.id))
+      : playableCardIds(view);
   const selectedCards = view.myHand.filter((c) => selected.has(c.id));
 
   cards.forEach((card, i) => {
@@ -404,6 +419,7 @@ function onCardClick(card: Card): void {
 /** Why the current selection cannot be played yet (or null if it can). */
 function selectionProblem(view: PresidentenView): string | null {
   if (!selected.size) return "Select cards to play";
+  if (mustOpenWithClubs(view) && !selected.has(OPENER_ID)) return "You must open with the ♣3";
   const picked = view.myHand.filter((c) => selected.has(c.id));
   const eff = effectiveRank(picked);
   if (!eff.ok) return eff.error;
@@ -422,9 +438,9 @@ function renderActions(view: PresidentenView): void {
   const myTurn = view.phase === "PLAY" && view.turn === view.selfId;
   const givingBack = myExchangeStep(view) === "giveBack";
 
-  // Pass is always available on your turn — a leading pass just rotates the lead.
+  // Pass is available on your turn — except the opener, who must play the ♣3.
   playBtn.hidden = !myTurn;
-  passBtn.hidden = !myTurn;
+  passBtn.hidden = !myTurn || mustOpenWithClubs(view);
   if (myTurn) {
     playBtn.disabled = selectionProblem(view) !== null;
     playBtn.textContent = selected.size ? `Play ${selected.size}` : "Play";
@@ -495,7 +511,9 @@ function renderPrompt(view: PresidentenView): void {
   const minValue = view.currentRank ? RANK_VALUES[view.currentRank as Rank] : 0;
   const stuck = myTurn && view.currentCount !== null && !hasLegalFollow(view.myHand, view.currentCount, minValue);
   if (myTurn) {
-    prompt.textContent = stuck
+    prompt.textContent = mustOpenWithClubs(view)
+      ? "Your turn — you must open with the ♣3."
+      : stuck
       ? "No legal play — pass or you'll be skipped."
       : view.currentCount === null
         ? "Your turn — lead with any card(s)."

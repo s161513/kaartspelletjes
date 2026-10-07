@@ -100,7 +100,7 @@ export function setupGamePage<State>(
     const myPending =
       committedJoin || spectators.some((s) => s.id === session.playerId && s.pendingPlayer);
     if (isSpectator && myPending) {
-      joinSwitch.textContent = "✓ Joining next round as citizen";
+      joinSwitch.textContent = "✓ Joining next round";
       joinSwitch.disabled = true;
       joinSwitch.style.display = "inline-block";
     } else if (isSpectator && joinable) {
@@ -224,6 +224,13 @@ export function setupGamePage<State>(
   });
 
   socket.on("error", (msg) => {
+    // Our seat is gone (server restarted, room pruned, or stale token): drop the
+    // dead session and return to landing instead of stranding the user here.
+    if (msg.code === "no_room" || msg.code === "no_seat" || msg.code === "bad_secret") {
+      session.clearRoom();
+      location.href = "/";
+      return;
+    }
     errEl.textContent = msg.message;
     page.onError?.(msg.message, ctx);
   });

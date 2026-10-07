@@ -654,6 +654,52 @@ button.secondary:hover:not(:disabled) {
   gap: 0.6rem;
 }
 
+/* Game settings: a gear next to End/Leave game, opening a small menu that
+   the game fills (GamePage.settings). */
+.settings-wrap {
+  position: relative;
+}
+
+button.icon-btn {
+  padding: 0.6rem 0.75rem;
+  line-height: 1;
+}
+
+.settings-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 20;
+  width: min(320px, 90vw);
+  padding: 0.8rem 0.95rem 0.9rem;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: 0 12px 30px -10px rgba(0, 0, 0, 0.8);
+  font-size: 0.9rem;
+}
+
+.settings-menu h3 {
+  margin: 0 0 0.6rem;
+  font-family: var(--display);
+  font-size: 1.05rem;
+  color: var(--gold);
+}
+
+/* Settings are sentences, not form headings: undo the uppercase label style. */
+.settings-menu label {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-start;
+  margin: 0;
+  color: var(--text);
+  font-size: 0.9rem;
+  font-weight: 400;
+  letter-spacing: normal;
+  text-transform: none;
+  cursor: pointer;
+}
+
 /* The table area games draw on: a touch darker than the page. */
 .card.stage {
   --panel: #13201a;

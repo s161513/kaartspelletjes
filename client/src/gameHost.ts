@@ -180,7 +180,33 @@ export function setupGamePage<State>(
     if (!mounted) {
       page.mount(ctx);
       mounted = true;
+      mountSettings();
     }
+  };
+
+  // Game settings: a gear next to "Leave game", only for games that have any.
+  const mountSettings = () => {
+    const wrap = document.querySelector<HTMLElement>(".settings-wrap");
+    const btn = document.getElementById("settingsBtn");
+    const menu = document.getElementById("settingsMenu");
+    const content = document.getElementById("gameSettings");
+    if (!page.settings || !wrap || !btn || !menu || !content) return;
+    page.settings(content, ctx);
+    wrap.hidden = false;
+    const setOpen = (open: boolean) => {
+      menu.hidden = !open;
+      btn.setAttribute("aria-expanded", String(open));
+    };
+    btn.addEventListener("click", () => setOpen(menu.hidden));
+    document.addEventListener("click", (e) => {
+      if (!menu.hidden && !wrap.contains(e.target as Node)) setOpen(false);
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && !menu.hidden) {
+        setOpen(false);
+        btn.focus();
+      }
+    });
   };
 
   socket.on("gameStarted", (msg) => {

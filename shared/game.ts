@@ -133,4 +133,10 @@ export interface GamePage<State = unknown> {
   onGameOver?(winner: string | "draw", state: State, ctx: GameContext): void;
   onRoomState?(ctx: GameContext): void;
   onError?(message: string, ctx: GameContext): void;
+  /**
+   * Optional: the game's own settings. When present, the page shows a gear
+   * button next to "Leave game"; its menu contains `container`, which the game
+   * fills once here (right after `mount`) and keeps up to date itself.
+   */
+  settings?(container: HTMLElement, ctx: GameContext): void;
 }

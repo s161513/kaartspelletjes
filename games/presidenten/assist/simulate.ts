@@ -2,6 +2,7 @@
 //
 //   npx tsx games/presidenten/assist/simulate.ts          # learner run + chart
 //   npx tsx games/presidenten/assist/simulate.ts --ab     # A/B: same hand, two histories
+//   npx tsx games/presidenten/assist/simulate.ts --weak   # do weak players gain? (bar chart)
 //
 // Four bots play Presidenten with the *real* game logic (logic.ts). One of
 // them, the "learner", starts out weak and slowly gets better. Before every
@@ -48,6 +49,7 @@ const SKILL_END = 1; // … over the run
 const FOLLOW: Record<HelpLevel, number> = { 0: 0, 1: 0.75, 2: 0.9 };
 const ROUND_MINUTES = 4; // simulated time per round
 const ROUNDS_PER_SESSION = 15; // then a long break → new session
+const STUCK_AFTER_MOVES = 3000; // a normal hand takes well under 200 moves
 
 /** Small seeded PRNG (mulberry32) so runs are repeatable. */
 function seeded(seed: number): () => number {
@@ -135,7 +137,17 @@ interface Row {
   hintsFollowed: number;
 }
 
-function run(useContext: boolean, seed: number): Row[] {
+/**
+ * Play until `rounds` hands are done and return one row per hand for the
+ * learner. `skillAt(i)` is the learner's skill in hand i (default: the linear
+ * learning curve; a constant for a player who never improves).
+ */
+function run(
+  useContext: boolean,
+  seed: number,
+  rounds = ROUNDS,
+  skillAt = (r: number) => SKILL_START + (SKILL_END - SKILL_START) * (r / ROUNDS),
+): Row[] {
   const rnd = seeded(seed);
   const store = new MemoryStore();
   const rows: Row[] = [];
@@ -147,14 +159,22 @@ function run(useContext: boolean, seed: number): Row[] {
   let shown = 0;
   let followed = 0;
 
-  const skillAt = (r: number) => SKILL_START + (SKILL_END - SKILL_START) * (r / ROUNDS);
   // The help level is fixed for a whole round, from the history *before* it.
   let decision = computeHelp(summarize(store.load(), now), { useContext });
 
-  let guard = 0;
-  while (rows.length < ROUNDS && guard++ < 1_000_000) {
+  let movesThisHand = 0;
+  while (rows.length < rounds) {
     const id = actor(state);
     if (!id) break; // GAME_OVER: can't happen without players leaving
+    if (++movesThisHand > STUCK_AFTER_MOVES) {
+      // Known game bug: when the last players hold only lone 2s nobody can
+      // ever play (a 2 can't be played alone), so the hand never ends. Very
+      // rare (~1 in 6000 hands); skip it with a fresh deal, not counted.
+      state = createGame(PLAYERS, rnd, now);
+      round = state.round;
+      movesThisHand = 0;
+      continue;
+    }
 
     const view = playerView(state, id, now);
     // Ranks the current loser turned out not to have (reset for every new pair).
@@ -179,6 +199,7 @@ function run(useContext: boolean, seed: number): Row[] {
     if (state.round !== round) {
       // A hand just ended: log it into the learner's context memory.
       round = state.round;
+      movesThisHand = 0;
       const role = state.roles![LEARNER];
       const records: RoundRecord[] = appendRound(store.load(), {
         role, helpLevel: decision.level, hintsShown: shown, hintsFollowed: followed,
@@ -292,9 +313,124 @@ function ab(): void {
 }
 
 // ---------------------------------------------------------------------------
+// Does help actually help a weak player? (--weak)
+// ---------------------------------------------------------------------------
+//
+// Unlike the main run, these players never improve: each plays WEAK_ROUNDS
+// hands at a fixed skill, once without help and once with the adaptive help.
+// Result: assist/out/weak-players.svg, a grouped bar chart for the report.
+
+const WEAK_ROUNDS = 3000;
+const WEAK_PLAYERS = [
+  { label: "Very weak", note: "random moves", skill: 0 },
+  { label: "Weak", note: "20% best moves", skill: 0.2 },
+  { label: "Average", note: "40% best moves", skill: 0.4 },
+];
+
+interface WeakResult {
+  label: string;
+  note: string;
+  off: { win: number; scum: number };
+  on: { win: number; scum: number; helped: number };
+}
+
+function weakExperiment(): WeakResult[] {
+  const share = (rows: Row[], f: (r: Row) => boolean) => rows.filter(f).length / rows.length;
+  return WEAK_PLAYERS.map(({ label, note, skill }) => {
+    const off = run(false, 11, WEAK_ROUNDS, () => skill);
+    const on = run(true, 11, WEAK_ROUNDS, () => skill);
+    const isScum = (r: Row) => r.role === "scum";
+    console.log(`${label.padEnd(10)} win ${pct(share(off, (r) => r.won))} → ${pct(share(on, (r) => r.won))}`
+      + `   scum ${pct(share(off, isScum))} → ${pct(share(on, isScum))}`
+      + `   help in ${pct(share(on, (r) => r.level > 0))} of rounds`);
+    return {
+      label,
+      note,
+      off: { win: share(off, (r) => r.won), scum: share(off, isScum) },
+      on: { win: share(on, (r) => r.won), scum: share(on, isScum), helped: share(on, (r) => r.level > 0) },
+    };
+  });
+}
+
+const pct = (v: number) => `${Math.round(v * 100)}%`;
+
+/** Two panels (win rate, scum rate), each with a without/with-help bar pair per player. */
+function weakSvg(results: WeakResult[]): string {
+  // Colours from the dataviz reference palette: neutral grey for the baseline,
+  // blue for "with help" (CVD ΔE 19 apart); every bar is also labelled.
+  const C = {
+    surface: "#fcfcfb", ink: "#0b0b0b", ink2: "#52514e", muted: "#898781",
+    grid: "#e1e0d9", axis: "#c3c2b7", off: "#a3a29b", on: "#2a78d6",
+  };
+  const W = 1000, H = 560;
+  const top = 150, bottom = 455; // plot area (y)
+  const max = 0.6;
+  const y = (v: number) => bottom - (v / max) * (bottom - top);
+  const panels = [
+    { title: "How often do they win?", sub: "finished as President", key: "win" as const, x0: 70, ref: 0.25 },
+    { title: "How often are they Scum?", sub: "finished as Scum (last)", key: "scum" as const, x0: 540, ref: 0.25 },
+  ];
+  const panelW = 380, barW = 46, gap = 2;
+  const esc = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+  /** A bar with a 4px rounded top, anchored square on the baseline. */
+  const bar = (x: number, v: number, fill: string, tip: string) => {
+    const h = bottom - y(v), r = Math.min(4, h);
+    return `<path d="M${x},${bottom}V${y(v) + r}q0,-${r} ${r},-${r}h${barW - 2 * r}q${r},0 ${r},${r}V${bottom}Z" fill="${fill}"><title>${esc(tip)}</title></path>`;
+  };
+
+  // A surface-coloured outline keeps value labels readable where they cross a line.
+  const halo = `stroke="${C.surface}" stroke-width="4" paint-order="stroke"`;
+  const parts: string[] = [];
+  for (const p of panels) {
+    parts.push(`<text x="${p.x0}" y="${top - 42}" font-size="17" font-weight="700" fill="${C.ink}">${p.title}</text>`);
+    parts.push(`<text x="${p.x0}" y="${top - 22}" font-size="13" fill="${C.ink2}">share of rounds ${p.sub}</text>`);
+    for (const t of [0, 0.2, 0.4, 0.6]) {
+      parts.push(`<line x1="${p.x0}" x2="${p.x0 + panelW}" y1="${y(t)}" y2="${y(t)}" stroke="${t === 0 ? C.axis : C.grid}" stroke-width="1"/>`);
+      parts.push(`<text x="${p.x0 - 8}" y="${y(t) + 4}" font-size="12" text-anchor="end" fill="${C.muted}">${pct(t)}</text>`);
+    }
+    // Reference: at a table of four, an average player wins (and loses) 1 in 4.
+    parts.push(`<line x1="${p.x0}" x2="${p.x0 + panelW}" y1="${y(p.ref)}" y2="${y(p.ref)}" stroke="${C.ink2}" stroke-width="1.5"/>`);
+    parts.push(`<text x="${p.x0 + panelW + 8}" y="${y(p.ref) + 4}" font-size="12" fill="${C.ink2}">1 in 4</text>`);
+
+    results.forEach((r, i) => {
+      const groupW = panelW / results.length;
+      const cx = p.x0 + groupW * (i + 0.5);
+      const xOff = cx - barW - gap / 2, xOn = cx + gap / 2;
+      const vOff = r.off[p.key], vOn = r.on[p.key];
+      parts.push(bar(xOff, vOff, C.off, `${r.label}, without help: ${pct(vOff)}`));
+      parts.push(bar(xOn, vOn, C.on, `${r.label}, with help: ${pct(vOn)}`));
+      parts.push(`<text x="${xOff + barW / 2}" y="${y(vOff) - 7}" font-size="13" text-anchor="middle" fill="${C.ink2}" ${halo}>${pct(vOff)}</text>`);
+      parts.push(`<text x="${xOn + barW / 2}" y="${y(vOn) - 7}" font-size="14" font-weight="700" text-anchor="middle" fill="${C.ink}" ${halo}>${pct(vOn)}</text>`);
+      parts.push(`<text x="${cx}" y="${bottom + 22}" font-size="14" font-weight="600" text-anchor="middle" fill="${C.ink}">${r.label}</text>`);
+      parts.push(`<text x="${cx}" y="${bottom + 39}" font-size="11.5" text-anchor="middle" fill="${C.muted}">${esc(r.note)}</text>`);
+      parts.push(`<text x="${cx}" y="${bottom + 55}" font-size="11.5" text-anchor="middle" fill="${C.muted}">help: ${pct(r.on.helped)} of rounds</text>`);
+    });
+  }
+
+  const weakest = results[0];
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif">
+<rect width="${W}" height="${H}" fill="${C.surface}"/>
+<text x="40" y="44" font-size="24" font-weight="800" fill="${C.ink}">A very weak player wins ${pct(weakest.on.win)} instead of ${pct(weakest.off.win)} with help</text>
+<text x="40" y="70" font-size="14" fill="${C.ink2}">The help lifts weak players to about the table average, then switches itself off.</text>
+<g transform="translate(${W - 300},58)">
+  <rect width="14" height="14" rx="3" fill="${C.off}"/><text x="20" y="12" font-size="13" fill="${C.ink}">Without help</text>
+  <rect x="130" width="14" height="14" rx="3" fill="${C.on}"/><text x="150" y="12" font-size="13" fill="${C.ink}">With adaptive help</text>
+</g>
+${parts.join("\n")}
+<text x="40" y="${H - 14}" font-size="11.5" fill="${C.muted}">Simulation with the real game rules: ${WEAK_ROUNDS} rounds per bar, 4 players; the player follows a hint in 75–90% of turns. Line: fair share at a table of four.</text>
+</svg>
+`;
+}
+
+// ---------------------------------------------------------------------------
 
 if (process.argv.includes("--ab")) {
   ab();
+} else if (process.argv.includes("--weak")) {
+  const results = weakExperiment();
+  mkdirSync(OUT, { recursive: true });
+  writeFileSync(join(OUT, "weak-players.svg"), weakSvg(results));
+  console.log(`\nWrote ${join(OUT, "weak-players.svg")}`);
 } else {
   const SEED = 42;
   const withHelp = run(true, SEED);
@@ -304,7 +440,6 @@ if (process.argv.includes("--ab")) {
   writeFileSync(join(OUT, "help.svg"), toSvg(withHelp, without));
 
   const winRate = (rows: Row[]) => rows.filter((r) => r.won).length / rows.length;
-  const pct = (v: number) => `${(v * 100).toFixed(0)}%`;
   const thirds = [0, 1, 2].map((k) => withHelp.slice((k * ROUNDS) / 3, ((k + 1) * ROUNDS) / 3));
   const avg = (rows: Row[], f: (r: Row) => number) => rows.reduce((s, r) => s + f(r), 0) / rows.length;
   const shown = withHelp.reduce((s, r) => s + r.hintsShown, 0);

@@ -62,6 +62,7 @@ export function createGame(
     left: [],
     lastTrick: null,
     joining: [],
+    assistEnabled: true,
   };
   state.turnIndex = openerSeat(state); // the ♣3 holder opens
   armTimer(state, now);
@@ -99,6 +100,16 @@ export function validateMove(
   if (state.phase === "GAME_OVER") return fail("Game is over");
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return fail("Malformed move");
   const move = raw as Record<string, unknown>;
+
+  // Room-wide help switch. Host-only is enforced by the server (`hostOnlyMoves`),
+  // so here we only check the shape; it is allowed in any phase, on anyone's turn.
+  if (move.type === "setAssist") {
+    if (Object.keys(move).some((k) => !["type", "enabled"].includes(k))) {
+      return fail("Unexpected setAssist fields");
+    }
+    if (typeof move.enabled !== "boolean") return fail("enabled must be true or false");
+    return { ok: true, move: { type: "setAssist", enabled: move.enabled } };
+  }
 
   if (state.phase === "EXCHANGE") {
     const ex = state.exchange!;
@@ -190,6 +201,14 @@ export function applyMove(
   const checked = validateMove(state, playerId, move);
   if (!checked.ok) throw new Error(checked.error);
   const next: PresidentenState = structuredClone(state);
+
+  // A settings change, not a game action: leave turn, timer and `version` alone
+  // so nobody's card selection is cleared.
+  if (move.type === "setAssist") {
+    next.assistEnabled = move.enabled;
+    return next;
+  }
+
   next.version++;
 
   if (next.phase === "EXCHANGE") {
@@ -490,6 +509,7 @@ export function playerView(
           }
         : null,
     lastTrick: state.lastTrick ? structuredClone(state.lastTrick) : null,
+    assistEnabled: state.assistEnabled,
   };
 }
 
@@ -569,6 +589,7 @@ export function playerLeft(state: PresidentenState, playerId: string): President
 export default {
   init: createGame,
   validateMove,
+  hostOnlyMoves: ["setAssist"],
   applyMove,
   result: (state) => ({
     over: state.phase === "GAME_OVER",

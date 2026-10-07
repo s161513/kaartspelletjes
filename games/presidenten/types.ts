@@ -63,6 +63,7 @@ export interface PresidentenState {
   left: string[]; // ids that have left the room and must be dropped on re-deal
   lastTrick: LastTrick | null; // most recent completed trick this hand (null on a fresh deal)
   joining: string[]; // watchers queued to be dealt in (as citizens) at the next hand
+  assistEnabled: boolean; // room-wide switch for the adaptive help (host-only, see assist/)
 }
 
 // The exchange view a client receives while the EXCHANGE phase is active.
@@ -102,10 +103,12 @@ export interface PresidentenView {
   round: number;
   exchange: ExchangeView | null;
   lastTrick: LastTrick | null; // winner + winning cards of the last completed trick
+  assistEnabled: boolean; // whether the host allows the adaptive help in this room
 }
 
 export type PresidentenMove =
   | { type: "play"; cardIds: string[] }
   | { type: "pass" }
   | { type: "request"; rank: Rank }
-  | { type: "giveBack"; cardId: string };
+  | { type: "giveBack"; cardId: string }
+  | { type: "setAssist"; enabled: boolean }; // host-only (enforced by the server)

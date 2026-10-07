@@ -564,6 +564,121 @@ body.pr-wide .wrap > .card {
   }
 }
 
+/* ------------------------------------------------------------------ adaptive help (assist/) */
+
+/* Hints use cyan so they never look like your own (gold) selection. */
+.pr {
+  --pr-hint: #38bdf8;
+}
+
+.pr .pr-card.pr-hint-best .ui-card {
+  box-shadow:
+    0 0 0 3px var(--pr-hint),
+    0 0 16px 4px rgba(56, 189, 248, 0.55);
+  animation: pr-hint-pulse 1.6s ease-in-out infinite;
+}
+
+.pr .pr-card.pr-hint-best.is-selected .ui-card {
+  box-shadow:
+    0 0 0 3px var(--pr-gold),
+    0 0 0 6px var(--pr-hint);
+}
+
+.pr .pr-card.pr-hint-soft .ui-card {
+  outline: 2px dashed var(--pr-hint);
+  outline-offset: 2px;
+}
+
+.pr .pr-btn.pr-hint-best,
+.pr .pr-rank-btn.pr-hint-best .ui-card {
+  box-shadow: 0 0 0 3px var(--pr-hint), 0 0 14px 3px rgba(56, 189, 248, 0.5);
+}
+
+.pr .pr-btn.pr-hint-soft {
+  outline: 2px dashed var(--pr-hint);
+  outline-offset: 2px;
+}
+
+@keyframes pr-hint-pulse {
+  50% {
+    box-shadow:
+      0 0 0 3px var(--pr-hint),
+      0 0 4px 1px rgba(56, 189, 248, 0.25);
+  }
+}
+
+.pr-assist-tip {
+  margin: 0.5rem auto 0;
+  max-width: 34rem;
+  color: var(--pr-hint);
+  font-size: 0.9rem;
+  text-align: center;
+}
+
+/* "Help mode" marker next to your own name. */
+.pr-seat.is-assisted .pr-name::after {
+  content: " 💡";
+}
+
+.pr-assist {
+  width: min(100%, 34rem);
+  margin: 0.6rem auto 0;
+  padding: 0.4rem 0.8rem;
+  border: 1px solid var(--pr-line);
+  border-radius: 10px;
+  background: var(--pr-glass);
+  color: #e2e8f0;
+  font-size: 0.85rem;
+}
+
+.pr-assist summary {
+  cursor: pointer;
+  color: var(--pr-hint);
+  font-weight: 700;
+}
+
+.pr-assist-body {
+  display: grid;
+  gap: 0.35rem;
+  padding-top: 0.5rem;
+}
+
+.pr-assist-body label {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  cursor: pointer;
+}
+
+.pr-assist-body p {
+  margin: 0;
+  color: #94a3b8;
+}
+
+.pr-assist-why {
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.pr-assist-why td {
+  padding: 0.1rem 0.5rem 0.1rem 0;
+}
+
+.pr-assist-why td:not(:first-child) {
+  text-align: right;
+}
+
+.pr-assist-why .pr-assist-total td {
+  border-top: 1px solid var(--pr-line);
+  font-weight: 700;
+}
+
+.pr-assist-forget {
+  justify-self: start;
+  padding: 0.3rem 0.7rem;
+  font-size: 0.8rem;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .pr *,
   .pr *::before,

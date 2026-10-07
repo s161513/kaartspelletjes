@@ -3,7 +3,8 @@ import { renderCard } from "../_ui/cards.js";
 import {
   effectiveRank, hasLegalFollow, REQUEST_RANKS, ROLE_LABEL, sortForDisplay, TURN_MS,
 } from "./rules.js";
-import type { PresidentenView, Role } from "./types.js";
+import type { PresidentenMove, PresidentenView, Role } from "./types.js";
+import { createAssist } from "./assist/panel.js";
 import html from "./view.html?raw";
 import "./style.css";
 
@@ -39,6 +40,21 @@ const THROW_MS = 360;
 const SHOW_MS = 950;
 const SWEEP_MS = 650;
 const reducedMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+// Adaptive help (Lab 8): decides per player how strongly to highlight good moves.
+const assist = createAssist(() => {
+  if (!latest) return;
+  renderTable(latest);
+  renderHand(latest);
+  renderActions(latest);
+  renderExchange(latest);
+  renderPrompt(latest);
+});
+/** Every move goes through here so the help can tell whether its hint was followed. */
+function send(move: PresidentenMove): void {
+  assist.noteMove(move);
+  context.sendMove(move);
+}
 
 const BAD_ROLES = new Set<Role>(["scum", "vice-scum", "loser"]);
 const roleText = (role: Role) => (role === "president" ? `${ROLE_LABEL[role]} 👑` : ROLE_LABEL[role]);
@@ -150,6 +166,7 @@ function renderSeats(view: PresidentenView): void {
     node.classList.toggle("is-winner", sweepWinner === p.id);
     node.classList.toggle("is-gone", !online(p.id));
     node.classList.toggle("is-out", playing && p.finishPlace !== null);
+    node.classList.toggle("is-assisted", p.id === view.selfId && assist.active());
 
     const nick = name(p.id);
     const plate = el("div", "pr-plate");
@@ -368,6 +385,7 @@ function renderHand(view: PresidentenView): void {
       ? new Set(view.myHand.filter((c) => c.rank === "3" || c.rank === "2").map((c) => c.id))
       : playableCardIds(view);
   const selectedCards = view.myHand.filter((c) => selected.has(c.id));
+  const marks = assist.marks();
 
   cards.forEach((card, i) => {
     const button = document.createElement("button");
@@ -382,6 +400,9 @@ function renderHand(view: PresidentenView): void {
     button.classList.toggle("is-playable", selectable);
     button.classList.toggle("is-dimmed", myTurn && !selectable);
     button.classList.toggle("is-selected", isSel);
+    const hint = selectable ? marks.cards.get(card.id) : undefined;
+    button.classList.toggle("pr-hint-best", hint === "best");
+    button.classList.toggle("pr-hint-soft", hint === "soft");
     button.setAttribute("aria-pressed", String(isSel));
     button.append(renderCard(card));
     button.addEventListener("click", () => onCardClick(card));
@@ -447,6 +468,13 @@ function renderActions(view: PresidentenView): void {
   }
   giveBtn.hidden = !givingBack;
   giveBtn.disabled = selected.size !== 1;
+
+  const marks = assist.marks();
+  passBtn.classList.toggle("pr-hint-best", marks.pass === "best");
+  passBtn.classList.toggle("pr-hint-soft", marks.pass === "soft");
+  const tip = $(".pr-assist-tip");
+  tip.hidden = !marks.reason;
+  tip.textContent = marks.reason ? `💡 ${marks.reason}` : "";
 }
 
 // ---------------------------------------------------------------------------
@@ -481,7 +509,11 @@ function renderExchange(view: PresidentenView): void {
 
   const ranks = $(".pr-ranks");
   ranks.hidden = step !== "request";
-  for (const b of Array.from(ranks.children) as HTMLButtonElement[]) b.disabled = step !== "request";
+  const hintRank = assist.marks().rank;
+  (Array.from(ranks.children) as HTMLButtonElement[]).forEach((b, i) => {
+    b.disabled = step !== "request";
+    b.classList.toggle("pr-hint-best", step === "request" && REQUEST_RANKS[i] === hintRank);
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -556,6 +588,7 @@ function mount(ctx: GameContext): void {
   ctx.container.innerHTML = html;
   root = ctx.container.querySelector(".pr")!;
   $<HTMLProgressElement>(".pr-countdown progress").max = TURN_MS;
+  assist.mount($(".pr-assist"), ctx);
 
   // The rank picker is fixed (3 … A, then 2); wire each button once. Each looks
   // like a playing card but shows only the rank — no suit, since you are guessing.
@@ -569,23 +602,23 @@ function mount(ctx: GameContext): void {
     face.append(el("span", "pr-rank-face", r));
     b.append(face);
     b.addEventListener("click", () => {
-      if (!b.disabled) context.sendMove({ type: "request", rank: r });
+      if (!b.disabled) send({ type: "request", rank: r });
     });
     ranks.append(b);
   }
 
   $(".pr-btn-play").addEventListener("click", () => {
     if (($(".pr-btn-play") as HTMLButtonElement).disabled) return;
-    ctx.sendMove({ type: "play", cardIds: [...selected] });
+    send({ type: "play", cardIds: [...selected] });
   });
   $(".pr-btn-give").addEventListener("click", () => {
     if (($(".pr-btn-give") as HTMLButtonElement).disabled) return;
     const [cardId] = selected;
-    if (cardId) ctx.sendMove({ type: "giveBack", cardId });
+    if (cardId) send({ type: "giveBack", cardId });
   });
   $(".pr-btn-pass").addEventListener("click", () => {
     if (($(".pr-btn-pass") as HTMLButtonElement).hidden) return;
-    ctx.sendMove({ type: "pass" });
+    send({ type: "pass" });
   });
 
   timer = setInterval(updateTimer, 200);
@@ -618,6 +651,7 @@ function update(view: PresidentenView, ctx: GameContext): void {
     seenRound = view.round;
   }
   latest = view;
+  assist.update(view, ctx);
 
   renderTable(view);
   renderHand(view);

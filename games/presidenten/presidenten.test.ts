@@ -28,6 +28,7 @@ function makeState(hands: Record<string, string>, over: Partial<PresidentenState
     lastPlayerId: null, passedThisTrick: [], phase: "PLAY", winner: null, version: 0,
     deadline: null, round: 1, roles: null, exchange: null, left: [], lastTrick: null,
     joining: [],
+    assistEnabled: true,
     ...over,
   };
 }
@@ -387,4 +388,22 @@ test("playerView exposes only your own hand plus opponents' counts", () => {
     [2, 1, 3],
   );
   assert.ok(!("hands" in view), "server-only hands are never on the wire");
+});
+
+// ---------------------------------------------------------------------------
+// Room-wide help switch (host-only via hostOnlyMoves)
+// ---------------------------------------------------------------------------
+
+test("setAssist is host-only, works off-turn and leaves the game untouched", () => {
+  assert.deepEqual(game.hostOnlyMoves, ["setAssist"]);
+  const s = makeState({ a: "7h 7s", b: "8h", c: "9h" }, { turnIndex: 0, version: 5 });
+  // b is not on turn, but a settings change is not a game action.
+  const checked = validateMove(s, "b", { type: "setAssist", enabled: false });
+  assert.ok(checked.ok);
+  const next = applyMove(s, "b", { type: "setAssist", enabled: false });
+  assert.equal(next.assistEnabled, false);
+  assert.equal(next.turnIndex, 0);
+  assert.equal(next.version, 5, "selections are not reset");
+  assert.equal((game.playerView!(next, "a") as { assistEnabled: boolean }).assistEnabled, false);
+  assert.equal(validateMove(s, "b", { type: "setAssist", enabled: "no" }).ok, false);
 });

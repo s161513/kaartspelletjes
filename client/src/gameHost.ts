@@ -59,6 +59,7 @@ export function setupGamePage<State>(
     playerId: session.playerId,
     nickname: (id) => nicknames.get(id) ?? "Player",
     players: [],
+    get hostId() { return hostId || undefined; },
     get spectators() { return spectators; },
     get isSpectator() { return isSpectator; },
     get connected() { return socket.connected; },

@@ -28,6 +28,12 @@ export interface Game<State = unknown, Move = unknown> {
   /** Validate a raw client move before it is applied. */
   validateMove(state: State, playerId: string, move: unknown): MoveResult<Move>;
 
+  /**
+   * Optional: move `type`s only the room host may send (e.g. a room-wide
+   * setting). The server rejects them from anyone else before `validateMove`.
+   */
+  hostOnlyMoves?: readonly string[];
+
   /** Apply a validated move, returning the next state. */
   applyMove(state: State, playerId: string, move: Move): State;
 
@@ -101,6 +107,8 @@ export interface GameContext {
   playerId: string;
   /** Nickname of a player in the room (falls back to "Player"). */
   nickname(playerId: string): string;
+  /** Current host of the room, when known. `onRoomState` fires when it changes. */
+  readonly hostId?: string;
   /** Players in the room (with online status), supplied by the host page. */
   players?: readonly PlayerPublic[];
   /** Whether this client is watching, not seated. `sendMove` is a no-op then. */

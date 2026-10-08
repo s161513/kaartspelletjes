@@ -1,0 +1,177 @@
+/* Reversi — themed to match the app (dark green felt, black/white discs).
+   All classes are reversi-prefixed; colours reuse the global theme vars. */
+
+.reversi-board {
+  --reversi-gap: 4px;
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: var(--reversi-gap);
+  width: min(92vw, 460px);
+  aspect-ratio: 1;
+  margin: 1.25rem auto;
+  padding: var(--reversi-gap);
+  background: linear-gradient(160deg, #1c5a3a, #123e28);
+  border: 1px solid var(--line, rgba(244, 239, 228, 0.1));
+  border-radius: var(--radius, 14px);
+  box-shadow:
+    0 18px 40px -22px #000,
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  animation: reversi-pop 0.35s ease-out;
+}
+
+.reversi-cell {
+  position: relative;
+  aspect-ratio: 1;
+  padding: 0;
+  background: rgba(0, 0, 0, 0.22);
+  border: none;
+  border-radius: 6px;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25);
+  cursor: default;
+}
+
+/* Only legal cells are interactive; hint them with a translucent ghost disc. */
+.reversi-cell.is-legal {
+  cursor: pointer;
+}
+
+.reversi-cell.is-legal::after {
+  content: "";
+  position: absolute;
+  inset: 26%;
+  border-radius: 50%;
+  background: var(--gold, #e2b350);
+  opacity: 0.22;
+  transition: opacity 0.15s ease;
+}
+
+.reversi-cell.is-legal:hover::after {
+  opacity: 0.45;
+}
+
+/* The disc that sits in a cell. */
+.reversi-disc {
+  position: absolute;
+  inset: 12%;
+  border-radius: 50%;
+  opacity: 0;
+  scale: 0.2;
+  transition:
+    opacity 0.12s ease,
+    scale 0.12s ease;
+}
+
+.reversi-cell.black .reversi-disc,
+.reversi-cell.white .reversi-disc {
+  opacity: 1;
+  scale: 1;
+  box-shadow:
+    inset 0 -2px 4px rgba(0, 0, 0, 0.45),
+    inset 0 2px 3px rgba(255, 255, 255, 0.3),
+    0 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+.reversi-cell.black .reversi-disc {
+  background: radial-gradient(circle at 35% 30%, #4a5a52, #0a110d 62%);
+}
+
+.reversi-cell.white .reversi-disc {
+  background: radial-gradient(circle at 35% 30%, #ffffff, #c7cfca 65%);
+}
+
+.reversi-disc.is-placing {
+  animation: reversi-flip 0.28s cubic-bezier(0.2, 0.85, 0.3, 1.15) both;
+}
+
+@keyframes reversi-flip {
+  from {
+    scale: 0.2;
+  }
+  60% {
+    scale: 1.12;
+  }
+  to {
+    scale: 1;
+  }
+}
+
+.reversi-board.is-your-turn {
+  animation:
+    reversi-pop 0.35s ease-out,
+    reversi-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes reversi-pulse {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 0 rgba(226, 179, 80, 0.5),
+      0 18px 40px -22px #000;
+  }
+  50% {
+    box-shadow:
+      0 0 0 7px rgba(226, 179, 80, 0),
+      0 18px 40px -22px #000;
+  }
+}
+
+@keyframes reversi-pop {
+  from {
+    opacity: 0;
+    scale: 0.9;
+  }
+}
+
+/* ---------------------------------------------------- between-rounds banner */
+
+.reversi-banner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  max-width: 460px;
+  margin: 0 auto 1rem;
+  padding: 1rem 1.25rem;
+  background: linear-gradient(160deg, var(--panel-2, #1f3129), #15241d);
+  border: 1px solid var(--line, rgba(244, 239, 228, 0.1));
+  border-radius: var(--radius, 14px);
+  box-shadow: 0 14px 34px -22px #000;
+  text-align: center;
+  animation: reversi-banner-in 0.45s ease 0.1s both;
+}
+
+.reversi-result {
+  margin: 0;
+  font-family: var(--display, Georgia, serif);
+  font-size: 1.3rem;
+  font-weight: 700;
+}
+
+.reversi-score {
+  margin: 0;
+  color: var(--muted, #a3ada6);
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.reversi-again {
+  margin-top: 0.35rem;
+}
+
+@keyframes reversi-banner-in {
+  from {
+    opacity: 0;
+    translate: 0 10px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reversi-board,
+  .reversi-board *,
+  .reversi-banner,
+  .reversi-banner * {
+    animation: none !important;
+    transition: none !important;
+  }
+}

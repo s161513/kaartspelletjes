@@ -851,3 +851,14 @@ button.icon-btn {
 @media (prefers-reduced-motion: reduce) {
   .counter-link { animation: none; }
 }
+
+/* ------------------------------------------------------------ rejoin banner */
+
+.landing-resume {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem 1rem;
+  margin-bottom: 1rem;
+}

@@ -1,4 +1,4 @@
-import type { ClientMessage, ServerMessage } from "@app/shared";
+import { SEAT_TAKEN_CLOSE, type ClientMessage, type ServerMessage } from "@app/shared";
 import { session } from "./session.js";
 
 type Handler<T extends ServerMessage["type"]> = (
@@ -18,7 +18,8 @@ export class GameSocket {
   private reconnectTimer: number | null = null;
   private manualClose = false;
 
-  constructor() {
+  /** `rejoin: false` for pages that never act on a seat (the start page). */
+  constructor(private readonly opts: { rejoin?: boolean } = {}) {
     this.connect();
   }
 
@@ -33,7 +34,7 @@ export class GameSocket {
 
     ws.onopen = () => {
       // Restore an existing seat first, then flush anything queued.
-      if (session.roomCode && session.playerId) {
+      if (this.opts.rejoin !== false && session.roomCode && session.playerId) {
         this.sendNow({
           type: "rejoin",
           roomCode: session.roomCode,
@@ -56,9 +57,10 @@ export class GameSocket {
       if (set) for (const h of set) h(msg);
     };
 
-    ws.onclose = () => {
+    ws.onclose = (ev) => {
       this.ws = null;
-      if (this.manualClose) return;
+      // Our seat was taken over by another tab — reconnecting would steal it back.
+      if (this.manualClose || ev.code === SEAT_TAKEN_CLOSE) return;
       // Backoff-ish reconnect.
       if (this.reconnectTimer === null) {
         this.reconnectTimer = window.setTimeout(() => {

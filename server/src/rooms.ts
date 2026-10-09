@@ -19,11 +19,15 @@ export interface Player {
   connected: boolean;
   /** Spectator only: they flipped "join next round" and are queued to be dealt in. */
   wantsPlay?: boolean;
+  /** Pending removal while disconnected (see RoomManager.goneAfterMs). */
+  goneTimer?: ReturnType<typeof setTimeout>;
 }
 
 export interface GameRuntime {
   gameId: GameId;
   game: Game;
+  /** Everyone dealt into this game (start + mid-game joiners); absent = all players. */
+  playerIds?: string[];
   state: GameState;
   timer?: ReturnType<typeof setTimeout>;
 }
@@ -51,6 +55,8 @@ const CODE_LEN = 4;
 // navigate between pages (landing -> lobby -> game) — which drops and reopens
 // the socket — without the room being pruned out from under their rejoin. Kept
 // generous so a slow reload or brief network blip still recovers the seat.
+// Individual seats have their own, shorter timeout (RoomManager.goneAfterMs),
+// which waits while nobody in the room is connected so this one decides.
 const GRACE_MS = 120_000;
 // Hard cap on simultaneous rooms so a flood of `create` can't exhaust memory.
 const MAX_ROOMS = 5_000;
@@ -59,6 +65,12 @@ const MAX_ROOMS = 5_000;
 export class ServerFullError extends Error {}
 
 export class RoomManager {
+  /**
+   * How long a disconnected player or watcher keeps their seat before they are
+   * removed as if they had left (off the table and out of the lobby). Long
+   * enough for page navigation, a reload or a phone screen lock.
+   */
+  goneAfterMs = 60_000;
   private rooms = new Map<string, Room>();
   /** Sockets on the landing page that want the live room list. */
   private roomWatchers = new Set<WebSocket>();
@@ -178,6 +190,14 @@ export class RoomManager {
     s.connected = false;
     s.ws = null;
     this.pruneIfEmpty(room);
+  }
+
+  /** Find someone's seat, wherever it is now (a watcher may have been dealt in). */
+  findSeat(room: Room, id: string): { seat: Player; isSpectator: boolean } | null {
+    const player = room.players.get(id);
+    if (player) return { seat: player, isSpectator: false };
+    const spectator = room.spectators.get(id);
+    return spectator ? { seat: spectator, isSpectator: true } : null;
   }
 
   /** Move a watcher into a real seat (e.g. once the game has dealt them in). */
@@ -357,6 +377,7 @@ export class RoomManager {
       const player = this.migrateToPlayer(room, s.id);
       if (!player) continue;
       migrated.push(player);
+      runtime.playerIds?.push(player.id);
       this.sendGame(room, "gameStarted", { only: player.id }); // their private view
       this.broadcast(room, {
         type: "chat",
@@ -406,6 +427,7 @@ export class RoomManager {
   /** Test/server shutdown cleanup, with no change to normal room semantics. */
   dispose(): void {
     for (const room of this.rooms.values()) {
+      for (const p of [...room.players.values(), ...room.spectators.values()]) clearTimeout(p.goneTimer);
       clearTimeout(room.pruneTimer ?? undefined);
       clearTimeout(room.runtime?.timer);
     }

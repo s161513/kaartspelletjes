@@ -251,6 +251,12 @@ export function setupGamePage<State>(
   });
 
   socket.on("error", (msg) => {
+    // Another tab took this seat over: stop here, without touching its session.
+    if (msg.code === "seat_taken") {
+      socket.close();
+      session.seatTaken(msg.message);
+      return;
+    }
     // Our seat is gone (server restarted, room pruned, or stale token): drop the
     // dead session and return to landing instead of stranding the user here.
     if (msg.code === "no_room" || msg.code === "no_seat" || msg.code === "bad_secret") {

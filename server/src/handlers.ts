@@ -92,6 +92,10 @@ export function attachConnection(ws: WebSocket, manager: RoomManager): void {
     tokens: BURST, lastRefill: Date.now(),
   };
 
+  // Protocol errors (malformed frames, oversized messages) emit 'error' on the
+  // socket; unhandled, that would crash the whole server. Drop the socket instead.
+  ws.on("error", () => ws.terminate());
+
   ws.on("message", (raw) => {
     const text = raw.toString();
     if (text.length > MAX_MESSAGE_BYTES) {

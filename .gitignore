@@ -7,3 +7,6 @@ dist/
 
 .npm-cache/
 artifacts/
+
+# Persisted 67-counter state (server/src/counter.ts)
+data/

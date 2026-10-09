@@ -770,3 +770,38 @@ button.secondary:hover:not(:disabled) {
     transition: none !important;
   }
 }
+
+/* ------------------------------------------------------------ 67 counter link */
+
+.counter-link {
+  display: inline-block;
+  margin: -1rem 0 1.5rem;
+  padding: 0.6rem 1.05rem;
+  border-radius: 10px;
+  font-weight: 650;
+  text-decoration: none;
+  color: #14211b;
+  background: linear-gradient(90deg, #ff4fd8, #ffe14f, #4fffb0, #4fc3ff);
+  box-shadow: 0 3px 0 rgba(0, 0, 0, 0.45);
+  animation: counter-link-wobble 2.4s ease-in-out infinite;
+}
+
+.counter-link:hover {
+  filter: brightness(1.08);
+}
+
+.counter-link:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+
+@keyframes counter-link-wobble {
+  0%, 80%, 100% { transform: rotate(0); }
+  85% { transform: rotate(-3deg) scale(1.04); }
+  90% { transform: rotate(3deg) scale(1.04); }
+  95% { transform: rotate(-2deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .counter-link { animation: none; }
+}

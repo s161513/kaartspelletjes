@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="nl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>67 Counter</title>
+    <link rel="stylesheet" href="/counter.css" />
+  </head>
+  <body class="sx-body">
+    <div class="sx-bg" id="sx-bg" aria-hidden="true"></div>
+
+    <div class="sx-marquee" aria-hidden="true">
+      <div class="sx-marquee-track" id="sx-marquee"></div>
+    </div>
+
+    <header class="sx-top">
+      <a class="sx-back" href="/">← terug</a>
+      <div class="sx-status">
+        <span class="sx-conn" id="sx-conn" data-state="connecting">
+          <span class="sx-dot"></span><span id="sx-conn-text">verbinden…</span>
+        </span>
+        <span class="sx-online" id="sx-online">👀 – kijkers live</span>
+      </div>
+    </header>
+
+    <main class="sx-main">
+      <h1 class="sx-title">
+        <span class="sx-title-hand sx-title-hand-l">🤲</span>
+        <span>67 COUNTER</span>
+        <span class="sx-title-hand sx-title-hand-r">🤲</span>
+      </h1>
+      <p class="sx-sub">hoe vaak deed de lector de <b>six seven</b> vandaag? fr fr no cap</p>
+
+      <div class="sx-count-wrap">
+        <div class="sx-count" id="sx-count" aria-live="polite">–</div>
+        <div class="sx-count-label">keer 67 gedaan</div>
+      </div>
+
+      <div class="sx-buttons">
+        <button class="sx-btn sx-btn-dec" id="sx-dec" type="button" disabled aria-label="min één">−</button>
+        <button class="sx-btn sx-btn-inc" id="sx-inc" type="button" disabled aria-label="plus één">+</button>
+      </div>
+      <p class="sx-hint">
+        <kbd>+</kbd> / <kbd>spatie</kbd> = 67 gespot · <kbd>−</kbd> = oeps, was geen 67
+      </p>
+      <p class="sx-next" id="sx-next"></p>
+    </main>
+
+    <div class="sx-overlay" id="sx-overlay" aria-hidden="true">
+      <span class="sx-ov-hand sx-ov-hand-l">🤲</span>
+      <span class="sx-ov-67">6️⃣7️⃣</span>
+      <span class="sx-ov-hand sx-ov-hand-r">🤲</span>
+    </div>
+    <div class="sx-fx" id="sx-fx" aria-hidden="true"></div>
+
+    <script type="module" src="/src/counter.ts"></script>
+  </body>
+</html>

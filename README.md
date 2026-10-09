@@ -58,9 +58,14 @@ on one port.
 
 ```bash
 docker build -t classroom-games .
-docker run --rm -p 3000:3000 classroom-games
+docker run --rm -p 3000:3000 -v classroom-games-data:/app/data classroom-games
 # then open http://localhost:3000
 ```
+
+The `/app/data` volume holds persistent state (the 67 counter at `/counter`).
+Without it the count resets whenever the container is recreated. A named volume
+gets the right owner automatically; for a bind mount, make the host directory
+writable by uid 1000 (the image's `node` user).
 
 Override the port with `-e PORT=8080 -p 8080:8080`. The image runs as a non-root
 user and has a `/health` healthcheck.

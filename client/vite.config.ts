@@ -12,6 +12,10 @@ export default defineConfig({
         target: "ws://localhost:3000",
         ws: true,
       },
+      "/counter-ws": {
+        target: "ws://localhost:3000",
+        ws: true,
+      },
     },
   },
   build: {
@@ -22,6 +26,7 @@ export default defineConfig({
         lobby: resolve(__dirname, "lobby.html"),
         // One page for all games; the game comes from ?game=<id>.
         game: resolve(__dirname, "game.html"),
+        counter: resolve(__dirname, "counter.html"),
       },
     },
   },

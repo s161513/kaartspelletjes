@@ -68,6 +68,10 @@ function sendRoomState(manager: RoomManager, room: Room): void {
 export function attachConnection(ws: WebSocket, manager: RoomManager): void {
   const conn: Conn = { ws, roomCode: null, playerId: null, isSpectator: false };
 
+  // Protocol errors (malformed frames, oversized messages) emit 'error' on the
+  // socket; unhandled, that would crash the whole server. Drop the socket instead.
+  ws.on("error", () => ws.terminate());
+
   ws.on("message", (raw) => {
     let msg: ClientMessage;
     try {

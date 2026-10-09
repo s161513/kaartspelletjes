@@ -13,16 +13,34 @@ const errEl = document.getElementById("error") as HTMLParagraphElement;
 const listEl = document.getElementById("roomList") as HTMLUListElement;
 const countEl = document.getElementById("roomCount") as HTMLElement;
 
-// Auto-resume: if we still hold a seat (reload, reopened tab, browser restart),
-// head to the lobby, which reconnects and rejoins. A failed rejoin there clears
-// the stale seat and bounces back here. Creating/joining below overwrites the
-// seat from the server's `joined` reply, so starting fresh still works.
+const resumeEl = document.getElementById("resume") as HTMLElement;
+const resumeText = document.getElementById("resumeText") as HTMLElement;
+const resumeBtn = document.getElementById("resumeBtn") as HTMLButtonElement;
+
+// Auto-resume: if this tab still holds a seat (reload, back button), head to
+// the lobby, which reconnects and rejoins. A failed rejoin there clears the
+// stale seat and bounces back here.
 if (session.roomCode && session.playerId) {
   location.href = "/lobby.html";
+} else if (session.lastRoomCode) {
+  // A seat from another tab or an earlier visit: offer it, but don't take it
+  // over silently (that would kick the tab that is using it).
+  resumeText.textContent = `You have a seat in room ${session.lastRoomCode} (maybe open in another tab).`;
+  resumeEl.hidden = false;
+  resumeBtn.addEventListener("click", () => {
+    session.resumeLastSeat();
+    location.href = "/lobby.html";
+  });
 }
 nickEl.value = session.nickname;
 
-const socket = new GameSocket();
+// A one-off notice from the previous page (e.g. the seat moved to another tab).
+const notice = sessionStorage.getItem("cg.notice");
+sessionStorage.removeItem("cg.notice");
+if (notice) errEl.textContent = notice;
+
+// The start page never rejoins a seat itself; the lobby does that.
+const socket = new GameSocket({ rejoin: false });
 // The server pushes the open-room list; renew the subscription on every reconnect.
 socket.onOpen(() => socket.send({ type: "watchRooms" }));
 
@@ -50,7 +68,11 @@ socket.on("error", (msg) => {
   }
 });
 
-socket.on("roomList", (msg) => renderRooms(msg.rooms));
+socket.on("roomList", (msg) => {
+  renderRooms(msg.rooms);
+  // Hide the rejoin offer once its room is no longer listed (gone or empty).
+  if (!resumeEl.hidden && !msg.rooms.some((r) => r.code === session.lastRoomCode)) resumeEl.hidden = true;
+});
 
 function nickname(): string | null {
   const n = nickEl.value.trim();

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { WebSocket } from "ws";
-import type { ClientMessage, ServerMessage } from "@app/shared";
+import { SEAT_TAKEN_CLOSE, type ClientMessage, type ServerMessage } from "@app/shared";
 import { RoomManager, ServerFullError, type Player, type Room } from "./rooms.js";
 import { games } from "./games/loader.js";
 
@@ -73,7 +73,10 @@ function playerLeftGame(manager: RoomManager, room: Room, playerId: string): voi
   }
   if (runtime.game.playersChanged) return;
 
-  const remaining = [...room.players.values()].filter((p) => p.connected);
+  // Only players dealt into this game can win it (not lobby-only ones).
+  const remaining = [...room.players.values()].filter(
+    (p) => p.connected && (!runtime.playerIds || runtime.playerIds.includes(p.id)),
+  );
   clearTimeout(runtime.timer);
   manager.sendGame(room, "gameOver", {
     winner: remaining.length === 1 ? remaining[0].id : "draw",
@@ -129,15 +132,98 @@ export function attachConnection(ws: WebSocket, manager: RoomManager): void {
     if (!room) return;
     // A newer socket may already own this seat (page navigation or a reload
     // whose rejoin arrived before this close). Then this close means nothing.
-    const seat = conn.isSpectator
-      ? room.spectators.get(conn.playerId)
-      : room.players.get(conn.playerId);
-    if (seat?.ws !== ws) return;
-    if (conn.isSpectator) manager.disconnectSpectator(room, conn.playerId);
-    else manager.disconnect(room, conn.playerId);
+    const found = manager.findSeat(room, conn.playerId);
+    if (found?.seat.ws !== ws) return;
+    const { seat } = found;
+    const playerId = conn.playerId;
+    if (found.isSpectator) manager.disconnectSpectator(room, playerId);
+    else manager.disconnect(room, playerId);
     // Room may have been pruned; only broadcast if it still exists.
-    if (manager.getRoom(conn.roomCode)) sendRoomState(manager, room);
+    if (manager.getRoom(room.code)) sendRoomState(manager, room);
+    scheduleGone(manager, room, seat);
   });
+}
+
+/**
+ * Not back in time (tab closed, kicked to the start page, phone gone): remove
+ * them like an explicit leave, so they don't haunt the table or the lobby.
+ * While nobody in the room is connected, keep waiting: the room's own prune
+ * timer decides then, and seats survive a short outage for everyone.
+ */
+function scheduleGone(manager: RoomManager, room: Room, seat: Player): void {
+  clearTimeout(seat.goneTimer);
+  seat.goneTimer = setTimeout(() => {
+    seat.goneTimer = undefined;
+    const found = manager.findSeat(room, seat.id);
+    if (found?.seat !== seat || seat.connected || manager.getRoom(room.code) !== room) return;
+    if (![...room.players.values()].some((p) => p.connected)) return scheduleGone(manager, room, seat);
+    leaveRoom(manager, room, seat.id, found.isSpectator, "was disconnected too long");
+  }, manager.goneAfterMs);
+}
+
+/** Take a player or watcher out of the room (explicit leave or gone too long). */
+function leaveRoom(
+  manager: RoomManager,
+  room: Room,
+  playerId: string,
+  isSpectator: boolean,
+  why?: string,
+): void {
+  if (isSpectator) {
+    const spec = room.spectators.get(playerId);
+    if (!spec) return;
+    clearTimeout(spec.goneTimer);
+    // A committed watcher who never got dealt in: drop them from the game's queue.
+    if (spec.wantsPlay && room.runtime?.game.playerLeft) {
+      room.runtime.state = room.runtime.game.playerLeft(room.runtime.state, playerId);
+      manager.sendGame(room, "gameState");
+    }
+    manager.removeSpectator(room, playerId);
+    if (manager.getRoom(room.code)) {
+      manager.broadcast(room, {
+        type: "chat",
+        from: "👀",
+        text: `${spec.nickname} ${why ?? "stopped watching"}`,
+        ts: Date.now(),
+      });
+      sendRoomState(manager, room);
+    }
+  } else {
+    const player = room.players.get(playerId);
+    if (!player) return;
+    clearTimeout(player.goneTimer);
+    manager.removePlayer(room, playerId);
+    if (manager.getRoom(room.code)) {
+      manager.broadcast(room, {
+        type: "chat",
+        from: "🚪",
+        text: `${player.nickname} ${why ?? "left the room"}`,
+        ts: Date.now(),
+      });
+      // Only someone dealt into the running game affects it: a lobby-only
+      // player leaving must not end a game they were never part of.
+      const runtime = room.runtime;
+      if (runtime && (!runtime.playerIds || runtime.playerIds.includes(playerId))) {
+        playerLeftGame(manager, room, playerId);
+      }
+      sendRoomState(manager, room);
+    }
+  }
+}
+
+/**
+ * The seat is being reclaimed by a new socket (another tab, or a reconnect the
+ * server hadn't noticed). Tell the old socket and close it, so the old tab
+ * stops instead of acting on a seat it no longer owns.
+ */
+function takeOverSeat(seat: Player, ws: WebSocket): void {
+  clearTimeout(seat.goneTimer);
+  seat.goneTimer = undefined;
+  const old = seat.ws;
+  if (old && old !== ws && old.readyState === 1) {
+    err(old, "seat_taken", "You opened this room in another tab or window.");
+    old.close(SEAT_TAKEN_CLOSE, "seat taken");
+  }
 }
 
 function handle(conn: Conn, manager: RoomManager, msg: ClientMessage): void {
@@ -180,6 +266,7 @@ function handle(conn: Conn, manager: RoomManager, msg: ClientMessage): void {
       if (spectator) {
         if (spectator.secret !== msg.secret) return err(ws, "bad_secret", "No seat to rejoin");
         manager.cancelPrune(room);
+        takeOverSeat(spectator, ws);
         spectator.ws = ws;
         spectator.connected = true;
         conn.roomCode = room.code;
@@ -210,6 +297,7 @@ function handle(conn: Conn, manager: RoomManager, msg: ClientMessage): void {
       // is not. Require it so a playerId alone cannot hijack someone's seat.
       if (player.secret !== msg.secret) return err(ws, "bad_secret", "No seat to rejoin");
       manager.cancelPrune(room); // recovered before deletion — keep it alive
+      takeOverSeat(player, ws);
       player.ws = ws;
       player.connected = true;
       conn.isSpectator = false;
@@ -271,7 +359,7 @@ function handle(conn: Conn, manager: RoomManager, msg: ClientMessage): void {
 
       const playerIds = seated.map((p) => p.id);
       room.lastGame = undefined;
-      room.runtime = { gameId: meta.id, game, state: game.init(playerIds) };
+      room.runtime = { gameId: meta.id, game, playerIds: [...playerIds], state: game.init(playerIds) };
 
       manager.sendGame(room, "gameStarted");
       manager.scheduleGame(room);
@@ -307,40 +395,9 @@ function handle(conn: Conn, manager: RoomManager, msg: ClientMessage): void {
 
     case "leave": {
       const room = manager.getRoom(conn.roomCode ?? "");
-      if (room && conn.playerId) {
-        if (conn.isSpectator) {
-          const spec = room.spectators.get(conn.playerId);
-          const nickname = spec?.nickname ?? "A watcher";
-          // A committed watcher who never got dealt in: drop them from the game's queue.
-          if (spec?.wantsPlay && room.runtime?.game.playerLeft) {
-            room.runtime.state = room.runtime.game.playerLeft(room.runtime.state, conn.playerId);
-            manager.sendGame(room, "gameState");
-          }
-          manager.removeSpectator(room, conn.playerId);
-          if (manager.getRoom(room.code)) {
-            manager.broadcast(room, {
-              type: "chat",
-              from: "👀",
-              text: `${nickname} stopped watching`,
-              ts: Date.now(),
-            });
-            sendRoomState(manager, room);
-          }
-        } else {
-          const nickname = room.players.get(conn.playerId)?.nickname ?? "A player";
-          manager.removePlayer(room, conn.playerId);
-          if (manager.getRoom(room.code)) {
-            manager.broadcast(room, {
-              type: "chat",
-              from: "🚪",
-              text: `${nickname} left the room`,
-              ts: Date.now(),
-            });
-            if (room.runtime) playerLeftGame(manager, room, conn.playerId);
-            sendRoomState(manager, room);
-          }
-        }
-      }
+      const found = room && conn.playerId ? manager.findSeat(room, conn.playerId) : null;
+      // Only the socket that owns the seat may give it up (not a stale tab).
+      if (room && found?.seat.ws === conn.ws) leaveRoom(manager, room, conn.playerId!, found.isSpectator);
       conn.roomCode = null;
       conn.playerId = null;
       conn.isSpectator = false;
@@ -484,13 +541,13 @@ function requireRoom(conn: Conn, manager: RoomManager): Room | null {
     err(conn.ws, "no_room", "Room no longer exists");
     return null;
   }
-  const seat = conn.isSpectator
-    ? room.spectators.get(conn.playerId)
-    : room.players.get(conn.playerId);
-  if (seat?.ws !== conn.ws) {
+  const found = manager.findSeat(room, conn.playerId);
+  if (found?.seat.ws !== conn.ws) {
     err(conn.ws, "no_seat", "This connection no longer owns a seat");
     return null;
   }
+  // A watcher dealt in mid-game is a player now (and vice versa).
+  conn.isSpectator = found.isSpectator;
   return room;
 }
 

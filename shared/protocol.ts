@@ -7,6 +7,12 @@ export * from "./cards.js";
 // Re-export the game contract (Game, GamePage, ...) implemented in games/<id>/.
 export * from "./game.js";
 
+/**
+ * WebSocket close code: this seat was taken over by another tab/window. The
+ * client must not reconnect (it would take the seat straight back).
+ */
+export const SEAT_TAKEN_CLOSE = 4001;
+
 /** A game's id — equal to its folder name under games/. */
 export type GameId = string;
 

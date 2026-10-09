@@ -2,7 +2,7 @@ import { createServer } from "node:http";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import express from "express";
-import { WebSocketServer } from "ws";
+import { WebSocketServer, type WebSocket } from "ws";
 import { RoomManager } from "./rooms.js";
 import { attachConnection } from "./handlers.js";
 import { loadGames } from "./games/loader.js";
@@ -19,6 +19,29 @@ const manager = new RoomManager();
 const wss = new WebSocketServer({ noServer: true });
 wss.on("connection", (ws) => attachConnection(ws, manager));
 const counterWss = createCounterServer();
+
+// Heartbeat: a phone that loses its network often never sends a close, so the
+// server would think it is still connected. Ping every 30s; a socket that has
+// not answered the previous ping is terminated, which runs the normal close
+// handling (seat marked away, removed later if it doesn't come back).
+const HEARTBEAT_MS = 30_000;
+const alive = new WeakSet<WebSocket>();
+for (const server of [wss, counterWss]) {
+  server.on("connection", (ws) => {
+    alive.add(ws);
+    ws.on("pong", () => alive.add(ws));
+  });
+}
+setInterval(() => {
+  for (const ws of [...wss.clients, ...counterWss.clients]) {
+    if (!alive.has(ws)) {
+      ws.terminate();
+      continue;
+    }
+    alive.delete(ws);
+    ws.ping();
+  }
+}, HEARTBEAT_MS).unref();
 
 httpServer.on("upgrade", (req, socket, head) => {
   const { pathname } = new URL(req.url ?? "/", "http://localhost");

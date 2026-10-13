@@ -1,7 +1,8 @@
 // Context memory for the adaptive help (Lab 8 "Context is King").
 //
 // The help layer adapts to *who* is playing. It keeps one record per finished
-// round (hand) and derives three layers of context from that history:
+// round (hand) and derives three layers of context from that history (turned
+// into model inputs by features.ts, and into P(scum) by score.ts):
 //
 //   long term   win rate and scum rate over a sliding window of recent rounds
 //               → the player's structural level
@@ -41,8 +42,10 @@ export const SESSION_GAP_MS = 30 * 60_000;
 const MAX_STORED = 200;
 
 /**
- * Rounds played *with* help count for less, so that help which lifts the win
- * rate does not immediately switch itself off again (the dependency loop).
+ * Every round played *with* help (won or lost) counts as only half a round of
+ * evidence, so that help which lifts the results does not immediately switch
+ * itself off again (the dependency loop). Applied to both the win rate and
+ * the Scum count.
  */
 export const HELPED_ROUND_WEIGHT = 0.5;
 
@@ -50,10 +53,16 @@ export const HELPED_ROUND_WEIGHT = 0.5;
  * Bayesian smoothing: we pretend every player starts with PRIOR_ROUNDS
  * "average" rounds. A brand-new player therefore gets a neutral estimate
  * instead of 0% or 100% after a single hand.
+ *
+ * "Average" is taken at a table of four, the table size the P(scum) model is
+ * trained on: there exactly one player wins (President) and one ends last
+ * (Scum), so both priors are 1/4. (At other sizes the winners' tier is about
+ * a third; see tierSize in rules.ts — score.ts corrects P for the table size.)
  */
 export const PRIOR_ROUNDS = 3;
-export const PRIOR_WIN_RATE = 1 / 3; // roughly a third of the table wins
-export const PRIOR_SCUM_RATE = 1 / 3;
+export const PRIOR_WIN_RATE = 1 / 4;
+/** Expected share of last places (role "scum") for an average player at four. */
+export const PRIOR_LAST_PLACE = 1 / 4;
 
 const WIN_ROLES = new Set<Role>(["president", "vice-president", "winner"]);
 const SCUM_ROLES = new Set<Role>(["scum", "vice-scum"]);
@@ -163,16 +172,18 @@ export function appendRound(
 // Reading context
 // ---------------------------------------------------------------------------
 
-/** Everything the help score needs to know about the player, at one moment. */
+/** What the memory says about the player at one moment (features.ts builds on this). */
 export interface ContextSummary {
   // long term
   rounds: number; // rounds in the window (0 … WINDOW)
   winRate: number; // smoothed, help-weighted share of won rounds
-  scumRate: number; // smoothed, help-weighted share of scum rounds
+  lastPlaces: number; // help-weighted, prior-filled count of last places (Scum) in the window
   // session
-  lossStreak: number; // consecutive most recent rounds without a win
+  lossStreak: number; // most recent rounds in a row without a win, within this session
   sessionRounds: number; // rounds in the current session (0 when it lapsed)
-  sessionMinutes: number; // how long the current session has been going
+  // Minutes since the *end* of the session's first round (records only store
+  // when a round finished). The simulation and the browser both use this.
+  sessionMinutes: number;
   // environment
   hour: number; // local hour of day, 0–23
   // bookkeeping, for transparency in the UI
@@ -183,31 +194,34 @@ export interface ContextSummary {
 export function summarize(records: readonly RoundRecord[], now: number): ContextSummary {
   const window = records.slice(-WINDOW);
 
-  // Long term: weighted, smoothed rates over the window.
+  // Long term: weighted, smoothed win rate over the window.
   let weight = PRIOR_ROUNDS;
   let wins = PRIOR_ROUNDS * PRIOR_WIN_RATE;
-  let scums = PRIOR_ROUNDS * PRIOR_SCUM_RATE;
+  // Last places, counted over a full window of WINDOW rounds: a round that is
+  // missing (newcomer) counts as average, a helped round as w · actual +
+  // (1 − w) · average — half evidence, half prior.
+  let lastPlaces = (WINDOW - window.length) * PRIOR_LAST_PLACE;
   for (const r of window) {
     const w = r.helpLevel > 0 ? HELPED_ROUND_WEIGHT : 1;
     weight += w;
     if (r.won) wins += w;
-    if (r.scum) scums += w;
+    lastPlaces += w * (r.role === "scum" ? 1 : 0) + (1 - w) * PRIOR_LAST_PLACE;
   }
-
-  // Session: walk back from the newest record while it is not a win.
-  let lossStreak = 0;
-  for (let i = records.length - 1; i >= 0 && !records[i].won; i--) lossStreak++;
 
   const last = records[records.length - 1];
   const live = last !== undefined && now - last.at <= SESSION_GAP_MS;
   const session = live ? records.filter((r) => r.sessionId === last.sessionId) : [];
-  if (!live) lossStreak = 0; // a fresh session starts with a clean slate
+
+  // Session: walk back from the newest round while it is not a win. Only this
+  // session counts — a fresh session (or one after a break) starts clean.
+  let lossStreak = 0;
+  for (let i = session.length - 1; i >= 0 && !session[i].won; i--) lossStreak++;
   const sessionStart = session.length ? session[0].at : now;
 
   return {
     rounds: window.length,
     winRate: wins / weight,
-    scumRate: scums / weight,
+    lastPlaces,
     lossStreak,
     sessionRounds: session.length,
     sessionMinutes: Math.round((now - sessionStart) / 60_000),

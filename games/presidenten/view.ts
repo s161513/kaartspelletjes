@@ -178,9 +178,7 @@ function renderSeats(view: PresidentenView): void {
     const badge = p.id === view.selfId ? assist.badge() : null;
     if (badge) {
       const score = el("div", `pr-assist-score${badge.active ? " is-active" : ""}`, badge.text);
-      score.title = badge.active
-        ? "Help score — you get hints this round (details in the browser console)"
-        : "Help score — hints start at 0.70 (details in the browser console)";
+      score.title = badge.title;
       box.append(score);
     }
     plate.append(el("div", "pr-avatar", nick.charAt(0).toUpperCase()), box);

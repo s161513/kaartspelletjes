@@ -7,7 +7,14 @@ import {
 import {
   appendRound, demoHistory, MemoryStore, SESSION_GAP_MS, summarize, WINDOW, type RoundRecord,
 } from "./context.js";
-import { computeHelp, levelFor } from "./score.js";
+import {
+  AVERAGE_HAND_STRENGTH, encode, extractFeatures, FEATURE_NAMES, handStrength, makeContext, SCUM_PRIOR,
+} from "./features.js";
+import { FEATURES, GOLDEN, INTERCEPT, METRICS } from "./model.js";
+import {
+  BASE_RATE, computeHelp, levelFor, modelMatchesFeatures, predictScum, thresholdsAt, THRESHOLDS,
+} from "./score.js";
+import { notePlay, roundToLog } from "./tracker.js";
 import type { Role } from "../types.js";
 
 // "7h" = seven of hearts, "Th" = ten of hearts, "2s" = two of spades, …
@@ -127,18 +134,31 @@ test("the long-term window only looks at the last rounds", () => {
   const s = summarize([...old, ...recent], lastAt(recent));
   assert.equal(s.rounds, WINDOW);
   assert.ok(s.winRate > 0.85, `old scum rounds fell out of the window (${s.winRate})`);
-  assert.ok(s.scumRate < 0.1);
+  assert.equal(s.lastPlaces, 0, "and so did the old last places");
 });
 
 test("a new player gets a neutral prior, not 0% or 100%", () => {
   const s = summarize(history(["scum"]), T0);
-  assert.ok(s.winRate > 0.2 && s.winRate < 0.34);
-  assert.equal(computeHelp(summarize([], T0)).level, 0, "an average newcomer plays without hints");
+  assert.ok(s.winRate > 0.1 && s.winRate < 0.25, `${s.winRate}`);
+  const newcomer = computeHelp(extractFeatures([], T0));
+  assert.ok(Math.abs(newcomer.p - 0.25) < 0.1, `an average newcomer is near the base rate (${newcomer.p})`);
+  assert.equal(newcomer.level, 0, "and plays without hints");
+});
+
+test("helped rounds count half in the Scum count too (half evidence, half prior)", () => {
+  const unaided = extractFeatures(history(Array(WINDOW).fill("scum"), 0), T0 + 200 * MIN);
+  const helped = extractFeatures(history(Array(WINDOW).fill("scum"), 1), T0 + 200 * MIN);
+  assert.equal(unaided.scum_count_20, WINDOW);
+  assert.equal(helped.scum_count_20, WINDOW * (0.5 * 1 + 0.5 * SCUM_PRIOR));
 });
 
 test("losing streak and session reset after a long pause", () => {
   const r = history(["president", "citizen", "scum", "scum"]);
   assert.equal(summarize(r, lastAt(r)).lossStreak, 3);
+  // The streak only counts this session: losses before a break don't carry over.
+  const after = appendRound(r, { role: "citizen", helpLevel: 0, hintsShown: 0, hintsFollowed: 0 },
+    lastAt(r) + SESSION_GAP_MS + MIN);
+  assert.equal(summarize(after, lastAt(after)).lossStreak, 1);
   assert.equal(summarize(r, lastAt(r)).sessionRounds, 4);
   const later = lastAt(r) + SESSION_GAP_MS + MIN;
   assert.equal(summarize(r, later).lossStreak, 0);
@@ -162,39 +182,169 @@ test("MemoryStore round-trips and clears", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Score → level, and the A/B demonstration
+// Features
 // ---------------------------------------------------------------------------
 
-test("level thresholds", () => {
-  assert.equal(levelFor(0.69), 0);
-  assert.equal(levelFor(0.7), 1);
-  assert.equal(levelFor(0.79), 1);
-  assert.equal(levelFor(0.8), 2);
+test("the generated model uses exactly the features the code extracts", () => {
+  assert.deepEqual([...FEATURES], [...FEATURE_NAMES]);
+  assert.ok(modelMatchesFeatures());
+  assert.ok(METRICS.auc > 0.6, `trained model should beat chance clearly (AUC ${METRICS.auc})`);
+});
+
+test("extractFeatures on an empty history: an average newcomer", () => {
+  const f = extractFeatures([], T0);
+  assert.equal(f.scum_count_20, WINDOW * SCUM_PRIOR, "missing rounds count as average");
+  assert.equal(f.table_size, 4);
+  assert.equal(f.loss_streak, 0);
+  assert.equal(f.rounds_in_session, 0);
+  assert.equal(f.session_minutes, 0);
+  assert.equal(f.hour_of_day, 15);
+  assert.equal(f.hand_strength, AVERAGE_HAND_STRENGTH, "no hand → an average hand");
+  for (const v of Object.values(encode(f))) assert.ok(Number.isFinite(v));
+});
+
+test("hand strength counts 2s, aces and kings, scaled to a 13-card hand", () => {
+  // 13 cards (four players): the plain sum.
+  assert.equal(handStrength(hand("2h 2s Ad Kc 9h 3c 4c 5c 6c 7c 8c Tc Jc")), 3 + 3 + 2 + 1);
+  // 6 cards: the same 9 points are worth more per card.
+  assert.equal(handStrength(hand("2h 2s Ad Kc 9h 3c")), (9 * 13) / 6);
+  assert.equal(handStrength(hand("3c 4d 5h Qs")), 0);
+  assert.equal(handStrength([]), AVERAGE_HAND_STRENGTH, "empty hand → average");
+});
+
+test("hour encoding is cyclic: 23:00 is next to 00:00", () => {
+  const at = (h: number) => encode(makeContext({ hour_of_day: h }));
+  const dist = (a: number, b: number) => Math.hypot(at(a).hour_sin - at(b).hour_sin, at(a).hour_cos - at(b).hour_cos);
+  assert.ok(Math.abs(dist(23, 0) - dist(0, 1)) < 1e-9);
+  assert.ok(dist(23, 0) < dist(12, 0));
+});
+
+test("no leakage: features for round n don't depend on round n's outcome", () => {
+  const before = history(["citizen", "scum", "president", "citizen"]);
+  const now = lastAt(before) + 5 * MIN; // round n starts
+  const startHand = hand("4h 9d Jh Kd Ac 2s");
+  const f = extractFeatures(before, now, startHand);
+  assert.equal(f.rounds_in_session, before.length);
+  // Round n ends (as President or as Scum) and lands in the history. The
+  // features *at the start* of round n must not change either way.
+  for (const role of ["president", "scum"] as Role[]) {
+    const after = appendRound(before, { role, helpLevel: 0, hintsShown: 0, hintsFollowed: 0 }, now + 4 * MIN);
+    assert.deepEqual(extractFeatures(after, now, startHand), f, `round n as ${role}`);
+  }
+  // Only for round n + 1 does the outcome count.
+  const lost = appendRound(before, { role: "scum", helpLevel: 0, hintsShown: 0, hintsFollowed: 0 }, now + 4 * MIN);
+  assert.notDeepEqual(extractFeatures(lost, now + 4 * MIN, startHand), f);
+});
+
+// ---------------------------------------------------------------------------
+// The model: P(scum) → level, and the A/B demonstration
+// ---------------------------------------------------------------------------
+
+test("P(scum) is a probability, and the contributions explain it exactly", () => {
+  for (const ctx of [makeContext(), makeContext({ winrate_20: 0, scum_count_20: 20, loss_streak: 30 }),
+    makeContext({ winrate_20: 1, scum_count_20: 0, hand_strength: 25 })]) {
+    const { p, contributions } = predictScum(ctx);
+    assert.ok(p > 0 && p < 1, `P = ${p}`);
+    // log-odds = intercept + Σ contributions (what the UI shows as reasons)
+    const sum = Object.values(contributions).reduce((a, b) => a + b, 0);
+    assert.ok(Math.abs(Math.log(p / (1 - p)) - (INTERCEPT + sum)) < 1e-9);
+  }
+});
+
+test("TypeScript reproduces sklearn's predictions (golden cases from train.py)", () => {
+  assert.ok(GOLDEN.length >= 3);
+  for (const g of GOLDEN) {
+    const { p } = predictScum({ ...g.raw });
+    assert.ok(Math.abs(p - g.p) < 1e-5, `TS ${p} vs sklearn ${g.p}`);
+  }
+});
+
+test("coefficient signs make sense (monotonic in the main features)", () => {
+  const p = (over: Parameters<typeof makeContext>[0]) => predictScum(makeContext(over)).p;
+  assert.ok(p({ loss_streak: 4 }) > p({ loss_streak: 0 }), "a losing streak raises P");
+  assert.ok(p({ scum_count_20: 10 }) > p({ scum_count_20: 2 }), "more recent Scum finishes raise P");
+  assert.ok(p({ winrate_20: 0.6 }) < p({ winrate_20: 0.1 }), "a higher win rate lowers P");
+  assert.ok(p({ hand_strength: 12 }) < p({ hand_strength: 2 }), "a stronger hand lowers P");
+  // Strictly monotonic over a range, not just at two points.
+  for (let k = 0; k < 8; k++) assert.ok(p({ loss_streak: k + 1 }) > p({ loss_streak: k }));
+});
+
+test("levelFor follows the trained thresholds", () => {
+  const [t1, t2] = THRESHOLDS;
+  assert.ok(t1 > 0 && t1 < t2 && t2 < 1);
+  assert.equal(levelFor(t1 - 1e-6), 0);
+  assert.equal(levelFor(t1), 1);
+  assert.equal(levelFor(t2 - 1e-6), 1);
+  assert.equal(levelFor(t2), 2);
 });
 
 test("A/B: same hand and table, different history → different help", () => {
   const now = T0 + 120 * MIN;
-  const weak = computeHelp(summarize(demoHistory("weak", now), now));
-  const strong = computeHelp(summarize(demoHistory("strong", now), now));
-  assert.equal(weak.level, 2);
-  assert.equal(strong.level, 0);
+  const startHand = hand("3h 4s 5h 6c 7c 7d 8s 9h Tc Jd Qs Kh Ac");
+  const weak = computeHelp(extractFeatures(demoHistory("weak", now), now, startHand));
+  const strong = computeHelp(extractFeatures(demoHistory("strong", now), now, startHand));
+  // Robust to retraining: only the ordering and "the weak player gets help".
+  assert.ok(weak.p > strong.p, `weak ${weak.p} > strong ${strong.p}`);
+  assert.ok(weak.level > strong.level);
+  assert.ok(weak.level >= 1);
+  assert.ok(weak.factors.length > 0 && weak.factors[0].contribution > 0, "top reason pushes P up");
 
   const options = advise({ hand: hand("5h 8s Jd Ac 7c 7d"), currentCount: 1, currentRankValue: v("6") });
-  assert.ok(hintFor(weak.level, options)?.reason, "struggling player: highlight + explanation");
+  assert.ok(hintFor(weak.level, options), "struggling player: a hint");
   assert.equal(hintFor(strong.level, options), null, "strong player: no hint");
 });
 
-test("context switch off: history is ignored", () => {
+test("context switch off: everyone gets the table's base rate and no help", () => {
   const now = T0 + 120 * MIN;
-  const off = computeHelp(summarize(demoHistory("weak", now), now), { useContext: false });
-  assert.equal(off.level, 0);
-  assert.equal(off.usedContext, false);
+  for (const n of [3, 4, 5]) {
+    const weak = computeHelp(extractFeatures(demoHistory("weak", now), now, undefined, n), { useContext: false });
+    const strong = computeHelp(extractFeatures(demoHistory("strong", now), now, undefined, n), { useContext: false });
+    for (const d of [weak, strong]) {
+      assert.ok(Math.abs(d.p - 1 / n) < 1e-12, `P = 1/${n}`);
+      assert.equal(d.pModel, BASE_RATE);
+      assert.equal(d.usedContext, false);
+      assert.deepEqual(d.factors, []);
+      assert.equal(d.level, 0, "base rate → level 0 → no help");
+    }
+  }
 });
 
-test("fatigue nudges the score late at night", () => {
-  const r = history(["citizen", "citizen", "citizen"]);
-  const day = computeHelp(summarize(r, lastAt(r)));
-  const late = new Date(2026, 9, 7, 23, 30).getTime();
-  const night = computeHelp(summarize(history(["citizen", "citizen", "citizen"], 0, late - 10 * MIN), late));
-  assert.ok(night.score > day.score);
+test("table size shifts the shown P to 1/n but not the level", () => {
+  for (const ctx of [makeContext(), makeContext({ winrate_20: 0.05, scum_count_20: 12, loss_streak: 6 })]) {
+    const at4 = computeHelp(ctx);
+    const at3 = computeHelp({ ...ctx, table_size: 3 });
+    const at6 = computeHelp({ ...ctx, table_size: 6 });
+    assert.ok(at3.p > at4.p && at4.p > at6.p, "more players → each less likely last");
+    assert.equal(at3.level, at4.level);
+    assert.equal(at6.level, at4.level);
+    assert.equal(at3.pModel, at4.pModel);
+    // The displayed thresholds move the same way, so "P vs threshold" stays consistent.
+    assert.equal(at3.p >= thresholdsAt(3)[0], at4.level >= 1);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Which rounds go into the history (tracker.ts, used by panel.ts)
+// ---------------------------------------------------------------------------
+
+test("a normal round is logged once, with the help level used during its play", () => {
+  let played = notePlay(null, 3, 0);
+  played = notePlay(played, 3, 2); // help came on during the round
+  played = notePlay(played, 3, 0);
+  assert.deepEqual(roundToLog(played, { round: 4, role: "scum" }), { role: "scum", helpLevel: 2 });
+  assert.equal(roundToLog(played, { round: 3, role: "citizen" }), null, "same round: nothing to log yet");
+});
+
+test("a watcher who gets dealt in does not get a fake round", () => {
+  // Watching round 3 (not seated → panel never calls notePlay), dealt in as a citizen for round 4.
+  assert.equal(roundToLog(null, { round: 4, role: "citizen" }), null);
+});
+
+test("a reload never logs a round twice, and skipped rounds are not logged", () => {
+  // After a reload the tracker starts empty: the round that already ended is not logged again.
+  assert.equal(roundToLog(null, { round: 5, role: "president" }), null);
+  // Missed a whole hand (disconnected): played round 3, next view is round 5.
+  assert.equal(roundToLog(notePlay(null, 3, 1), { round: 5, role: "scum" }), null);
+  // No role yet (first hand of a game): nothing to log.
+  assert.equal(roundToLog(notePlay(null, 1, 0), { round: 2, role: null }), null);
 });

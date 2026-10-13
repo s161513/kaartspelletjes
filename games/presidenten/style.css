@@ -605,7 +605,7 @@ body.pr-wide .wrap > .card {
   text-align: center;
 }
 
-/* Help score under your own name. Grey = no hints this round, blue = hints. */
+/* P(scum) under your own name (only you see it). Grey = no hints this round, blue = hints. */
 .pr-assist-score {
   margin-top: 2px;
   font-size: 0.72rem;
@@ -648,6 +648,13 @@ body.pr-wide .wrap > .card {
 .pr-settings-section p {
   margin: 0;
   color: var(--muted);
+}
+
+/* "Why do I get help?" — P(scum) and its top reasons. */
+.pr-settings-section .pr-assist-why {
+  max-width: 22rem;
+  font-size: 0.85rem;
+  line-height: 1.35;
 }
 
 .pr-settings-section .pr-assist-forget {

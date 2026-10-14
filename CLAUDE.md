@@ -18,6 +18,9 @@ npx tsc -p client/tsconfig.json   # typecheck client + game views (Vite doesn't)
 - Test multiplayer with separate tabs (new tab, incognito or another browser).
   A *duplicated* tab copies sessionStorage and becomes the same player.
 - Rooms live in server memory; restarting the server wipes them.
+- The 67 counter is disabled unless `COUNTER_KEY` is set (in `.env` at the repo
+  root — copy `.env.example` — or the real environment); it is then only at
+  `/counter/<key>` (Vite dev: `/counter.html?key=<key>`). Never commit the key.
 
 ## Layout
 

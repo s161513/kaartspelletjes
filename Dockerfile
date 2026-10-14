@@ -46,6 +46,10 @@ ENV COUNTER_FILE=/app/data/counter.json
 RUN mkdir -p /app/data && chown node:node /app/data
 VOLUME /app/data
 
+# The 67 counter is off unless a secret key is set; it is then served only at
+# /counter/<key>:  docker run --env-file .env ...  (or -e COUNTER_KEY=<secret>;
+# .env is in .dockerignore, so the key never ends up in the image)
+
 USER node
 EXPOSE 3000
 

@@ -1,4 +1,6 @@
-// The 67 counter page: one shared number, synced live over /counter-ws.
+// The 67 counter page: one shared number, synced live over /counter-ws/<key>.
+// Only reachable through a secret URL: /counter/<key> (or /counter.html?key=…
+// in Vite dev). The server checks the key against its COUNTER_KEY env var.
 // Server -> { type: "count", count, delta: -1 | 0 | 1, online }
 // Client -> { type: "inc" } | { type: "dec" }
 // Animations are driven by incoming messages (delta), so every viewer sees them.
@@ -190,16 +192,39 @@ function render(msg: CountMessage): void {
 
 // ---------- socket ----------
 
+/** Secret key from /counter/<key>, falling back to ?key=…; null if absent or malformed. */
+function readKey(): string | null {
+  const m = /^\/counter\/([^/]+)\/?$/.exec(location.pathname);
+  let raw = m?.[1] ?? null;
+  if (raw !== null) {
+    try {
+      raw = decodeURIComponent(raw);
+    } catch {
+      raw = null;
+    }
+  }
+  const key = (raw ?? new URLSearchParams(location.search).get("key") ?? "").trim();
+  return key || null;
+}
+
+const counterKey = readKey();
+
 let ws: WebSocket | null = null;
 let retries = 0;
 let reconnectTimer: number | null = null;
 
 const isOpen = () => ws?.readyState === WebSocket.OPEN;
 
-function setConn(state: "connecting" | "online" | "offline"): void {
-  connEl.dataset.state = state;
+function setConn(state: "connecting" | "online" | "offline" | "denied"): void {
+  connEl.dataset.state = state === "denied" ? "offline" : state;
   connText.textContent =
-    state === "online" ? "live" : state === "connecting" ? "verbinden…" : "offline — opnieuw proberen…";
+    state === "online"
+      ? "live"
+      : state === "connecting"
+        ? "verbinden…"
+        : state === "denied"
+          ? "geen toegang — vraag de geheime link"
+          : "offline — opnieuw proberen…";
   incBtn.disabled = state !== "online";
   decBtn.disabled = state !== "online" || (lastCount ?? 0) <= 0;
   if (state !== "online") onlineEl.textContent = "👀 – kijkers live";
@@ -210,9 +235,14 @@ function connect(): void {
     window.clearTimeout(reconnectTimer);
     reconnectTimer = null;
   }
+  // No key in the URL: nothing to connect to, so don't start a reconnect loop.
+  if (!counterKey) {
+    setConn("denied");
+    return;
+  }
   setConn("connecting");
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
-  const socket = new WebSocket(`${proto}//${location.host}/counter-ws`);
+  const socket = new WebSocket(`${proto}//${location.host}/counter-ws/${encodeURIComponent(counterKey)}`);
   ws = socket;
 
   socket.onopen = () => {

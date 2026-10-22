@@ -81,17 +81,17 @@ nog gepland staat. Een latere update kan steunen op een eerdere; dat staat er
 dan bij. Alle bronnen zijn feedback van 2026-10-22, tenzij anders vermeld.
 
 ### Update 3: Overzicht & bediening
-Status: gepland. Als eerste bouwen: klein, en spelers merken het meteen.
+Status: in review (PR #28)
 
-- [ ] Een balkje per grondstof in de HUD dat laat zien hoe vol de opslag is.
+- [x] Een balkje per grondstof in de HUD dat laat zien hoe vol de opslag is.
       (bron: "een balk voor resources")
-- [ ] Zoomen met het touchpad is veel te traag. Behandel touchpad-scrollen
+- [x] Zoomen met het touchpad is veel te traag. Behandel touchpad-scrollen
       (`wheel` met kleine `deltaY`, of pinch met `ctrlKey`) apart van een
       muiswieltje. (bron: "scrollen op mousepad werkt veel te traag")
-- [ ] Klik op een dorpeling voor een duidelijk overzicht: werk of werkloos,
+- [x] Klik op een dorpeling voor een duidelijk overzicht: werk of werkloos,
       waar die woont en wat die doet. (bron: "als je op iemand klikt een
       duidelijk overzicht van job status")
-- [ ] Bug: een dorpeling zegt dat die werkloos is terwijl die wel werkt. De
+- [x] Bug: een dorpeling zegt dat die werkloos is terwijl die wel werkt. De
       browser bepaalt zelf wie welk werk heeft (`client/src/world/villagers.ts`),
       los van `assignWorkers`; laat dat overeenkomen. (bron: "iemand zegt dat
       die werkloos is, ma die is nie werkloos")

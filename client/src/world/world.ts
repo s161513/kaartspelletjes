@@ -278,7 +278,10 @@ export function createWorld(opts: WorldOptions): TownWorld {
     (e) => {
       e.preventDefault();
       const p = local(e);
-      cam.zoomAt(Math.exp(-e.deltaY * 0.0015), p.x, p.y);
+      const dy = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? canvas.clientHeight : 1);
+      // A mouse wheel turns in big steps; a touchpad (and pinching, which comes as ctrl+wheel) sends many small ones.
+      const speed = e.ctrlKey ? 0.012 : e.deltaMode === 0 && Math.abs(dy) < 50 ? 0.006 : 0.0015;
+      cam.zoomAt(Math.exp(Math.max(-0.5, Math.min(0.5, -dy * speed))), p.x, p.y);
     },
     { passive: false },
   );

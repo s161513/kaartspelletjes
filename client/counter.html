@@ -9,44 +9,38 @@
     <link rel="stylesheet" href="/counter.css" />
   </head>
   <body class="sx-body">
-    <div class="sx-bg" id="sx-bg" aria-hidden="true"></div>
+    <!-- 67 Beschaving: the shared town, full screen behind the counter. -->
+    <canvas class="sx-world" id="sx-world" aria-label="De stad van 67 Beschaving: sleep om rond te kijken, klik op bos of rotsen om te helpen, op vrij land om te bouwen, op een gebouw voor info of de winkel"></canvas>
 
-    <div class="sx-marquee" aria-hidden="true">
-      <div class="sx-marquee-track" id="sx-marquee"></div>
+    <div class="sx-topstack">
+      <header class="sx-top" id="sx-top">
+        <a class="sx-back" href="/">← terug</a>
+        <div class="sx-counter">
+          <h1 class="sx-title"><span class="sx-title-hand">🤲</span> 67 COUNTER</h1>
+          <button class="sx-btn sx-btn-dec" id="sx-dec" type="button" disabled aria-label="min één" title="oeps, was geen 67 (−)">−</button>
+          <div class="sx-count" id="sx-count" aria-live="polite" title="keer 67 gedaan">–</div>
+          <button class="sx-btn sx-btn-inc" id="sx-inc" type="button" disabled aria-label="plus één" title="67 gespot! (+ of spatie)">+</button>
+        </div>
+        <div class="sx-status">
+          <button class="sx-me" id="sx-me" type="button" title="jouw NPC aanpassen" hidden>🧍</button>
+          <span class="sx-conn" id="sx-conn" data-state="connecting">
+            <span class="sx-dot"></span><span id="sx-conn-text">verbinden…</span>
+          </span>
+          <span class="sx-online" id="sx-online">👀 – kijkers live</span>
+        </div>
+        <p class="sx-next" id="sx-next"></p>
+      </header>
+      <div class="sx-hud" id="sx-hud" aria-live="off" hidden></div>
+      <div class="sx-banner" id="sx-banner" role="status" hidden></div>
     </div>
 
-    <header class="sx-top">
-      <a class="sx-back" href="/">← terug</a>
-      <div class="sx-status">
-        <span class="sx-conn" id="sx-conn" data-state="connecting">
-          <span class="sx-dot"></span><span id="sx-conn-text">verbinden…</span>
-        </span>
-        <span class="sx-online" id="sx-online">👀 – kijkers live</span>
-      </div>
-    </header>
-
-    <main class="sx-main">
-      <h1 class="sx-title">
-        <span class="sx-title-hand sx-title-hand-l">🤲</span>
-        <span>67 COUNTER</span>
-        <span class="sx-title-hand sx-title-hand-r">🤲</span>
-      </h1>
-      <p class="sx-sub">hoe vaak deed de lector de <b>six seven</b> vandaag? fr fr no cap</p>
-
-      <div class="sx-count-wrap">
-        <div class="sx-count" id="sx-count" aria-live="polite">–</div>
-        <div class="sx-count-label">keer 67 gedaan</div>
-      </div>
-
-      <div class="sx-buttons">
-        <button class="sx-btn sx-btn-dec" id="sx-dec" type="button" disabled aria-label="min één">−</button>
-        <button class="sx-btn sx-btn-inc" id="sx-inc" type="button" disabled aria-label="plus één">+</button>
-      </div>
-      <p class="sx-hint">
-        <kbd>+</kbd> / <kbd>spatie</kbd> = 67 gespot · <kbd>−</kbd> = oeps, was geen 67
-      </p>
-      <p class="sx-next" id="sx-next"></p>
-    </main>
+    <div class="sx-vote" id="sx-vote" role="status" hidden></div>
+    <div class="sx-inspect" id="sx-inspect" role="dialog" hidden></div>
+    <div class="sx-place" id="sx-place" role="dialog" aria-label="Bouwen" hidden></div>
+    <div class="sx-avatar" id="sx-avatar" role="dialog" aria-label="Jouw NPC" hidden></div>
+    <div class="sx-fabs">
+      <button class="sx-fab" id="sx-recenter" type="button" title="terug naar het centrum" aria-label="terug naar het centrum">🎯</button>
+    </div>
 
     <div class="sx-overlay" id="sx-overlay" aria-hidden="true">
       <span class="sx-ov-hand sx-ov-hand-l">🤲</span>

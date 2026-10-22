@@ -275,6 +275,8 @@ export const ROAD_COST: Amounts = { stone: 80, wood: 30 };
 export const ROAD_SPECIAL_COST = 20;
 /** Laying one tile of path, at the street network's level (×4 per level). */
 export const PATH_TILE_COST: Amounts = { stone: 3, wood: 1 };
+/** A path tile over the river is a bridge. */
+export const BRIDGE_TILE_COST: Amounts = { wood: 12, stone: 6 };
 /** At most this many path tiles in one proposal. */
 export const MAX_PATH_TILES = 150;
 

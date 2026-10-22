@@ -4,6 +4,8 @@ import {
   MAP_SIZE,
   MAX_ITEM_BOOST_MS,
   MAX_PATH_TILES,
+  MAX_QUEUE,
+  MIN_YES,
   MAX_NAME_LENGTH,
   STATE_VERSION,
   VOTE_MS,
@@ -15,11 +17,11 @@ import {
   buildingType,
   buyItem,
   buyOutfit,
+  canPave,
   classicStreets,
   clickAmount,
   defaultLook,
   gather,
-  isLand,
   itemError,
   lookError,
   newIdleState,
@@ -126,13 +128,13 @@ function parseRoads(raw: unknown, buildings: readonly PlacedBuilding[]): number[
   if (!Array.isArray(raw)) return [];
   const taken = new Set(buildings.map((b) => b.y * MAP_SIZE + b.x));
   const ok = (i: unknown): i is number =>
-    Number.isInteger(i) && (i as number) >= 0 && (i as number) < MAP_SIZE * MAP_SIZE && !taken.has(i as number) && isLand((i as number) % MAP_SIZE, Math.floor((i as number) / MAP_SIZE));
+    Number.isInteger(i) && (i as number) >= 0 && (i as number) < MAP_SIZE * MAP_SIZE && !taken.has(i as number) && canPave((i as number) % MAP_SIZE, Math.floor((i as number) / MAP_SIZE));
   return [...new Set(raw.filter(ok))].sort((a, b) => a - b);
 }
 
 /**
- * Keep only known, sane fields; an open vote is dropped (its deadline is gone
- * anyway). A v2 file gets empty shops; v2 and v3 files (streets on a fixed
+ * Keep only known, sane fields; open and queued votes are dropped (their
+ * deadlines are gone anyway). A v2 file gets empty shops; v2 and v3 files (streets on a fixed
  * grid) get those streets as laid paths; anything older is replaced by a
  * fresh town, quietly: it was never in production.
  */
@@ -231,7 +233,7 @@ export function createIdleGame(file: string, now = Date.now()): IdleGame {
   const person = (id: string, p: IdlePlayer): IdlePerson => ({ id, name: p.name, look: p.look });
 
   /** Settle the open vote if its outcome is clear; returns what happened. */
-  const settle = (online: number, now: number): IdleEvent[] => {
+  const settleOne = (online: number, now: number): IdleEvent[] => {
     const p = state.proposal;
     if (!p) return [];
     const outcome = voteOutcome(p, online, now);
@@ -239,7 +241,11 @@ export function createIdleGame(file: string, now = Date.now()): IdleGame {
     state = { ...advance(state, now), proposal: null };
     saver.schedule();
     const base = { label: actionLabel(state, p.action), by: p.by };
-    if (outcome === "fail") return [{ kind: "rejected", ...base, reason: "weggestemd" }];
+    if (outcome === "fail") {
+      const { yes, no } = voteCounts(p);
+      const reason = yes > no && yes < MIN_YES ? `minstens ${MIN_YES} keer ja nodig` : "weggestemd";
+      return [{ kind: "rejected", ...base, reason }];
+    }
     // Resources may have changed (or the era moved on) during the vote: check again now.
     const err = actionError(state, p.action);
     if (err) return [{ kind: "rejected", ...base, reason: err }];
@@ -248,9 +254,21 @@ export function createIdleGame(file: string, now = Date.now()): IdleGame {
     return [done.building ? { kind: "bought", ...base, building: done.building } : { kind: "bought", ...base }];
   };
 
+  /** Settle the open vote, then start the next in line (its 30 s start now), as long as they're decided. */
+  const settle = (online: number, now: number): IdleEvent[] => {
+    const events = settleOne(online, now);
+    while (!state.proposal && state.queue.length) {
+      const [next, ...rest] = state.queue;
+      state = { ...state, proposal: { ...next, deadline: now + VOTE_MS }, queue: rest };
+      saver.schedule();
+      events.push({ kind: "proposed", label: actionLabel(state, next.action), by: next.by }, ...settleOne(online, now));
+    }
+    return events;
+  };
+
   return {
     message(clientId, count, peak, online, now) {
-      const { proposal: p, nextProposalId: _, players, ...world } = advance(state, now);
+      const { proposal: p, queue, nextProposalId: _, players, ...world } = advance(state, now);
       const ids = [...new Set(connected.values())].filter((id) => players[id]);
       const mine = playerOf(clientId);
       return {
@@ -266,6 +284,7 @@ export function createIdleGame(file: string, now = Date.now()): IdleGame {
           deadline: p.deadline,
           myVote: p.votes[clientId] ?? null,
         },
+        queue: queue.map((q) => ({ label: actionLabel(state, q.action), by: q.by })),
         people: ids.map((id) => person(id, players[id])),
         me: mine && { ...person(...mine), owned: mine[1].owned },
         count,
@@ -301,18 +320,22 @@ export function createIdleGame(file: string, now = Date.now()): IdleGame {
       const action = parseAction(rawAction);
       if (!action) return { error: "onbekend voorstel", events: [] };
       if (action.kind === "buy" && shopItem(action.item)?.vote === false) return { error: "dat kan je meteen kopen", events: [] };
-      if (state.proposal) return { error: "er loopt al een stemming", events: [] };
+      if (state.queue.length >= MAX_QUEUE) return { error: "de wachtrij is vol", events: [] };
       state = advance(state, now);
+      // Checked now and again when it passes: things change while it waits.
       const err = actionError(state, action);
       if (err) return { error: err, events: [] };
       const by = nameOf(clientId, name);
-      state = {
-        ...state,
-        proposal: { id: state.nextProposalId, action, by, votes: { [clientId]: true }, deadline: now + VOTE_MS },
-        nextProposalId: state.nextProposalId + 1,
-      };
+      const proposal = { id: state.nextProposalId, action, by, votes: { [clientId]: true }, deadline: now + VOTE_MS };
+      const label = actionLabel(state, action);
+      state = { ...state, nextProposalId: state.nextProposalId + 1 };
       saver.schedule();
-      return { events: [{ kind: "proposed", label: actionLabel(state, action), by }, ...settle(online, now)] };
+      if (state.proposal) {
+        state = { ...state, queue: [...state.queue, proposal] };
+        return { events: [{ kind: "proposed", label, by, queued: state.queue.length }] };
+      }
+      state = { ...state, proposal };
+      return { events: [{ kind: "proposed", label, by }, ...settle(online, now)] };
     },
 
     vote(clientId, id, yes, online, now) {

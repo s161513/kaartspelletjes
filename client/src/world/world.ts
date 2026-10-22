@@ -40,6 +40,7 @@ import {
   groundColor,
 } from "./draw";
 import { Camera, TILE_H, TILE_W, toTileSpace, toWorld } from "./iso";
+import { setRoads } from "./path";
 import { Population } from "./villagers";
 
 const DRAG_THRESHOLD = 6;
@@ -113,6 +114,8 @@ export function createWorld(opts: WorldOptions): TownWorld {
   const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
   let world: IdleWorld | null = null;
   let roads = new Set<string>();
+  /** The streets as text, so the far-away picture is redrawn when they change (paths clear nature, bridges cross water). */
+  let roadsKey = "";
   let roadLevel = 0;
   let landCache: { key: string; canvas: HTMLCanvasElement } | null = null;
   /** Used-up nature, as "x,y" (redrawn from scratch when it changes). */
@@ -311,6 +314,7 @@ export function createWorld(opts: WorldOptions): TownWorld {
     const tx = Math.floor(t.x);
     const ty = Math.floor(t.y);
     for (const [x, y] of [[tx + 1, ty + 1], [tx, ty]]) {
+      if (roads.has(`${x},${y}`)) continue;
       const res = natureAt(x, y, world?.era ?? 0, world?.nature);
       if (res) return { kind: "nature", resource: res, x, y };
     }
@@ -361,7 +365,8 @@ export function createWorld(opts: WorldOptions): TownWorld {
     for (let y = y0; y <= y1; y++) {
       for (let x = x0; x <= x1; x++) {
         const terrain = terrainAt(x, y);
-        const road = live && roads.has(`${x},${y}`);
+        const paved = roads.has(`${x},${y}`);
+        const road = live && paved && terrain !== "water";
         let color = groundColor(terrain, x, y, era, road ? roadLevel : null);
         if (live && terrain === "water" && Math.sin(t / 900 + x * 0.8 + y * 0.5) > 0.75) color = "#3b7fc4";
         let path = paths.get(color);
@@ -375,6 +380,11 @@ export function createWorld(opts: WorldOptions): TownWorld {
 
         const c = toWorld(x + 0.5, y + 0.5);
         const d = x + y + 1;
+        // A path cleared the nature here, or crosses the river as a bridge.
+        if (paved) {
+          if (terrain === "water") bridges.push([c.x, c.y]);
+          continue;
+        }
         if (usedUp.has(`${x},${y}`)) {
           if (terrain === "forest" || terrain === "rock") items.push({ d, f: () => drawUsedUp(g, c.x, c.y, x, y, terrain) });
           else if (terrain === "bush") items.push({ d, f: () => drawBush(g, c.x, c.y, x, y, true) });
@@ -475,13 +485,13 @@ export function createWorld(opts: WorldOptions): TownWorld {
       drawLand(ctx, x0, x1, y0, y1, era, t, items, true);
     } else {
       // Zoomed out: the whole landscape as one pre-drawn picture, plus the streets.
-      const key = `${era}|${usedUpKey}`;
+      const key = `${era}|${usedUpKey}|${roadsKey}`;
       if (!landCache || landCache.key !== key) landCache = renderLand(era, key);
       const { canvas: img } = landCache;
       ctx.drawImage(img, LAND_LEFT, LAND_TOP, img.width / LAND_SCALE, img.height / LAND_SCALE);
       for (const key of roads) {
         const [x, y] = key.split(",").map(Number);
-        if (x < x0 || x > x1 || y < y0 || y > y1) continue;
+        if (x < x0 || x > x1 || y < y0 || y > y1 || terrainAt(x, y) === "water") continue;
         const top = toWorld(x, y);
         ctx.fillStyle = groundColor("grass", x, y, era, roadLevel);
         ctx.beginPath();
@@ -619,7 +629,12 @@ export function createWorld(opts: WorldOptions): TownWorld {
   return {
     setWorld(w) {
       const changed = !world || world.buildings !== w.buildings;
-      if (!world || world.roads !== w.roads) roads = new Set(w.roads.map((i) => `${tileOf(i).x},${tileOf(i).y}`));
+      const streets = w.roads.join(",");
+      if (streets !== roadsKey) {
+        roadsKey = streets;
+        roads = new Set(w.roads.map((i) => `${tileOf(i).x},${tileOf(i).y}`));
+        setRoads(w.roads);
+      }
       world = w;
       roadLevel = w.roadLevel;
       // Which tiles are used up only changes when a patch crosses a tile's worth.

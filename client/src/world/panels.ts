@@ -9,6 +9,7 @@ import {
   BOOST_MULT,
   ERAS,
   MAX_PATH_TILES,
+  MAX_QUEUE,
   RESOURCES,
   STORAGE_CAP,
   actionError,
@@ -23,6 +24,7 @@ import {
   decorTypes,
   fullRateOf,
   housingOf,
+  isRiver,
   isRoad,
   itemCost,
   itemError,
@@ -48,6 +50,7 @@ import {
   sourceLeft,
   terrainAt,
   tileIndex,
+  tileOf,
   tradeQuote,
   tradeRate,
   unlockedResources,
@@ -177,7 +180,7 @@ function offer(opts: {
   gain?: (w: IdleWorld) => Amounts;
   error: (w: IdleWorld) => string | null;
   level?: (w: IdleWorld) => string;
-  /** Votes block this offer while one runs. */
+  /** Votes block this offer while the queue is full. */
   votes: boolean;
 }): Offer {
   const el = h("div", "sx-offer");
@@ -200,7 +203,7 @@ function offer(opts: {
       level.textContent = opts.level?.(world) ?? "";
       const blocked = opts.votes && busy;
       btn.disabled = !connected || blocked || !!err;
-      btn.title = !connected ? "offline" : blocked ? "er loopt al een stemming" : err ?? "";
+      btn.title = !connected ? "offline" : blocked ? "de wachtrij is vol" : err ?? "";
     },
   };
 }
@@ -242,7 +245,8 @@ export function createPanels(deps: PanelDeps): Panels {
   const pathsBtn = $<HTMLButtonElement>("sx-paths");
 
   const propose = (action: ProposalAction) => deps.send({ type: "propose", action, name: session.nickname });
-  const busy = () => !!deps.msg()?.proposal;
+  /** No more proposals fit in line. */
+  const busy = () => (deps.msg()?.queue.length ?? 0) >= MAX_QUEUE;
 
   recenterBtn.addEventListener("click", () => window.dispatchEvent(new CustomEvent("sx-recenter")));
   pathsBtn.addEventListener("click", () => (paths ? stopPaths() : startPaths(false)));
@@ -312,7 +316,8 @@ export function createPanels(deps: PanelDeps): Panels {
   const noBtn = button("sx-vote-btn sx-vote-no", "👎 nee", () => castVote(false));
   const voteCount = h("span", "sx-vote-count");
   voteRow.append(yesBtn, voteCount, noBtn);
-  vote.append(voteText, voteRow);
+  const voteQueue = h("p", "sx-vote-queue");
+  vote.append(voteText, voteRow, voteQueue);
 
   function renderVote(now: number): void {
     const p = deps.msg()?.proposal ?? null;
@@ -324,6 +329,9 @@ export function createPanels(deps: PanelDeps): Panels {
     yesBtn.setAttribute("aria-pressed", String(p.myVote === true));
     noBtn.setAttribute("aria-pressed", String(p.myVote === false));
     yesBtn.disabled = noBtn.disabled = !deps.connected();
+    const queue = deps.msg()?.queue ?? [];
+    voteQueue.textContent = queue.length ? `Daarna: ${queue.map((q) => q.label).join(" · ")}` : "";
+    voteQueue.title = queue.map((q, i) => `${i + 1}. ${q.label} (${q.by})`).join("\n");
   }
 
   // ---------- placing a decoration ----------
@@ -400,7 +408,9 @@ export function createPanels(deps: PanelDeps): Panels {
     paths = { erase, tiles: new Set(), adding: true };
     const w = deps.world();
     if (from && w && paintable(w, erase, from.x, from.y)) paths.tiles.add(tileIndex(from.x, from.y));
-    pathsText.textContent = erase ? "⛏️ Sleep over paden om ze weg te halen" : "🛤️ Sleep over tegels om een pad te tekenen";
+    pathsText.textContent = erase
+      ? "⛏️ Sleep over paden om ze weg te halen"
+      : "🛤️ Sleep over tegels: een pad, dwars door de natuur of als brug over de rivier";
     layBtn.setAttribute("aria-pressed", String(!erase));
     eraseBtn.setAttribute("aria-pressed", String(erase));
     banner.className = "sx-banner sx-banner-paths";
@@ -446,20 +456,20 @@ export function createPanels(deps: PanelDeps): Panels {
     const w = deps.world();
     const action = pathsAction();
     if (!w || !paths || !action) return;
-    const n = paths.tiles.size;
+    const tiles = [...paths.tiles];
+    const n = tiles.length;
+    const bridges = tiles.filter((i) => isRiver(tileOf(i).x, tileOf(i).y)).length;
+    const count = `${n === 1 ? "1 tegel" : `${n} tegels`}${n >= MAX_PATH_TILES ? " (max)" : ""}${bridges ? `, waarvan ${bridges} brug` : ""}:`;
     pathsCosts.replaceChildren(
       ...(!n
         ? [h("span", "sx-cost", paths.erase ? "nog geen paden gekozen" : "nog geen tegels")]
-        : [
-            h("span", "sx-cost", `${n}${n >= MAX_PATH_TILES ? " (max)" : ""} ×`),
-            ...(paths.erase ? gainChips(refundOf(w, action)) : costChips(w, pathCost(w, n))),
-          ]),
+        : [h("span", "sx-cost", count), ...(paths.erase ? gainChips(refundOf(w, action)) : costChips(w, pathCost(w, tiles)))]),
     );
     const err = n ? actionError(w, action) : null;
-    pathsMissing.textContent = err === "te duur" ? missingText(w, pathCost(w, n)) : err ?? "";
+    pathsMissing.textContent = err === "te duur" ? missingText(w, pathCost(w, tiles)) : err ?? "";
     const blocked = busy();
     pathsGo.disabled = !deps.connected() || blocked || !n || !!err;
-    pathsGo.title = !deps.connected() ? "offline" : blocked ? "er loopt al een stemming" : !n ? "teken eerst een paar tegels" : err ?? "";
+    pathsGo.title = !deps.connected() ? "offline" : blocked ? "de wachtrij is vol" : !n ? "teken eerst een paar tegels" : err ?? "";
   }
 
   // ---------- build popup on a free tile ----------
@@ -504,7 +514,7 @@ export function createPanels(deps: PanelDeps): Panels {
       placeTitle.textContent = `${TERRAIN_NAMES[terrainAt(x, y)]} (${x}, ${y})`;
       placeBody.replaceChildren();
       if (isRoad(world.roads, x, y)) {
-        placeTitle.textContent = `🛣️ ${roadName(world.roadLevel)}`;
+        placeTitle.textContent = isRiver(x, y) ? `🌉 Brug (${roadName(world.roadLevel).toLowerCase()})` : `🛣️ ${roadName(world.roadLevel)}`;
         placeSub.textContent = "De straten van het hele dorp gaan samen omhoog.";
         placeBody.append(
           button("sx-act sx-act-now", "⛏️ Paden weghalen", () => startPaths(true, { x, y })),
@@ -802,8 +812,10 @@ export function createPanels(deps: PanelDeps): Panels {
     inspect,
     tile(x, y, px, py) {
       if (placing) return placeAt(x, y);
-      // Clicking the same tile again, or water/mountains, just closes the popup.
-      if ((placeTile && placeTile.x === x && placeTile.y === y) || !["grass", "sand"].includes(terrainAt(x, y))) return closePlace();
+      // Clicking the same tile again, or water/mountains (unless a path or bridge is there), just closes the popup.
+      const w = deps.world();
+      const land = ["grass", "sand"].includes(terrainAt(x, y)) || (!!w && isRoad(w.roads, x, y));
+      if ((placeTile && placeTile.x === x && placeTile.y === y) || !land) return closePlace();
       openPlace(x, y, px, py);
     },
     paint,

@@ -413,6 +413,17 @@ body.sx-era-10 { --sx-bg: #12002b; --sx-bg2: #2a0050; }
   font-variant-numeric: tabular-nums;
 }
 
+/* What's next in line. */
+.sx-vote-queue {
+  margin: 8px 0 0;
+  font-size: 0.75rem;
+  opacity: 0.8;
+}
+
+.sx-vote-queue:empty {
+  display: none;
+}
+
 .sx-vote-btn {
   padding: 6px 14px;
   border: 3px solid #000;

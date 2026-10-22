@@ -15,6 +15,7 @@ import {
   MAX_BOOST_MS,
   MAX_OFFLINE_MS,
   MAX_PATH_TILES,
+  MAX_QUEUE,
   MARKET_HALF_LIFE_MS,
   SHOP_ITEMS,
   VOTE_MS,
@@ -32,6 +33,7 @@ import {
   eraFor,
   gather,
   isLand,
+  isRiver,
   isRoad,
   isRoadTile,
   isUsedUp,
@@ -60,6 +62,7 @@ import {
   unlockEra,
   upgradeCost,
   voteOutcome,
+  votesNeeded,
   type IdleProposal,
   type IdleState,
   type IdleStateMsg,
@@ -298,16 +301,24 @@ test("demolish: anything but the center, for a share of its cost back, up to the
   assert.deepEqual(refundOf(old, action), refundOf(s, action));
 });
 
-test("voteOutcome: majority of online passes, impossible majority fails, deadline decides the rest", () => {
+test("voteOutcome: at least two yes and more than a third of online passes, as many no fails, deadline decides the rest", () => {
   const p = (votes: boolean[]): IdleProposal => ({
     id: 1, action: { kind: "upgrade", building: 1 }, by: "x", deadline: T0 + VOTE_MS,
     votes: Object.fromEntries(votes.map((v, i) => [String(i), v])),
   });
-  assert.equal(voteOutcome(p([true]), 1, T0), "pass");
+  assert.deepEqual([1, 2, 3, 5, 6, 9].map(votesNeeded), [2, 2, 2, 2, 3, 4]);
+  assert.equal(voteOutcome(p([true]), 1, T0), "pending", "alone you can't build anything right away");
+  assert.equal(voteOutcome(p([true]), 1, T0 + VOTE_MS), "fail", "…nor at the deadline");
+  assert.equal(voteOutcome(p([true, true]), 2, T0), "pass");
   assert.equal(voteOutcome(p([true]), 3, T0), "pending");
   assert.equal(voteOutcome(p([true, true]), 3, T0), "pass");
-  assert.equal(voteOutcome(p([false, false]), 4, T0), "fail");
-  assert.equal(voteOutcome(p([true]), 4, T0 + VOTE_MS), "pass");
+  assert.equal(voteOutcome(p([true, true]), 6, T0), "pending");
+  assert.equal(voteOutcome(p([true, true, true]), 6, T0), "pass");
+  assert.equal(voteOutcome(p([true, true, false, false]), 6, T0), "pending", "a tie isn't a pass");
+  assert.equal(voteOutcome(p([true, false, false]), 3, T0), "fail");
+  assert.equal(voteOutcome(p([true, false, false, false]), 4, T0), "fail", "nobody left to make it pass");
+  assert.equal(voteOutcome(p([true]), 4, T0 + VOTE_MS), "fail", "one yes is never enough");
+  assert.equal(voteOutcome(p([true, true, false]), 9, T0 + VOTE_MS), "pass");
   assert.equal(voteOutcome(p([true, false]), 4, T0 + VOTE_MS), "fail");
 });
 
@@ -367,11 +378,11 @@ test("streets: a new town starts on a grid, more is laid and removed by vote, up
 
   // Lay a path: anywhere on free land in the village, paid per tile.
   const free = (x: number, y: number) => !pathError(s.buildings, s.roads, x, y);
-  const a = findTile((x, y) => free(x, y) && free(x + 1, y) && free(x + 2, y));
+  const a = findTile((x, y) => [0, 1, 2].every((dx) => isLand(x + dx, y) && free(x + dx, y)));
   const tiles = [0, 1, 2].map((dx) => tileIndex(a.x + dx, a.y));
   const lay = { kind: "paths" as const, tiles };
   assert.equal(actionError(s, lay), null);
-  assert.deepEqual(pathCost(s, 3), { stone: 9, wood: 3 });
+  assert.deepEqual(pathCost(s, tiles), { stone: 9, wood: 3 });
   assert.equal(actionLabel(s, lay), "🛤️ 3 tegels pad leggen");
   const laid = applyAction(s, lay).state;
   assert.ok(tiles.every((i) => isRoad(laid.roads, tileOf(i).x, tileOf(i).y)));
@@ -385,6 +396,24 @@ test("streets: a new town starts on a grid, more is laid and removed by vote, up
   assert.match(actionError(s, { kind: "paths", tiles: [tileIndex(0, 0)] })!, /hier kan geen pad/);
   const house = s.buildings.find((b) => b.type === "house")!;
   assert.match(actionError(s, { kind: "paths", tiles: [tileIndex(house.x, house.y)] })!, /daar staat al iets/);
+  // Through nature: the tile is cleared, nothing to gather there anymore; not through mountains or the sea.
+  const woods = findTile((x, y) => terrainAt(x, y) === "forest" && free(x, y));
+  const cleared = applyAction(s, { kind: "paths", tiles: [tileIndex(woods.x, woods.y)] }).state;
+  assert.equal(gather(s, woods.x, woods.y)?.resource, "wood");
+  assert.equal(gather(cleared, woods.x, woods.y), null);
+  const peak = findTile((x, y) => terrainAt(x, y) === "mountain");
+  assert.equal(pathError(s.buildings, s.roads, peak.x, peak.y), "hier kan geen pad");
+  assert.equal(pathError(s.buildings, s.roads, 0, 40), "hier kan geen pad", "the sea");
+
+  // Over the river: a bridge, pricier; villagers can cross there afterwards.
+  const river = findTile((x, y) => isRiver(x, y) && free(x, y));
+  const bridge = [tileIndex(river.x, river.y), tileIndex(river.x + 1, river.y)];
+  assert.ok(isRiver(river.x + 1, river.y));
+  assert.equal(actionError(s, { kind: "paths", tiles: bridge }), null);
+  assert.deepEqual(pathCost(s, [...bridge, tiles[0]]), { wood: 25, stone: 15 });
+  assert.deepEqual(refundOf(s, { kind: "unpave", tiles: bridge }), { wood: 6, stone: 3 });
+  assert.equal(placeError(s.buildings, s.roads, "house", river.x, river.y), "hier kan je niet bouwen", "a bridge is no building plot");
+
   // A path blocks building there, until it's gone again.
   assert.equal(placeError(laid.buildings, laid.roads, "house", a.x, a.y), "daar ligt een pad");
 
@@ -477,14 +506,23 @@ test("idle game: propose + vote builds and places, state survives a reload, v1 f
     const { error, events } = game.propose("a", "  Ann  ", action, 3, later);
     assert.equal(error, undefined);
     assert.deepEqual(events, [{ kind: "proposed", label: "🛖 Hut bouwen", by: "Ann" }]);
-    assert.equal(game.propose("b", "Bob", action, 3, later).error, "er loopt al een stemming");
+    // While a vote runs, the next one waits in line.
+    assert.deepEqual(game.propose("b", "Bob", action, 3, later).events, [{ kind: "proposed", label: "🛖 Hut bouwen", by: "Bob", queued: 1 }]);
+    assert.deepEqual(game.message("a", 0, 0, 3, later).queue, [{ label: "🛖 Hut bouwen", by: "Bob" }]);
 
+    // Two of three online is more than a third: it passes, and Bob's turn starts.
     const done = game.vote("b", 1, true, 3, later);
-    assert.equal(done.length, 1);
+    assert.deepEqual(done.map((e) => e.kind), ["bought", "proposed"]);
     const bought = done[0] as { kind: string; building: PlacedBuilding };
     assert.equal(bought.kind, "bought");
     assert.equal(bought.building.type, "house");
     assert.deepEqual([bought.building.x, bought.building.y], [action.x, action.y]);
+    const running = game.message("a", 0, 0, 3, later);
+    assert.equal(running.proposal!.by, "Bob");
+    assert.equal(running.proposal!.deadline, later + VOTE_MS, "its 30 s start when it's up");
+    assert.deepEqual(running.queue, []);
+    // Checked again when it passes: that spot is taken now.
+    assert.deepEqual(game.vote("a", 2, true, 3, later), [{ kind: "rejected", label: "🛖 Hut bouwen", by: "Bob", reason: "daar staat al iets" }]);
     const msg = game.message("a", 0, 0, 3, later);
     assert.ok(msg.state.buildings.some((b) => b.id === bought.building.id));
     assert.equal(msg.proposal, null);
@@ -504,6 +542,21 @@ test("idle game: propose + vote builds and places, state survives a reload, v1 f
     // A v1 file (never released) quietly becomes a fresh town, no backup.
     writeFileSync(file, JSON.stringify({ resources: { flint: 5 }, buildings: { cave: 1 }, inventions: [] }));
     assert.equal(createIdleGame(file, T0).message("a", 0, 0, 1, T0).state.buildings.length, 5);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("idle game: at most MAX_QUEUE proposals wait in line", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "idle-"));
+  try {
+    const game = createIdleGame(path.join(dir, "idle.json"), T0);
+    const later = T0 + 10_000;
+    const action = at(newIdleState(T0), "house");
+    // Nine online: one yes is not enough, so everything keeps waiting.
+    for (let i = 0; i <= MAX_QUEUE; i++) assert.equal(game.propose(`c${i}`, "x", action, 9, later).error, undefined);
+    assert.equal(game.message("c0", 0, 0, 9, later).queue.length, MAX_QUEUE);
+    assert.equal(game.propose("late", "x", action, 9, later).error, "de wachtrij is vol");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -530,10 +583,12 @@ test("idle game: a v2 file keeps its town; trades and small buys are instant, bi
     assert.equal(game.propose("a", "Ann", { kind: "buy", item: "feast_food" }, 1, T0).error, "dat kan je meteen kopen");
     assert.equal(game.propose("a", "Ann", { kind: "build", type: "house", x: 0, y: 0 }, 1, T0).error, "hier kan je niet bouwen");
     assert.equal(game.propose("a", "Ann", { kind: "build", type: "house" }, 1, T0).error, "onbekend voorstel", "a build needs a tile");
-    // Alone online, the proposer's own yes passes it.
-    const events = game.propose("a", "Ann", { kind: "buy", item: "party" }, 1, T0).events;
-    assert.deepEqual(events.map((e) => e.kind), ["proposed", "bought"]);
-    assert.ok(game.message("a", 0, 0, 1, T0).state.boosts.some((b) => b.item === "party"));
+    // Alone online, nothing passes: it needs a second yes.
+    assert.deepEqual(game.propose("a", "Ann", { kind: "buy", item: "party" }, 1, T0).events.map((e) => e.kind), ["proposed"]);
+    assert.deepEqual(game.tick(1, T0 + VOTE_MS), [{ kind: "rejected", label: "🎉 Groot dorpsfeest kopen", by: "Ann", reason: "minstens 2 keer ja nodig" }]);
+    game.propose("a", "Ann", { kind: "buy", item: "party" }, 2, T0 + VOTE_MS);
+    assert.deepEqual(game.vote("b", 2, true, 2, T0 + VOTE_MS).map((e) => e.kind), ["bought"]);
+    assert.ok(game.message("a", 0, 0, 2, T0 + VOTE_MS).state.boosts.some((b) => b.item === "party"));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -660,6 +715,10 @@ test("counter socket: 67 unlocks an era, clicks reach the others, vote builds, u
     const b = await new Peer(url).open();
     peers.push(b);
     await b.wait((m) => m.type === "idle");
+    // A third viewer, so one yes isn't enough.
+    const c = await new Peer(url).open();
+    peers.push(c);
+    await c.wait((m) => m.type === "idle");
 
     // Saying hello puts your NPC in everyone's town.
     a.send({ type: "hello", key: "a-very-secret-key-1234", name: "Ann" });

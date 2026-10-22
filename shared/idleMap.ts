@@ -276,7 +276,8 @@ const nearBuilding = (buildings: readonly Spot[], x: number, y: number, r: numbe
   buildings.some((b) => buildingType(b.type)?.category !== "decor" && Math.max(Math.abs(b.x - x), Math.abs(b.y - y)) <= r);
 
 // ---------- streets ----------
-// Streets are tiles the town laid down itself, kept as tile numbers (y × MAP_SIZE + x).
+// Streets are tiles the town laid down itself, kept as tile numbers (y × MAP_SIZE + x):
+// on land, through cleared nature, or as a bridge over the river.
 
 export const tileIndex = (x: number, y: number): number => y * MAP_SIZE + x;
 export const tileOf = (i: number): { x: number; y: number } => ({ x: i % MAP_SIZE, y: Math.floor(i / MAP_SIZE) });
@@ -303,10 +304,19 @@ export function classicStreets(buildings: readonly Spot[]): number[] {
   return [...out].sort((a, b) => a - b);
 }
 
+/** River water, where a path becomes a bridge (the sea around the map stays sea). */
+export const isRiver = (x: number, y: number): boolean => terrainAt(x, y) === "water" && (x === riverX(y) || x === riverX(y) + 1);
+
+/** Forest, rocks or a bush: a path clears it (deposits and mountains stay). */
+export const isClearable = (x: number, y: number): boolean => ["forest", "rock", "bush"].includes(terrainAt(x, y));
+
+/** Land, nature to clear or river to bridge: where a path could go at all. */
+export const canPave = (x: number, y: number): boolean => onMap(x, y) && (isLand(x, y) || isClearable(x, y) || isRiver(x, y));
+
 /** Why no path can be laid on this tile, or null if it can. */
 export function pathError(buildings: readonly Spot[], roads: readonly number[], x: number, y: number): string | null {
   if (!onMap(x, y)) return "buiten de kaart";
-  if (!isLand(x, y)) return "hier kan geen pad";
+  if (!canPave(x, y)) return "hier kan geen pad";
   if (buildings.some((b) => b.x === x && b.y === y)) return "daar staat al iets";
   if (isRoad(roads, x, y)) return "daar ligt al een pad";
   return nearBuilding(buildings, x, y, VILLAGE_RANGE) ? null : "te ver van het dorp";

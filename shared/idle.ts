@@ -6,9 +6,10 @@
 // can help by clicking nature in the world. Nature runs out: clicks and work
 // buildings use up patches of forest, rock and ore (the more valuable, the
 // longer they last), which slowly grow back. Building (on a tile someone
-// clicked), laying or removing paths (drawn tile by tile), tearing down a
-// building (for a bit of its cost back), upgrading (buildings or the whole
-// street network) and big shop purchases go through a short vote; trading on the market and small shop
+// clicked), laying or removing paths (drawn tile by tile, through nature and
+// over the river as bridges), tearing down a building (for a bit of its cost
+// back), upgrading (buildings or the whole street network) and big shop
+// purchases go through a short vote, one after the other; trading on the market and small shop
 // items happen right away. Everyone has their own NPC walking around while
 // they're online, dressed in what they bought at the tailor.
 //
@@ -19,6 +20,7 @@
 import {
   BASE_CAP,
   BASE_RATE,
+  BRIDGE_TILE_COST,
   BUILDING_TYPES,
   BUILD_COST_MULT,
   CENTER_CAP,
@@ -61,7 +63,19 @@ import {
   type ResourceId,
   type ShopItem,
 } from "./idleContent.js";
-import { classicStreets, natureAt, patchAt, patches, pathError, placeBuilding, placeError, tileOf, type Patch } from "./idleMap.js";
+import {
+  classicStreets,
+  isRiver,
+  natureAt,
+  patchAt,
+  patches,
+  pathError,
+  placeBuilding,
+  placeError,
+  tileIndex,
+  tileOf,
+  type Patch,
+} from "./idleMap.js";
 
 export * from "./idleContent.js";
 export * from "./idleMap.js";
@@ -74,6 +88,8 @@ export const MAX_BOOST_MS = 60 * 60_000;
 /** Production while nobody is around is caught up to at most this long. */
 export const MAX_OFFLINE_MS = 7 * 24 * 60 * 60_000;
 export const VOTE_MS = 30_000;
+/** Proposals waiting for their turn, at most. */
+export const MAX_QUEUE = 5;
 export const STATE_VERSION = 4;
 export const MAX_NAME_LENGTH = 20;
 
@@ -155,6 +171,8 @@ export interface IdlePlayer {
 
 export interface IdleState extends IdleWorld {
   proposal: IdleProposal | null;
+  /** Next in line once the running vote is done; their deadline starts then. */
+  queue: IdleProposal[];
   nextProposalId: number;
   /** Public player id → player. */
   players: Record<string, IdlePlayer>;
@@ -176,7 +194,7 @@ function addBuilding<T extends IdleWorld>(s: T, type: string, level: number, spo
 export function newIdleState(now: number): IdleState {
   let s: IdleState = {
     v: STATE_VERSION, era: 0, resources: { food: 50, wood: 60, stone: 40 }, buildings: [], nextBuildingId: 1,
-    lastTick: now, boostUntil: 0, boosts: [], perks: {}, market: {}, roadLevel: 0, roads: [], nature: {}, proposal: null, nextProposalId: 1, players: {},
+    lastTick: now, boostUntil: 0, boosts: [], perks: {}, market: {}, roadLevel: 0, roads: [], nature: {}, proposal: null, queue: [], nextProposalId: 1, players: {},
   };
   for (const type of ["center", "house", "house", "food", "wood"]) s = addBuilding(s, type, 0, placeBuilding(s.buildings, type)!).state;
   return { ...s, roads: classicStreets(s.buildings) };
@@ -389,7 +407,8 @@ export const clickAmount = (era: number): number => CLICK_BASE * scaleOf(era);
  * patch. Null if there's nothing (left) to gather there.
  */
 export function gather<T extends IdleWorld>(s: T, x: number, y: number): { state: T; resource: ResourceId } | null {
-  const resource = natureAt(x, y, s.era, s.nature);
+  // A path cleared this tile's nature.
+  const resource = s.roads.includes(tileIndex(x, y)) ? null : natureAt(x, y, s.era, s.nature);
   if (!resource) return null;
   const cap = capOf(s);
   const have = s.resources[resource] ?? 0;
@@ -579,9 +598,19 @@ export function roadCost(s: Pick<IdleWorld, "era" | "perks">): Amounts {
   return scaled(cost, scaleOf(s.era) * discountOf(s));
 }
 
-/** Laying `tiles` tiles of path, at the street network's level. */
-export function pathCost(s: Pick<IdleWorld, "roadLevel" | "perks">, tiles: number): Amounts {
-  return scaled(PATH_TILE_COST, tiles * scaleOf(s.roadLevel) * discountOf(s));
+/** Path tiles at level 0, before discounts: bridges over the river cost more. */
+function pathBase(tiles: readonly number[]): Amounts {
+  const bridges = tiles.filter((i) => isRiver(tileOf(i).x, tileOf(i).y)).length;
+  const out: Amounts = {};
+  for (const [cost, n] of [[PATH_TILE_COST, tiles.length - bridges], [BRIDGE_TILE_COST, bridges]] as const) {
+    for (const [id, a] of Object.entries(cost)) if (n) out[id] = (out[id] ?? 0) + a * n;
+  }
+  return out;
+}
+
+/** Laying a path on these tiles, at the street network's level. */
+export function pathCost(s: Pick<IdleWorld, "roadLevel" | "perks">, tiles: readonly number[]): Amounts {
+  return scaled(pathBase(tiles), scaleOf(s.roadLevel) * discountOf(s));
 }
 
 /** Why this list of tiles can't be one proposal, or null. */
@@ -608,7 +637,7 @@ export function pathsError(s: Pick<IdleWorld, "buildings" | "roads">, tiles: rea
 
 /** What tearing down gives back: a share of what it costs at its own level. */
 export function refundOf(s: Pick<IdleWorld, "buildings" | "roadLevel">, action: ProposalAction): Amounts {
-  if (action.kind === "unpave") return refunded(PATH_TILE_COST, action.tiles.length * scaleOf(s.roadLevel) * REFUND_SHARE);
+  if (action.kind === "unpave") return refunded(pathBase(action.tiles), scaleOf(s.roadLevel) * REFUND_SHARE);
   if (action.kind !== "demolish") return {};
   const b = s.buildings.find((x) => x.id === action.building);
   return b ? refunded(levelCost(b.type, b.level), BUILD_COST_MULT * REFUND_SHARE) : {};
@@ -659,7 +688,7 @@ export function buyOutfit<T extends IdleWorld>(s: T, p: IdlePlayer, id: string):
 export function actionCost(s: IdleWorld, action: ProposalAction): Amounts | null {
   if (action.kind === "build") return buildCost(s, action.type);
   if (action.kind === "roads") return roadCost(s);
-  if (action.kind === "paths") return pathCost(s, action.tiles.length);
+  if (action.kind === "paths") return pathCost(s, action.tiles);
   if (action.kind === "unpave" || action.kind === "demolish") return {};
   if (action.kind === "buy") {
     const item = shopItem(action.item);
@@ -738,8 +767,11 @@ export function actionLabel(s: Pick<IdleWorld, "buildings" | "era" | "roadLevel"
 
 // ---------- voting ----------
 
-/** Yes votes needed to pass right away: more than half of everyone online. */
-export const votesNeeded = (online: number): number => Math.floor(Math.max(1, online) / 2) + 1;
+/** Nothing passes on fewer yes votes than this, so nobody builds on their own. */
+export const MIN_YES = 2;
+
+/** Yes votes needed to pass right away: more than a third of everyone online, and at least MIN_YES. */
+export const votesNeeded = (online: number): number => Math.max(MIN_YES, Math.floor(Math.max(1, online) / 3) + 1);
 
 export function voteCounts(p: IdleProposal): { yes: number; no: number } {
   const all = Object.values(p.votes);
@@ -748,15 +780,17 @@ export function voteCounts(p: IdleProposal): { yes: number; no: number } {
 }
 
 /**
- * Pass once a majority of everyone online voted yes; fail once that can no
- * longer happen. At the deadline the votes that were cast decide.
+ * Pass once votesNeeded said yes (and yes leads); fail once as many said no,
+ * or once nobody left could still make it pass. At the deadline the votes
+ * that were cast decide, with at least MIN_YES yes.
  */
 export function voteOutcome(p: IdleProposal, online: number, now: number): "pass" | "fail" | "pending" {
   const { yes, no } = voteCounts(p);
-  const voters = Math.max(1, online);
-  if (yes * 2 > voters) return "pass";
-  if (no * 2 >= voters) return "fail";
-  if (now >= p.deadline) return yes > no ? "pass" : "fail";
+  const needed = votesNeeded(online);
+  const undecided = Math.max(0, online - yes - no);
+  if (yes >= needed && yes > no) return "pass";
+  if ((no >= needed && no >= yes) || yes + undecided <= no) return "fail";
+  if (now >= p.deadline) return yes >= MIN_YES && yes > no ? "pass" : "fail";
   return "pending";
 }
 
@@ -786,6 +820,8 @@ export interface IdleStateMsg {
   type: "idle";
   state: IdleWorld;
   proposal: IdleProposalView | null;
+  /** Waiting for their turn, first first. */
+  queue: { label: string; by: string }[];
   /** Everyone online who said hello, one NPC each. */
   people: IdlePerson[];
   /** This viewer, once they said hello. */
@@ -799,7 +835,8 @@ export interface IdleStateMsg {
 
 export type IdleEvent =
   | { kind: "era"; era: number }
-  | { kind: "proposed"; label: string; by: string }
+  /** `queued`: its place in line, when another vote is still running. */
+  | { kind: "proposed"; label: string; by: string; queued?: number }
   /** A vote passed; `building` when something was built or upgraded. */
   | { kind: "bought"; label: string; by: string; building?: PlacedBuilding }
   | { kind: "rejected"; label: string; by: string; reason: string }

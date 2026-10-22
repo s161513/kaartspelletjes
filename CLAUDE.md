@@ -21,6 +21,8 @@ npx tsc -p client/tsconfig.json   # typecheck client + game views (Vite doesn't)
 - The 67 counter is disabled unless `COUNTER_KEY` is set (in `.env` at the repo
   root — copy `.env.example` — or the real environment); it is then only at
   `/counter/<key>` (Vite dev: `/counter.html?key=<key>`). Never commit the key.
+- Working on the counter's idle game ("67 Beschaving")? Start with
+  `docs/67-beschaving/ROADMAP.md` and process `docs/67-beschaving/FEEDBACK.md`.
 
 ## Layout
 

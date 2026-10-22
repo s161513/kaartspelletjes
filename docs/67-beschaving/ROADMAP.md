@@ -75,13 +75,118 @@ Status: gepland | bezig | in review (PR #x) | gedaan (PR #x)
 - [ ] <wat er moet gebeuren> (bron: feedback <datum>, <wie>)
 -->
 
-### Update 3: Balans
-Status: gepland
+Volgorde: van boven naar beneden. Een latere update kan steunen op een
+eerdere; dat staat er dan bij. Alle bronnen zijn feedback van 2026-10-22,
+tenzij anders vermeld.
 
-- [ ] Balans bekijken na een paar dagen spelen: hoe snel komt een groep door
-      een tijdperk heen? Pas zo nodig `BUILD_COST_MULT`, `COST_GROWTH` en de
-      productie aan in `idleContent.ts`. (bron: 2026-10-22, Richard, "het tempo
-      ligt te hoog")
+### Update 3: Balans
+Status: gepland. Bouw deze pas als er een paar dagen gespeeld is.
+
+- [ ] Kijk hoe snel een groep door een tijdperk heen komt. Pas zo nodig
+      `BUILD_COST_MULT`, `COST_GROWTH` en de productie aan in
+      `idleContent.ts`. (bron: Richard, "het tempo ligt te hoog")
+- [ ] Grondstoffen moeilijker maken om te krijgen. (bron: "moeilijker
+      resources")
+- [ ] De kosten van het Groot dorpsfeest laten meegroeien met de bevolking,
+      niet alleen met het tijdperk. (bron: "dorpsfeest resources moeten scalen
+      met population")
+
+### Update 4: Overzicht & bediening
+Status: gepland. Aanrader om als eerste te bouwen: klein, en spelers merken
+het meteen.
+
+- [ ] Een balkje per grondstof in de HUD dat laat zien hoe vol de opslag is.
+      (bron: "een balk voor resources")
+- [ ] Zoomen met het touchpad is veel te traag. Behandel touchpad-scrollen
+      (`wheel` met kleine `deltaY`, of pinch met `ctrlKey`) apart van een
+      muiswieltje. (bron: "scrollen op mousepad werkt veel te traag")
+- [ ] Klik op een dorpeling voor een duidelijk overzicht: werk of werkloos,
+      waar die woont en wat die doet. (bron: "als je op iemand klikt een
+      duidelijk overzicht van job status")
+- [ ] Bug: een dorpeling zegt dat die werkloos is terwijl die wel werkt. De
+      browser bepaalt zelf wie welk werk heeft (`client/src/world/villagers.ts`),
+      los van `assignWorkers`; laat dat overeenkomen. (bron: "iemand zegt dat
+      die werkloos is, ma die is nie werkloos")
+
+### Update 5: Dorpelingen op straat
+Status: gepland. Bouw na update 4.
+
+- [ ] Dorpelingen lopen bij voorkeur over wegen en paden, en nooit dwars door
+      gebouwen. Gebouwen gelden als niet beloopbaar in `path.ts`, en wegen
+      zijn goedkoper om over te lopen. (bron: "laat de npcs de roads gebruiken
+      en nie gwn door de huizen glitchen")
+- [ ] Minder willekeurige NPC's. Toon een deel van de inwoners, of laat de
+      spelers duidelijker opvallen. (bron: "teveel random npc's")
+- [ ] Een extra zin voor dorpelingen: "Who's gonna carry the logs and the
+      boats?" (bron: "extra line")
+- [ ] Dorpelingen lopen niet meer naar natuur waar een pad over ligt. (bron:
+      bekende beperking)
+
+### Update 6: Eten & dieren
+Status: gepland.
+
+- [ ] Akkers als gebouw of tegel, voor voedsel van het land. (bron: "Farm
+      land")
+- [ ] Dieren in de wereld: jagen, en dieren houden (veeteelt). (bron:
+      "Animals, Hunting, Animal husbandry")
+- [ ] Visserij aan de rivier. (bron: "fishery")
+- [ ] Verschillende soorten voedsel, zoals graan, vlees en vis. Dat is nodig
+      voor update 7. (bron: "variatie in voedsel")
+
+### Update 7: Geluk, wonen & werk
+Status: gepland. Steunt op update 6 (soorten voedsel).
+
+- [ ] Een geluksniveau voor het dorp. Ongelukkige inwoners werken minder
+      hard. (bron: "Happiness level")
+- [ ] Iedere inwoner heeft een plek in een huis nodig. Wie geen huis heeft,
+      wordt ongelukkig, in plaats van dat een huis gewoon bevolking oplevert.
+      (bron: "elke persoon heeft een huis nodig of die worden ongelukkig")
+- [ ] Te weinig variatie in voedsel maakt mensen boos. (bron: "variatie in
+      voedsel of mensen worden boos")
+- [ ] Duidelijker welke banen er zijn, en kunnen kiezen wie waar werkt.
+      (bron: "duidelijkere jobs / jobs kiezen")
+- [ ] Een bevolkingsoverzicht op een vaste plek, bijvoorbeeld in een raadhuis.
+      (bron: "Population overzicht plek zoals een council house")
+
+### Update 8: Mijnen & smeden
+Status: gepland.
+
+- [ ] Mijnen als echte bouwplek voor steen en erts, en meer mijnen dan alleen
+      bij de ertsaders. (bron: "Mines")
+- [ ] Kolen eerder of belangrijker maken: nu komen ze pas in de Industriële
+      revolutie. (bron: "coal")
+- [ ] Een wapensmid en een harnassmid, nodig voor update 9. (bron: "weapon
+      smith", "armor smith")
+
+### Update 9: Vijanden & muren
+Status: gepland. Steunt op update 8.
+
+- [ ] Vijanden die het dorp af en toe aanvallen. (bron: "enemies")
+- [ ] Muren en verdediging, die je bouwt via de gewone stemmingen. (bron:
+      "Walls")
+
+### Update 10: Uiterlijk
+Status: gepland.
+
+- [ ] Uitzoeken welke skills uit
+      https://github.com/gamedev-skills/awesome-gamedev-agent-skills bruikbaar
+      zijn. Installeren pas na een ok van Richard. (bron: "gebruik skills van
+      gamedev")
+- [ ] Nieuwe textures, met die skills. (bron: "Retexturing nadat de gamedev
+      skills erdoor zijn gegaan")
+- [ ] De Steentijd moet echt prehistorisch aanvoelen. (bron: "Tijdperk voelt
+      nu niet als prehistory")
+
+### Eerst beslissen (nog niet ingepland)
+
+- **Stemmen over welke update er komt** ("soviet city council type beat"):
+  hoe komt de uitslag bij Claude terecht? Bijvoorbeeld een raadhuis waar
+  spelers op de geplande updates stemmen, met een uitslag die in dit bestand
+  wordt overgenomen. Ontwerp eerst afstemmen met Richard.
+- **Relaties en gezinnen** ("relationships, sex, marriage"): bijvoorbeeld
+  huwelijken en kinderen die de bevolking laten groeien. Dit is een spel voor
+  vrienden en klasgenoten, dus houd het netjes. Omvang en toon eerst afstemmen
+  met Richard.
 
 ### Update 2: Paden, bruggen, afbreken, stemmen
 Status: in review (PR #27)
@@ -111,7 +216,8 @@ een update worden opgenomen als het past.
   in de buurt kunnen er dus nog uit "putten". Klikken op die tegel doet wel
   niets meer.
 - **Dorpelingen en paden:** ze lopen soms naar een bos- of rotstegel waar
-  inmiddels een pad over ligt. Dat is alleen een visueel foutje.
+  inmiddels een pad over ligt. Dat is alleen een visueel foutje en staat in
+  update 5.
 - **Straten upgraden:** dit kost een vast bedrag per tijdperk, hoe groot het
   wegennet ook is.
 - **Stemmen voor de hello:** een stem van een verbinding die nog geen `hello`

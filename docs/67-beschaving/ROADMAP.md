@@ -4,6 +4,15 @@ Het idle-spel achter de 67 counter (`/counter/<key>`). Deze roadmap is vooral
 voor Claude: lees hem aan het begin van elke sessie over dit spel, samen met
 [FEEDBACK.md](FEEDBACK.md).
 
+## Scope
+
+- **Voorlopig telt alleen de browser op een computer.**
+- Telefoons en aanraakschermen hoeven niet te werken, en je hoeft er ook niet
+  op te testen.
+- De bestaande CSS en aanraakbediening voor telefoons blijven gewoon staan,
+  maar steek er geen werk in.
+- Feedback over telefoons noteer je in FEEDBACK.md, maar je plant het niet in.
+
 ## Werkwijze voor Claude: feedback gaat in updates
 
 Feedback wordt niet punt voor punt gebouwd, en ook niet allemaal tegelijk.
@@ -39,9 +48,9 @@ Daarnaast blijft gelden:
 - Twijfel je over een spelregel (balans, wat wel of niet via een stemming
   gaat)? Vraag het eerst.
 - Voor je commit: `npm test`, `npm run build` en `npm run typecheck`.
-- Raakt een update de UI, test dan ook in de browser (Playwright met Edge),
-  met een tijdelijke `COUNTER_FILE` zodat de echte `data/` niet wordt
-  aangeraakt.
+- Raakt een update de UI, test dan ook in de browser (Playwright met Edge,
+  venster van 1280×800), met een tijdelijke `COUNTER_FILE` zodat de echte
+  `data/` niet wordt aangeraakt.
 
 ## Waar zit wat
 
@@ -66,11 +75,9 @@ Status: gepland | bezig | in review (PR #x) | gedaan (PR #x)
 - [ ] <wat er moet gebeuren> (bron: feedback <datum>, <wie>)
 -->
 
-### Update 3: Telefoon & balans
+### Update 3: Balans
 Status: gepland
 
-- [ ] Testen op een telefoon: paden tekenen met één vinger, rondkijken met twee
-      vingers, en de ingeklapte stemlijst. (bron: eigen testplan van PR #27)
 - [ ] Balans bekijken na een paar dagen spelen: hoe snel komt een groep door
       een tijdperk heen? Pas zo nodig `BUILD_COST_MULT`, `COST_GROWTH` en de
       productie aan in `idleContent.ts`. (bron: 2026-10-22, Richard, "het tempo

@@ -34,3 +34,5 @@ thema (zie [ROADMAP.md](ROADMAP.md)):
   Update 2 (PR #27); de balans wordt opnieuw bekeken in Update 3
 - 2026-10-22, Richard: afbreken voor een deel van de grondstoffen terug, ook
   bij paden: Update 2 (PR #27)
+- 2026-10-22, Richard: telefoon voorlopig negeren, de browser op een computer
+  is genoeg: zie "Scope" in ROADMAP.md

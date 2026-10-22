@@ -4,7 +4,7 @@ import {
   MAP_SIZE,
   MAX_ITEM_BOOST_MS,
   MAX_PATH_TILES,
-  MAX_QUEUE,
+  MAX_PROPOSALS,
   MIN_YES,
   MAX_NAME_LENGTH,
   STATE_VERSION,
@@ -39,6 +39,7 @@ import {
   type IdleEvent,
   type IdlePerson,
   type IdlePlayer,
+  type IdleProposal,
   type IdleState,
   type IdleStateMsg,
   type PlacedBuilding,
@@ -81,7 +82,7 @@ export interface IdleGame {
   outfit(clientId: string, item: unknown, now: number): { error?: string; events: IdleEvent[] };
   /** The connection closed: its NPC leaves (unless the player has another tab open). */
   leave(clientId: string, now: number): void;
-  /** Settle a vote whose outcome became clear (deadline, people leaving). */
+  /** Settle votes whose outcome became clear (deadline, people leaving, resources arriving). */
   tick(online: number, now: number): IdleEvent[];
   flush(): void;
 }
@@ -132,11 +133,24 @@ function parseRoads(raw: unknown, buildings: readonly PlacedBuilding[]): number[
   return [...new Set(raw.filter(ok))].sort((a, b) => a - b);
 }
 
+/** Open votes with a known action, once each, expiring no later than a day from now. */
+function parseProposals(raw: unknown, now: number): IdleProposal[] {
+  if (!Array.isArray(raw)) return [];
+  const out: IdleProposal[] = [];
+  for (const r of raw.map(record)) {
+    const action = parseAction(r.action);
+    if (!action || !Number.isInteger(r.id) || out.some((p) => p.id === r.id) || typeof r.by !== "string" || !finite(r.deadline)) continue;
+    const votes = Object.fromEntries(Object.entries(record(r.votes)).filter(([, v]) => typeof v === "boolean")) as Record<string, boolean>;
+    out.push({ id: r.id as number, action, by: cleanName(r.by), votes, deadline: Math.min(r.deadline, now + VOTE_MS) });
+  }
+  return out.slice(0, MAX_PROPOSALS);
+}
+
 /**
- * Keep only known, sane fields; open and queued votes are dropped (their
- * deadlines are gone anyway). A v2 file gets empty shops; v2 and v3 files (streets on a fixed
- * grid) get those streets as laid paths; anything older is replaced by a
- * fresh town, quietly: it was never in production.
+ * Keep only known, sane fields. A v2 file gets empty shops; v2 and v3 files
+ * (streets on a fixed grid) get those streets as laid paths, and lose their
+ * open vote (30 s back then); anything older is replaced by a fresh town,
+ * quietly: it was never in production.
  */
 function parseIdle(raw: unknown, now: number): IdleState | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
@@ -188,7 +202,9 @@ function parseIdle(raw: unknown, now: number): IdleState | null {
   }
   if (Number.isInteger(r.roadLevel)) s.roadLevel = Math.max(0, Math.min(s.era, r.roadLevel as number));
   s.roads = r.v === STATE_VERSION ? parseRoads(r.roads, s.buildings) : classicStreets(s.buildings);
+  if (r.v === STATE_VERSION) s.proposals = parseProposals(r.proposals, now);
   if (Number.isInteger(r.nextProposalId) && (r.nextProposalId as number) >= 1) s.nextProposalId = r.nextProposalId as number;
+  s.nextProposalId = Math.max(s.nextProposalId, ...s.proposals.map((p) => p.id + 1));
   s.players = parsePlayers(r.players);
   return s;
 }
@@ -232,49 +248,49 @@ export function createIdleGame(file: string, now = Date.now()): IdleGame {
   };
   const person = (id: string, p: IdlePlayer): IdlePerson => ({ id, name: p.name, look: p.look });
 
-  /** Settle the open vote if its outcome is clear; returns what happened. */
-  const settleOne = (online: number, now: number): IdleEvent[] => {
-    const p = state.proposal;
-    if (!p) return [];
-    const outcome = voteOutcome(p, online, now);
-    if (outcome === "pending") return [];
-    state = { ...advance(state, now), proposal: null };
-    saver.schedule();
-    const base = { label: actionLabel(state, p.action), by: p.by };
-    if (outcome === "fail") {
-      const { yes, no } = voteCounts(p);
-      const reason = yes > no && yes < MIN_YES ? `minstens ${MIN_YES} keer ja nodig` : "weggestemd";
-      return [{ kind: "rejected", ...base, reason }];
-    }
-    // Resources may have changed (or the era moved on) during the vote: check again now.
-    const err = actionError(state, p.action);
-    if (err) return [{ kind: "rejected", ...base, reason: err }];
-    const done = applyAction(state, p.action);
-    state = done.state;
-    return [done.building ? { kind: "bought", ...base, building: done.building } : { kind: "bought", ...base }];
-  };
+  /** Whose vote this is: the player's, so a reload or a second tab doesn't vote twice. */
+  const voterOf = (clientId: string) => connected.get(clientId) ?? clientId;
 
-  /** Settle the open vote, then start the next in line (its 30 s start now), as long as they're decided. */
+  /**
+   * Settle every open vote whose outcome is clear, oldest first; returns what
+   * happened. One that was voted through but can't be paid for yet waits for
+   * the resources until it expires.
+   */
   const settle = (online: number, now: number): IdleEvent[] => {
-    const events = settleOne(online, now);
-    while (!state.proposal && state.queue.length) {
-      const [next, ...rest] = state.queue;
-      state = { ...state, proposal: { ...next, deadline: now + VOTE_MS }, queue: rest };
+    const events: IdleEvent[] = [];
+    for (const p of state.proposals) {
+      const outcome = voteOutcome(p, online, now);
+      if (outcome === "pending") continue;
+      // Resources may have changed (or the era moved on) during the vote: check again now.
+      const err = outcome === "pass" ? actionError(advance(state, now), p.action) : null;
+      if (err === "te duur" && now < p.deadline) continue;
+      state = { ...advance(state, now), proposals: state.proposals.filter((x) => x.id !== p.id) };
       saver.schedule();
-      events.push({ kind: "proposed", label: actionLabel(state, next.action), by: next.by }, ...settleOne(online, now));
+      const base = { label: actionLabel(state, p.action), by: p.by };
+      if (outcome === "fail") {
+        const { yes, no } = voteCounts(p);
+        const reason = yes > no && yes < MIN_YES ? `verlopen: minstens ${MIN_YES} keer ja nodig` : "weggestemd";
+        events.push({ kind: "rejected", ...base, reason });
+      } else if (err) {
+        events.push({ kind: "rejected", ...base, reason: err });
+      } else {
+        const done = applyAction(state, p.action);
+        state = done.state;
+        events.push(done.building ? { kind: "bought", ...base, building: done.building } : { kind: "bought", ...base });
+      }
     }
     return events;
   };
 
   return {
     message(clientId, count, peak, online, now) {
-      const { proposal: p, queue, nextProposalId: _, players, ...world } = advance(state, now);
+      const { proposals, nextProposalId: _, players, ...world } = advance(state, now);
       const ids = [...new Set(connected.values())].filter((id) => players[id]);
       const mine = playerOf(clientId);
       return {
         type: "idle",
         state: world,
-        proposal: p && {
+        proposals: proposals.map((p) => ({
           id: p.id,
           action: p.action,
           label: actionLabel(state, p.action),
@@ -282,9 +298,9 @@ export function createIdleGame(file: string, now = Date.now()): IdleGame {
           ...voteCounts(p),
           needed: votesNeeded(online),
           deadline: p.deadline,
-          myVote: p.votes[clientId] ?? null,
-        },
-        queue: queue.map((q) => ({ label: actionLabel(state, q.action), by: q.by })),
+          myVote: p.votes[voterOf(clientId)] ?? null,
+          approved: voteOutcome(p, online, now) === "pass",
+        })),
         people: ids.map((id) => person(id, players[id])),
         me: mine && { ...person(...mine), owned: mine[1].owned },
         count,
@@ -320,28 +336,23 @@ export function createIdleGame(file: string, now = Date.now()): IdleGame {
       const action = parseAction(rawAction);
       if (!action) return { error: "onbekend voorstel", events: [] };
       if (action.kind === "buy" && shopItem(action.item)?.vote === false) return { error: "dat kan je meteen kopen", events: [] };
-      if (state.queue.length >= MAX_QUEUE) return { error: "de wachtrij is vol", events: [] };
+      if (state.proposals.length >= MAX_PROPOSALS) return { error: "te veel open stemmingen", events: [] };
       state = advance(state, now);
-      // Checked now and again when it passes: things change while it waits.
+      // Checked now and again when it passes: things change while it's open.
       const err = actionError(state, action);
       if (err) return { error: err, events: [] };
       const by = nameOf(clientId, name);
-      const proposal = { id: state.nextProposalId, action, by, votes: { [clientId]: true }, deadline: now + VOTE_MS };
-      const label = actionLabel(state, action);
-      state = { ...state, nextProposalId: state.nextProposalId + 1 };
+      const proposal = { id: state.nextProposalId, action, by, votes: { [voterOf(clientId)]: true }, deadline: now + VOTE_MS };
+      state = { ...state, proposals: [...state.proposals, proposal], nextProposalId: state.nextProposalId + 1 };
       saver.schedule();
-      if (state.proposal) {
-        state = { ...state, queue: [...state.queue, proposal] };
-        return { events: [{ kind: "proposed", label, by, queued: state.queue.length }] };
-      }
-      state = { ...state, proposal };
-      return { events: [{ kind: "proposed", label, by }, ...settle(online, now)] };
+      return { events: [{ kind: "proposed", label: actionLabel(state, action), by }, ...settle(online, now)] };
     },
 
     vote(clientId, id, yes, online, now) {
-      const p = state.proposal;
-      if (!p || p.id !== id || typeof yes !== "boolean") return [];
-      state = { ...state, proposal: { ...p, votes: { ...p.votes, [clientId]: yes } } };
+      if (typeof yes !== "boolean" || !state.proposals.some((p) => p.id === id)) return [];
+      const voter = voterOf(clientId);
+      state = { ...state, proposals: state.proposals.map((p) => (p.id === id ? { ...p, votes: { ...p.votes, [voter]: yes } } : p)) };
+      saver.schedule();
       return settle(online, now);
     },
 

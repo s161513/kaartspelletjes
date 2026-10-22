@@ -1,5 +1,5 @@
 // The DOM around the town: a compact HUD (resources, villagers, boosts), the
-// vote toast, the popup on a clicked tile (build there, or upgrade the
+// open votes on the right, the popup on a clicked tile (build there, or upgrade the
 // streets), the building inspector (which is the shop window for shops, and
 // where buildings are torn down), the "choose a spot" banner for decorations
 // and the path-drawing banner. Numbers refresh a few times a second; elements
@@ -9,7 +9,7 @@ import {
   BOOST_MULT,
   ERAS,
   MAX_PATH_TILES,
-  MAX_QUEUE,
+  MAX_PROPOSALS,
   RESOURCES,
   STORAGE_CAP,
   actionError,
@@ -59,6 +59,7 @@ import {
   type BuildingType,
   type DecorBehavior,
   type IdleClientMsg,
+  type IdleProposalView,
   type IdleStateMsg,
   type IdleWorld,
   type PlacedBuilding,
@@ -159,6 +160,7 @@ const SOURCE_NAMES: Record<string, string> = { wood: "🌲 Bos", stone: "🪨 Ro
 
 const timeLeft = (ms: number) => {
   const s = Math.max(0, Math.ceil(ms / 1000));
+  if (s >= 3600) return `${Math.floor(s / 3600)} u ${String(Math.floor(s / 60) % 60).padStart(2, "0")}`;
   return s >= 60 ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}` : `${s} s`;
 };
 
@@ -180,7 +182,7 @@ function offer(opts: {
   gain?: (w: IdleWorld) => Amounts;
   error: (w: IdleWorld) => string | null;
   level?: (w: IdleWorld) => string;
-  /** Votes block this offer while the queue is full. */
+  /** Votes block this offer while there are too many open. */
   votes: boolean;
 }): Offer {
   const el = h("div", "sx-offer");
@@ -203,7 +205,7 @@ function offer(opts: {
       level.textContent = opts.level?.(world) ?? "";
       const blocked = opts.votes && busy;
       btn.disabled = !connected || blocked || !!err;
-      btn.title = !connected ? "offline" : blocked ? "de wachtrij is vol" : err ?? "";
+      btn.title = !connected ? "offline" : blocked ? "te veel open stemmingen" : err ?? "";
     },
   };
 }
@@ -220,6 +222,8 @@ export interface PanelDeps {
   setPlacing(ok: ((x: number, y: number) => boolean) | null): void;
   mark(tile: { x: number; y: number } | null): void;
   setGhost(action: ProposalAction | null): void;
+  /** Move the view to a tile. */
+  lookAt(x: number, y: number): void;
   setPainting(ok: ((x: number, y: number) => boolean) | null): void;
   setDraft(draft: { tiles: Iterable<number>; erase: boolean } | null): void;
   /** Open the editor for your own NPC. */
@@ -245,8 +249,8 @@ export function createPanels(deps: PanelDeps): Panels {
   const pathsBtn = $<HTMLButtonElement>("sx-paths");
 
   const propose = (action: ProposalAction) => deps.send({ type: "propose", action, name: session.nickname });
-  /** No more proposals fit in line. */
-  const busy = () => (deps.msg()?.queue.length ?? 0) >= MAX_QUEUE;
+  /** No more proposals can be opened. */
+  const busy = () => (deps.msg()?.proposals.length ?? 0) >= MAX_PROPOSALS;
 
   recenterBtn.addEventListener("click", () => window.dispatchEvent(new CustomEvent("sx-recenter")));
   pathsBtn.addEventListener("click", () => (paths ? stopPaths() : startPaths(false)));
@@ -304,34 +308,95 @@ export function createPanels(deps: PanelDeps): Panels {
     boosts.forEach((text, i) => (boostBox.children[i].textContent = text));
   }
 
-  // ---------- vote toast (and the ghost of what it would do) ----------
+  // ---------- open votes, on the right (and the ghost of what one would do) ----------
 
-  const voteText = h("p", "sx-vote-text");
-  const voteRow = h("div", "sx-vote-row");
-  const castVote = (yes: boolean) => {
-    const p = deps.msg()?.proposal;
-    if (p) deps.send({ type: "vote", id: p.id, yes });
-  };
-  const yesBtn = button("sx-vote-btn", "👍 ja", () => castVote(true));
-  const noBtn = button("sx-vote-btn sx-vote-no", "👎 nee", () => castVote(false));
-  const voteCount = h("span", "sx-vote-count");
-  voteRow.append(yesBtn, voteCount, noBtn);
-  const voteQueue = h("p", "sx-vote-queue");
-  vote.append(voteText, voteRow, voteQueue);
+  /** Where a proposal happens, to look at it; null for town-wide things. */
+  function spotOf(p: IdleProposalView): { x: number; y: number } | null {
+    const a = p.action;
+    if (a.kind === "build") return a;
+    if (a.kind === "paths" || a.kind === "unpave") return a.tiles.length ? tileOf(a.tiles[0]) : null;
+    if (a.kind === "upgrade" || a.kind === "demolish") return deps.world()?.buildings.find((b) => b.id === a.building) ?? null;
+    return null;
+  }
 
-  function renderVote(now: number): void {
-    const p = deps.msg()?.proposal ?? null;
-    vote.hidden = !p;
-    deps.setGhost(p?.action ?? null);
-    if (!p) return;
-    voteText.textContent = `🗳️ ${p.by} stelt voor: ${p.label}`;
-    voteCount.textContent = `👍 ${p.yes} · 👎 ${p.no} · nodig ${p.needed} · ${Math.max(0, Math.ceil((p.deadline - now) / 1000))} s`;
-    yesBtn.setAttribute("aria-pressed", String(p.myVote === true));
-    noBtn.setAttribute("aria-pressed", String(p.myVote === false));
-    yesBtn.disabled = noBtn.disabled = !deps.connected();
-    const queue = deps.msg()?.queue ?? [];
-    voteQueue.textContent = queue.length ? `Daarna: ${queue.map((q) => q.label).join(" · ")}` : "";
-    voteQueue.title = queue.map((q, i) => `${i + 1}. ${q.label} (${q.by})`).join("\n");
+  interface VoteRow {
+    el: HTMLLIElement;
+    label: HTMLButtonElement;
+    sub: HTMLDivElement;
+    yes: HTMLButtonElement;
+    no: HTMLButtonElement;
+    count: HTMLSpanElement;
+  }
+
+  const voteHead = button("sx-votes-head", "", () => {
+    votesOpen = !votesOpen;
+    renderVotes(deps.serverNow());
+  });
+  const voteList = h("ul", "sx-votes-list");
+  vote.append(voteHead, voteList);
+  const rows = new Map<number, VoteRow>();
+  /** Collapsed by default on small screens, where the list would cover the town. */
+  let votesOpen = !window.matchMedia("(max-width: 640px)").matches;
+  /** The vote whose ghost shows: picked by clicking it, or hovered. */
+  let picked: number | null = null;
+  let hovered: number | null = null;
+
+  function voteRow(id: number): VoteRow {
+    const el = h("li", "sx-votes-item");
+    const label = button("sx-votes-label", "", () => {
+      picked = picked === id ? null : id;
+      const p = deps.msg()?.proposals.find((x) => x.id === id);
+      const spot = p && picked === id ? spotOf(p) : null;
+      if (spot) deps.lookAt(spot.x, spot.y);
+      renderVotes(deps.serverNow());
+    });
+    label.title = "laat zien waar";
+    const sub = h("div", "sx-votes-sub");
+    const row = h("div", "sx-vote-row");
+    const yes = button("sx-vote-btn", "👍 ja", () => deps.send({ type: "vote", id, yes: true }));
+    const no = button("sx-vote-btn sx-vote-no", "👎 nee", () => deps.send({ type: "vote", id, yes: false }));
+    const count = h("span", "sx-vote-count");
+    row.append(yes, count, no);
+    el.append(label, sub, row);
+    el.addEventListener("pointerenter", () => (hovered = id));
+    el.addEventListener("pointerleave", () => hovered === id && (hovered = null));
+    return { el, label, sub, yes, no, count };
+  }
+
+  function renderVotes(now: number): void {
+    const list = deps.msg()?.proposals ?? [];
+    vote.hidden = !list.length;
+    // Below the counter bar (and a banner, when one shows), above the round buttons.
+    const top = Math.round((document.querySelector(".sx-topstack") as HTMLElement).getBoundingClientRect().bottom + 8);
+    vote.style.top = `${top}px`;
+    vote.style.maxHeight = `calc(100vh - ${top}px - 90px)`;
+    const ids = new Set(list.map((p) => p.id));
+    for (const [id, r] of rows) {
+      if (ids.has(id)) continue;
+      r.el.remove();
+      rows.delete(id);
+    }
+    if (picked !== null && !ids.has(picked)) picked = null;
+    const shown = list.find((p) => p.id === (hovered ?? picked)) ?? (list.length === 1 ? list[0] : null);
+    deps.setGhost(shown?.action ?? null);
+    voteHead.textContent = `🗳️ Stemmingen (${list.length}) ${votesOpen ? "▾" : "▸"}`;
+    voteHead.setAttribute("aria-expanded", String(votesOpen));
+    voteList.hidden = !votesOpen;
+    list.forEach((p, i) => {
+      let r = rows.get(p.id);
+      if (!r) rows.set(p.id, (r = voteRow(p.id)));
+      // The server's order, oldest first; only moved when needed, so a click never lands on a moving row.
+      if (voteList.children[i] !== r.el) voteList.insertBefore(r.el, voteList.children[i] ?? null);
+      r.el.classList.toggle("sx-votes-picked", p.id === picked);
+      r.label.textContent = p.label;
+      r.sub.textContent = p.approved
+        ? `${p.by} · ✅ aangenomen, wacht op grondstoffen · nog ${timeLeft(p.deadline - now)}`
+        : `${p.by} · nog ${timeLeft(p.deadline - now)}`;
+      r.count.textContent = `👍 ${p.yes} · 👎 ${p.no} · nodig ${p.needed}`;
+      r.yes.setAttribute("aria-pressed", String(p.myVote === true));
+      r.no.setAttribute("aria-pressed", String(p.myVote === false));
+      r.yes.disabled = r.no.disabled = !deps.connected();
+    });
   }
 
   // ---------- placing a decoration ----------
@@ -469,7 +534,7 @@ export function createPanels(deps: PanelDeps): Panels {
     pathsMissing.textContent = err === "te duur" ? missingText(w, pathCost(w, tiles)) : err ?? "";
     const blocked = busy();
     pathsGo.disabled = !deps.connected() || blocked || !n || !!err;
-    pathsGo.title = !deps.connected() ? "offline" : blocked ? "de wachtrij is vol" : !n ? "teken eerst een paar tegels" : err ?? "";
+    pathsGo.title = !deps.connected() ? "offline" : blocked ? "te veel open stemmingen" : !n ? "teken eerst een paar tegels" : err ?? "";
   }
 
   // ---------- build popup on a free tile ----------
@@ -801,7 +866,7 @@ export function createPanels(deps: PanelDeps): Panels {
     const now = deps.serverNow();
     renderHud(world, now);
     hud.hidden = false;
-    renderVote(now);
+    renderVotes(now);
     renderInspector();
     renderPlace();
     renderPaths();

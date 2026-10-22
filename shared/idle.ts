@@ -9,7 +9,8 @@
 // clicked), laying or removing paths (drawn tile by tile, through nature and
 // over the river as bridges), tearing down a building (for a bit of its cost
 // back), upgrading (buildings or the whole street network) and big shop
-// purchases go through a short vote, one after the other; trading on the market and small shop
+// purchases go through a vote: everything proposed stays open side by side
+// for a day, and happens as soon as enough people said yes; trading on the market and small shop
 // items happen right away. Everyone has their own NPC walking around while
 // they're online, dressed in what they bought at the tailor.
 //
@@ -87,9 +88,10 @@ export const BOOST_MS = 67_000;
 export const MAX_BOOST_MS = 60 * 60_000;
 /** Production while nobody is around is caught up to at most this long. */
 export const MAX_OFFLINE_MS = 7 * 24 * 60 * 60_000;
-export const VOTE_MS = 30_000;
-/** Proposals waiting for their turn, at most. */
-export const MAX_QUEUE = 5;
+/** A proposal stays open this long. */
+export const VOTE_MS = 24 * 60 * 60_000;
+/** Open proposals at once, at most. */
+export const MAX_PROPOSALS = 20;
 export const STATE_VERSION = 4;
 export const MAX_NAME_LENGTH = 20;
 
@@ -154,8 +156,9 @@ export interface IdleProposal {
   action: ProposalAction;
   /** Nickname of whoever proposed it. */
   by: string;
-  /** Per connection: true = yes, false = no. */
+  /** Per player (or connection, before it said who it is): true = yes, false = no. */
   votes: Record<string, boolean>;
+  /** It expires then. */
   deadline: number;
 }
 
@@ -170,9 +173,8 @@ export interface IdlePlayer {
 }
 
 export interface IdleState extends IdleWorld {
-  proposal: IdleProposal | null;
-  /** Next in line once the running vote is done; their deadline starts then. */
-  queue: IdleProposal[];
+  /** Open votes, oldest first. */
+  proposals: IdleProposal[];
   nextProposalId: number;
   /** Public player id → player. */
   players: Record<string, IdlePlayer>;
@@ -194,7 +196,7 @@ function addBuilding<T extends IdleWorld>(s: T, type: string, level: number, spo
 export function newIdleState(now: number): IdleState {
   let s: IdleState = {
     v: STATE_VERSION, era: 0, resources: { food: 50, wood: 60, stone: 40 }, buildings: [], nextBuildingId: 1,
-    lastTick: now, boostUntil: 0, boosts: [], perks: {}, market: {}, roadLevel: 0, roads: [], nature: {}, proposal: null, queue: [], nextProposalId: 1, players: {},
+    lastTick: now, boostUntil: 0, boosts: [], perks: {}, market: {}, roadLevel: 0, roads: [], nature: {}, proposals: [], nextProposalId: 1, players: {},
   };
   for (const type of ["center", "house", "house", "food", "wood"]) s = addBuilding(s, type, 0, placeBuilding(s.buildings, type)!).state;
   return { ...s, roads: classicStreets(s.buildings) };
@@ -780,16 +782,14 @@ export function voteCounts(p: IdleProposal): { yes: number; no: number } {
 }
 
 /**
- * Pass once votesNeeded said yes (and yes leads); fail once as many said no,
- * or once nobody left could still make it pass. At the deadline the votes
- * that were cast decide, with at least MIN_YES yes.
+ * Pass once votesNeeded said yes (and yes leads); fail once as many said no.
+ * At the deadline the votes that were cast decide, with at least MIN_YES yes.
  */
 export function voteOutcome(p: IdleProposal, online: number, now: number): "pass" | "fail" | "pending" {
   const { yes, no } = voteCounts(p);
   const needed = votesNeeded(online);
-  const undecided = Math.max(0, online - yes - no);
   if (yes >= needed && yes > no) return "pass";
-  if ((no >= needed && no >= yes) || yes + undecided <= no) return "fail";
+  if (no >= needed && no >= yes) return "fail";
   if (now >= p.deadline) return yes >= MIN_YES && yes > no ? "pass" : "fail";
   return "pending";
 }
@@ -807,6 +807,8 @@ export interface IdleProposalView {
   deadline: number;
   /** This viewer's vote, if any. */
   myVote: boolean | null;
+  /** Voted through, waiting until the town can pay for it. */
+  approved: boolean;
 }
 
 /** Someone online, as their NPC. */
@@ -819,9 +821,8 @@ export interface IdlePerson {
 export interface IdleStateMsg {
   type: "idle";
   state: IdleWorld;
-  proposal: IdleProposalView | null;
-  /** Waiting for their turn, first first. */
-  queue: { label: string; by: string }[];
+  /** Open votes, oldest first. */
+  proposals: IdleProposalView[];
   /** Everyone online who said hello, one NPC each. */
   people: IdlePerson[];
   /** This viewer, once they said hello. */
@@ -835,8 +836,7 @@ export interface IdleStateMsg {
 
 export type IdleEvent =
   | { kind: "era"; era: number }
-  /** `queued`: its place in line, when another vote is still running. */
-  | { kind: "proposed"; label: string; by: string; queued?: number }
+  | { kind: "proposed"; label: string; by: string }
   /** A vote passed; `building` when something was built or upgraded. */
   | { kind: "bought"; label: string; by: string; building?: PlacedBuilding }
   | { kind: "rejected"; label: string; by: string; reason: string }

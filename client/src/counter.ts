@@ -155,7 +155,7 @@ function onIdleEvent(ev: IdleEvent): void {
       return;
     }
     case "proposed":
-      popup(`🗳️ ${ev.by}: ${ev.label}?${ev.queued ? ` (wachtrij #${ev.queued})` : ""}`, { y: rand(55, 80), color: "#22f0ff" });
+      popup(`🗳️ ${ev.by}: ${ev.label}?`, { y: rand(55, 80), color: "#22f0ff" });
       return;
     case "bought":
       popup(`✅ ${ev.label}!`, { y: rand(30, 70), color: "#b6ff2e" });

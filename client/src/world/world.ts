@@ -74,6 +74,8 @@ export interface TownWorld {
   celebrate(): void;
   select(id: number | null): void;
   focus(b: PlacedBuilding): void;
+  /** Move the view to a tile. */
+  lookAt(x: number, y: number): void;
   recenter(): void;
   /** Placing mode: every click picks a tile, the hovered one shows green/red by `ok`. Null ends it. */
   setPlacing(ok: ((x: number, y: number) => boolean) | null): void;
@@ -681,6 +683,7 @@ export function createWorld(opts: WorldOptions): TownWorld {
       lookAt(b.x, b.y);
       select(b.id);
     },
+    lookAt,
     recenter,
     setPlacing(ok) {
       placing = ok;

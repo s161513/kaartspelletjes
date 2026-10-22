@@ -64,6 +64,7 @@ export function createTown(send: (msg: IdleClientMsg) => void): Town {
     setPlacing: (ok) => world.setPlacing(ok),
     mark: (tile) => world.mark(tile),
     setGhost: (action) => world.setGhost(action),
+    lookAt: (x, y) => world.lookAt(x, y),
     setPainting: (ok) => world.setPainting(ok),
     setDraft: (draft) => world.setDraft(draft),
     openAvatar: () => avatar.open(),

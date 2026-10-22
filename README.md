@@ -69,7 +69,7 @@ is set (use a long random, URL-safe value), and then lives only at
 `npm run dev`/`npm start` read it automatically, and for Docker pass
 `--env-file .env` to `docker run`.
 
-The `/app/data` volume holds persistent state (the 67 counter's count).
+The `/app/data` volume holds persistent state (the 67 counter's count and its idle game, `idle.json`).
 Without it the count resets whenever the container is recreated. A named volume
 gets the right owner automatically; for a bind mount, make the host directory
 writable by uid 1000 (the image's `node` user).

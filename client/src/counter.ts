@@ -3,11 +3,19 @@
 // in Vite dev). The server checks the key against its COUNTER_KEY env var.
 // Server -> { type: "count", count, delta: -1 | 0 | 1, online }
 // Client -> { type: "inc" } | { type: "dec" }
-// Animations are driven by incoming messages (delta), so every viewer sees them.
+// Animations are driven by incoming messages (delta), so every viewer sees them:
+// a +1 makes the whole town do the 67; big fireworks only for a new era.
+// The counter is a compact bar at the top; the rest of the screen is
+// "67 Beschaving", the shared town (world/).
+
+import { ERAS, IDLE_MILESTONE, eraFor, type IdleClientMsg, type IdleEvent, type IdleStateMsg } from "@app/shared/idle";
+import { createTown } from "./world";
 
 interface CountMessage {
   type: "count";
   count: number;
+  /** Highest count ever; decides the idle game's era. */
+  peak: number;
   delta: number;
   online: number;
 }
@@ -23,48 +31,10 @@ const onlineEl = $<HTMLSpanElement>("sx-online");
 const nextEl = $<HTMLParagraphElement>("sx-next");
 const overlay = $<HTMLDivElement>("sx-overlay");
 const fx = $<HTMLDivElement>("sx-fx");
-const mainEl = document.querySelector<HTMLElement>(".sx-main")!;
 
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 
 const EMOJIS = ["🤲", "6️⃣", "7️⃣", "💀", "🔥", "😭", "🗿", "🧠", "💯", "🤯", "😂", "🫃", "🥶", "⚡", "🚨", "👀", "🤑", "🙏"];
-const POPUPS = [
-  "67!!",
-  "SIX SEVENNN",
-  "SKIBIDI",
-  "ohio lector",
-  "certified 67 moment",
-  "no cap fr fr",
-  "W lector",
-  "aura +6700",
-  "gyatt 67",
-  "sigma docent",
-  "brainrot unlocked",
-  "it's giving 67",
-  "rizz level: 67",
-  "mewing intensifies",
-  "bro deed het weer",
-  "LMAOOO 67",
-  "slay 💅",
-  "huhhh 67?!",
-  "sheeesh",
-  "tentamenstof: 67",
-];
-const MARQUEE = [
-  "🚨 BREAKING: LECTOR DOET 67 🚨",
-  "six seven six seven six seven",
-  "📈 67-aandelen stijgen",
-  "skibidi college",
-  "ohio campus moment",
-  "fanum tax op je aantekeningen",
-  "dit komt NIET op het tentamen (wel 67)",
-  "🤲 weeg het af bro 🤲",
-  "certified brainrot zone",
-  "no cap, alleen 67",
-  "aura check: 💯",
-  "mewing in de collegezaal",
-];
-const BG_EMOJIS = ["🤲", "6️⃣", "7️⃣", "💀", "🗿", "🧠", "🔥", "😭", "💯", "🫠"];
 const POP_COLORS = ["#ffe82e", "#b6ff2e", "#22f0ff", "#ff2fb3", "#ffffff", "#ff9a2e"];
 
 const MAX_FX_NODES = 140;
@@ -74,27 +44,14 @@ const pick = <T>(arr: readonly T[]): T => arr[Math.floor(Math.random() * arr.len
 
 // ---------- background ----------
 
-function buildBackground(): void {
-  const bg = $<HTMLDivElement>("sx-bg");
-  const n = window.innerWidth < 600 ? 14 : 24;
-  for (let i = 0; i < n; i++) {
-    const s = document.createElement("span");
-    s.className = "sx-float";
-    s.textContent = pick(BG_EMOJIS);
-    s.style.left = `${rand(0, 95)}%`;
-    s.style.fontSize = `${rand(1.4, 3.6)}rem`;
-    s.style.animationDuration = `${rand(12, 28)}s`;
-    s.style.animationDelay = `${-rand(0, 28)}s`;
-    bg.appendChild(s);
-  }
+let shownEra = -1;
 
-  const track = $<HTMLDivElement>("sx-marquee");
-  // Two copies so the strip never runs empty on wide screens.
-  for (const text of [...MARQUEE, ...MARQUEE]) {
-    const s = document.createElement("span");
-    s.textContent = text;
-    track.appendChild(s);
-  }
+/** Theme the page for the town's era (CSS colors around the counter). */
+function setEra(era: number): void {
+  if (era === shownEra) return;
+  document.body.classList.remove(`sx-era-${shownEra}`);
+  document.body.classList.add(`sx-era-${era}`);
+  shownEra = era;
 }
 
 // ---------- effects ----------
@@ -148,30 +105,14 @@ function playOverlay(mega: boolean): void {
   retrigger(document.body, "sx-flash");
 }
 
-function onIncrement(count: number): void {
-  const mega = count > 0 && count % 67 === 0;
-  playOverlay(mega);
+/** A +1: the town does the 67 and the number bumps; no screen-wide fireworks (those are for a new era). */
+function onIncrement(): void {
+  town.cheer();
   retrigger(countEl, "sx-bump");
-  emojiBurst(mega ? 70 : 24);
-  const pops = mega ? 6 : 2;
-  for (let i = 0; i < pops; i++) {
-    window.setTimeout(() => popup(pick(POPUPS)), i * 150);
-  }
-  if (mega) {
-    const times = count / 67;
-    popup(`67 × ${times} = ${count} 🤯`, { big: true, x: 50, y: 22, color: "#b6ff2e" });
-    popup("LEGENDARY 67 MOMENT", { big: true, x: 50, y: 78, color: "#ff2fb3" });
-    window.setTimeout(() => emojiBurst(50), 700);
-  } else if (String(count).includes("67")) {
-    popup(`${count} bevat 67 👀`, { big: true, x: 50, y: 25, color: "#22f0ff" });
-    emojiBurst(20);
-  }
 }
 
 function onDecrement(): void {
-  retrigger(mainEl, "sx-shake");
   retrigger(countEl, "sx-drop");
-  popup("💀 nee toch", { x: 50, y: rand(30, 60), color: "#ff3b3b" });
 }
 
 // ---------- rendering ----------
@@ -181,13 +122,55 @@ let lastCount: number | null = null;
 function render(msg: CountMessage): void {
   countEl.textContent = String(msg.count);
   onlineEl.textContent = `👀 ${msg.online} ${msg.online === 1 ? "kijker" : "kijkers"} live`;
-  const toNext = 67 - (msg.count % 67);
+  const era = eraFor(msg.peak);
+  const nextEra = ERAS[era + 1];
   nextEl.textContent =
     msg.count > 0 && msg.count % 67 === 0
       ? `🏆 ${msg.count} = 67 × ${msg.count / 67} — absolute cinema`
-      : `nog ${toNext} tot de volgende 67-mijlpaal 🎯`;
+      : nextEra
+        ? `nog ${(era + 1) * IDLE_MILESTONE - msg.count} tot ${nextEra.emoji} ${nextEra.name} 🎯`
+        : `nog ${67 - (msg.count % 67)} tot de volgende 67-mijlpaal 🎯`;
   decBtn.disabled = !isOpen() || msg.count <= 0;
   lastCount = msg.count;
+  setEra(era);
+}
+
+// ---------- town ----------
+
+const town = createTown((msg) => send(msg));
+
+function onIdleEvent(ev: IdleEvent): void {
+  town.event(ev);
+  switch (ev.kind) {
+    case "era": {
+      const era = ERAS[ev.era];
+      setEra(ev.era);
+      // After the 67 overlay that came with the same +1.
+      window.setTimeout(() => {
+        playOverlay(true);
+        emojiBurst(80);
+        popup(`${era.emoji} ${era.name}!`, { big: true, x: 50, y: 28, color: "#ffe82e" });
+        popup("NIEUW TIJDPERK!", { big: true, x: 50, y: 74, color: "#22f0ff" });
+      }, 1200);
+      return;
+    }
+    case "proposed":
+      popup(`🗳️ ${ev.by}: ${ev.label}?`, { y: rand(55, 80), color: "#22f0ff" });
+      return;
+    case "bought":
+      popup(`✅ ${ev.label}!`, { y: rand(30, 70), color: "#b6ff2e" });
+      emojiBurst(12);
+      return;
+    case "deal":
+      popup(`🛒 ${ev.by}: ${ev.label}`, { y: rand(55, 80), color: "#ffe82e" });
+      return;
+    case "rejected":
+      popup(`❌ ${ev.label}: ${ev.reason}`, { y: rand(30, 70), color: "#ff3b3b" });
+      return;
+    case "error":
+      popup(`⚠️ ${ev.message}`, { y: rand(40, 70), color: "#ff3b3b" });
+      return;
+  }
 }
 
 // ---------- socket ----------
@@ -227,6 +210,7 @@ function setConn(state: "connecting" | "online" | "offline" | "denied"): void {
           : "offline — opnieuw proberen…";
   incBtn.disabled = state !== "online";
   decBtn.disabled = state !== "online" || (lastCount ?? 0) <= 0;
+  town.setConnected(state === "online");
   if (state !== "online") onlineEl.textContent = "👀 – kijkers live";
 }
 
@@ -251,15 +235,17 @@ function connect(): void {
   };
 
   socket.onmessage = (ev) => {
-    let msg: CountMessage;
+    let msg: CountMessage | IdleStateMsg | { type: "idleEvent"; event: IdleEvent };
     try {
       msg = JSON.parse(String(ev.data));
     } catch {
       return;
     }
+    if (msg?.type === "idle") return town.update(msg);
+    if (msg?.type === "idleEvent") return onIdleEvent(msg.event);
     if (msg?.type !== "count" || typeof msg.count !== "number") return;
     render(msg);
-    if (msg.delta === 1) onIncrement(msg.count);
+    if (msg.delta === 1) onIncrement();
     else if (msg.delta === -1) onDecrement();
   };
 
@@ -275,16 +261,16 @@ function connect(): void {
   socket.onerror = () => socket.close();
 }
 
-function send(type: "inc" | "dec"): void {
+function send(msg: { type: "inc" | "dec" } | IdleClientMsg): void {
   if (!isOpen()) return;
-  if (type === "dec" && (lastCount ?? 0) <= 0) return;
-  ws!.send(JSON.stringify({ type }));
+  if (msg.type === "dec" && (lastCount ?? 0) <= 0) return;
+  ws!.send(JSON.stringify(msg));
 }
 
 // ---------- input ----------
 
-incBtn.addEventListener("click", () => send("inc"));
-decBtn.addEventListener("click", () => send("dec"));
+incBtn.addEventListener("click", () => send({ type: "inc" }));
+decBtn.addEventListener("click", () => send({ type: "dec" }));
 
 document.addEventListener("keydown", (e) => {
   if (e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
@@ -294,10 +280,10 @@ document.addEventListener("keydown", (e) => {
   if (e.key === " " && t?.closest("button, a")) return;
   if (e.key === "+" || e.key === "=" || e.key === " ") {
     e.preventDefault();
-    send("inc");
+    send({ type: "inc" });
   } else if (e.key === "-" || e.key === "_") {
     e.preventDefault();
-    send("dec");
+    send({ type: "dec" });
   }
 });
 
@@ -306,5 +292,4 @@ document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible" && !ws) connect();
 });
 
-buildBackground();
 connect();

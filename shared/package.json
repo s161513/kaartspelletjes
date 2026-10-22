@@ -9,6 +9,10 @@
     ".": {
       "types": "./dist/protocol.d.ts",
       "default": "./dist/protocol.js"
+    },
+    "./idle": {
+      "types": "./dist/idle.d.ts",
+      "default": "./dist/idle.js"
     }
   },
   "scripts": {

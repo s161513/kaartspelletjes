@@ -1,91 +1,125 @@
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocket, WebSocketServer } from "ws";
+import { eraFor, type IdleEvent } from "@app/shared/idle";
+import { createIdleGame } from "./idle.js";
+import { debouncedSaver, loadJsonFile, saveJsonFile } from "./jsonFile.js";
 
-// The "67 counter": one shared number, synced live to everyone on /counter.
-// Persisted to a JSON file outside dist/ so restarts and rebuilds keep it
-// (in Docker: a volume on /app/data, see the Dockerfile).
+// The "67 counter": one shared number, synced live to everyone on /counter,
+// plus "67 Beschaving", the shared idle game whose eras unlock every 67 (see
+// idle.ts). Persisted to JSON files outside dist/ so restarts and rebuilds
+// keep them (in Docker: a volume on /app/data, see the Dockerfile).
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const FILE = process.env.COUNTER_FILE ?? path.resolve(__dirname, "../../data/counter.json");
+const DEFAULT_FILE = process.env.COUNTER_FILE ?? path.resolve(__dirname, "../../data/counter.json");
 /** Debounce for disk writes, so a click storm doesn't block the event loop. */
 const SAVE_DELAY_MS = 500;
 /** Per-socket cap on counted messages per second; extras are dropped. */
 const MAX_MSGS_PER_SEC = 10;
+/** Settle votes this often while anyone is connected. */
+const IDLE_TICK_MS = 1000;
+/** Full idle state to everyone at least this often; browsers keep producing in between. */
+const IDLE_SYNC_MS = 5000;
 
-function load(): number {
-  let text: string;
-  try {
-    text = readFileSync(FILE, "utf8");
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") return 0;
-    // Unreadable but present: refuse to start rather than overwrite it with 0.
-    throw err;
-  }
-  try {
-    const n = Number(JSON.parse(text).count);
-    if (Number.isInteger(n) && n >= 0) return n;
-  } catch {
-    // fall through
-  }
-  const backup = `${FILE}.corrupt-${Date.now()}`;
-  renameSync(FILE, backup);
-  console.error(`counter: ${FILE} was corrupt, moved to ${backup}; starting at 0`);
-  return 0;
+interface CounterData {
+  count: number;
+  /** Highest count ever; eras stay unlocked when the count goes down. */
+  peak: number;
 }
 
-function save(count: number): void {
-  try {
-    mkdirSync(path.dirname(FILE), { recursive: true });
-    const tmp = `${FILE}.tmp`;
-    writeFileSync(tmp, JSON.stringify({ count }), { flush: true });
-    renameSync(tmp, FILE);
-  } catch (err) {
-    console.error("counter: could not save", err);
-  }
+/** Accepts the old `{ count }` format too. */
+function parseCounter(raw: unknown): CounterData | null {
+  const r = raw as { count?: unknown; peak?: unknown } | null;
+  const count = Number(r?.count);
+  if (!Number.isInteger(count) || count < 0) return null;
+  const peak = Number(r?.peak);
+  return { count, peak: Number.isInteger(peak) && peak > count ? peak : count };
 }
 
-export function createCounterServer(): WebSocketServer {
+export interface CounterServerOptions {
+  /** Defaults to $COUNTER_FILE or data/counter.json. */
+  file?: string;
+  /** Defaults to $IDLE_FILE or idle.json next to the counter file. */
+  idleFile?: string;
+}
+
+export function createCounterServer(opts: CounterServerOptions = {}): WebSocketServer {
+  const file = opts.file ?? DEFAULT_FILE;
+  const idleFile = opts.idleFile ?? process.env.IDLE_FILE ?? path.join(path.dirname(file), "idle.json");
+
   const wss = new WebSocketServer({ noServer: true, maxPayload: 256 });
-  let count = load();
-  let saved = count;
-  let saveTimer: NodeJS.Timeout | null = null;
+  let { count, peak } = loadJsonFile(file, parseCounter, () => ({ count: 0, peak: 0 }), "counter");
+  const saver = debouncedSaver(() => saveJsonFile(file, { count, peak }, "counter"), SAVE_DELAY_MS);
+  const idle = createIdleGame(idleFile);
+  idle.unlockEra(eraFor(peak));
+  const clientIds = new WeakMap<WebSocket, string>();
 
-  const flush = () => {
-    if (saveTimer) clearTimeout(saveTimer);
-    saveTimer = null;
-    if (count !== saved) {
-      save(count);
-      saved = count;
-    }
-  };
-  const scheduleSave = () => {
-    saveTimer ??= setTimeout(flush, SAVE_DELAY_MS);
-  };
   // Don't lose the last half second of clicks on `docker stop` / Ctrl+C.
   for (const sig of ["SIGINT", "SIGTERM"] as const) {
     process.once(sig, () => {
-      flush();
+      saver.flush();
+      idle.flush();
       process.exit(0);
     });
   }
 
-  const broadcast = (delta: number) => {
-    const msg = JSON.stringify({ type: "count", count, delta, online: wss.clients.size });
+  const sendAll = (msg: object) => {
+    const text = JSON.stringify(msg);
     for (const client of wss.clients) {
-      if (client.readyState === WebSocket.OPEN) client.send(msg);
+      if (client.readyState === WebSocket.OPEN) client.send(text);
+    }
+  };
+  const broadcast = (delta: number) => {
+    sendAll({ type: "count", count, peak, delta, online: wss.clients.size });
+  };
+  const sendIdle = (client: WebSocket, now: number) => {
+    const id = clientIds.get(client);
+    if (id && client.readyState === WebSocket.OPEN) {
+      client.send(JSON.stringify(idle.message(id, count, peak, wss.clients.size, now)));
+    }
+  };
+  const broadcastIdle = (events: IdleEvent[] = []) => {
+    for (const event of events) sendAll({ type: "idleEvent", event });
+    const now = Date.now();
+    for (const client of wss.clients) sendIdle(client, now);
+    lastSync = now;
+  };
+  let lastSync = 0;
+
+  // Only tick while someone watches; production is caught up from timestamps anyway.
+  let ticker: NodeJS.Timeout | null = null;
+  const updateTicker = () => {
+    if (wss.clients.size > 0 && !ticker) {
+      ticker = setInterval(() => {
+        const now = Date.now();
+        const events = idle.tick(wss.clients.size, now);
+        if (events.length || now - lastSync >= IDLE_SYNC_MS) broadcastIdle(events);
+      }, IDLE_TICK_MS);
+      ticker.unref();
+    } else if (wss.clients.size === 0 && ticker) {
+      clearInterval(ticker);
+      ticker = null;
     }
   };
 
   wss.on("connection", (ws) => {
+    const clientId = randomUUID();
+    clientIds.set(ws, clientId);
     let windowStart = Date.now();
     let inWindow = 0;
 
     broadcast(0);
+    sendIdle(ws, Date.now());
+    updateTicker();
     // Protocol errors (bad frames, oversized messages) must not crash the server.
     ws.on("error", () => ws.terminate());
-    ws.on("close", () => broadcast(0));
+    ws.on("close", () => {
+      idle.leave(clientId, Date.now());
+      broadcast(0);
+      broadcastIdle();
+      updateTicker();
+    });
     ws.on("message", (raw, isBinary) => {
       if (isBinary) return;
       const now = Date.now();
@@ -95,19 +129,66 @@ export function createCounterServer(): WebSocketServer {
       }
       if (++inWindow > MAX_MSGS_PER_SEC) return;
 
-      let type: unknown;
+      let msg: Record<string, unknown>;
       try {
-        type = JSON.parse(String(raw))?.type;
+        msg = JSON.parse(String(raw));
       } catch {
         return;
       }
-      let delta = 0;
-      if (type === "inc") delta = 1;
-      else if (type === "dec" && count > 0) delta = -1;
-      if (!delta) return;
-      count += delta;
-      scheduleSave();
-      broadcast(delta);
+      if (!msg || typeof msg !== "object") return;
+      const online = wss.clients.size;
+      /** An error goes back to this connection only; otherwise everyone gets the events and the new state. */
+      const reply = ({ error, events }: { error?: string; events: IdleEvent[] }) => {
+        if (error) ws.send(JSON.stringify({ type: "idleEvent", event: { kind: "error", message: error } }));
+        else broadcastIdle(events);
+      };
+
+      switch (msg.type) {
+        case "inc": {
+          count += 1;
+          const before = eraFor(peak);
+          peak = Math.max(peak, count);
+          saver.schedule();
+          broadcast(1);
+          idle.boost(now);
+          const era = eraFor(peak);
+          broadcastIdle(era > before && idle.unlockEra(era) ? [{ kind: "era", era }] : []);
+          return;
+        }
+        case "dec":
+          if (count <= 0) return;
+          count -= 1;
+          saver.schedule();
+          broadcast(-1);
+          return;
+        case "gather": {
+          // The clicker already counted it locally; the others see where it happened.
+          const event = idle.gather(msg.x, msg.y, now);
+          if (!event) return;
+          const text = JSON.stringify({ type: "idleEvent", event });
+          for (const client of wss.clients) {
+            if (client !== ws && client.readyState === WebSocket.OPEN) client.send(text);
+          }
+          return;
+        }
+        case "propose":
+          return reply(idle.propose(clientId, msg.name, msg.action, online, now));
+        case "trade":
+          return reply(idle.trade(clientId, msg.name, msg.from, msg.to, msg.amount, now));
+        case "buy":
+          return reply(idle.buy(clientId, msg.name, msg.item, now));
+        case "outfit":
+          return reply(idle.outfit(clientId, msg.item, now));
+        // Who's who: their NPC shows up for everyone.
+        case "hello":
+          return reply({ ...idle.hello(clientId, msg.key, msg.name, now), events: [] });
+        case "look":
+          return reply({ ...idle.look(clientId, msg.name, msg.look), events: [] });
+        case "vote": {
+          broadcastIdle(idle.vote(clientId, msg.id, msg.yes, online, now));
+          return;
+        }
+      }
     });
   });
 

@@ -40,7 +40,7 @@ COPY --from=build /app/games/dist ./games/dist
 COPY --from=build /app/server/dist ./server/dist
 COPY --from=build /app/client/dist ./client/dist
 
-# Persistent state (the 67 counter). Mount a volume here so it survives
+# Persistent state (the 67 counter and its idle game). Mount a volume here so it survives
 # container restarts and image rebuilds: -v classroom-games-data:/app/data
 ENV COUNTER_FILE=/app/data/counter.json
 RUN mkdir -p /app/data && chown node:node /app/data

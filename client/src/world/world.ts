@@ -1,7 +1,9 @@
 // The town as a full-screen isometric canvas under the counter bar: terrain,
 // nature, buildings and villagers, depth-sorted every frame. Drag to look
 // around, wheel or pinch to zoom, click nature to gather, click a building to
-// inspect it, click free land to build, click a villager to say hi.
+// inspect it, click free land to build, click a villager to say hi. While
+// drawing paths, dragging paints tiles instead (pan with the right mouse
+// button or two fingers).
 
 import {
   CENTER,
@@ -12,11 +14,12 @@ import {
   clickAmount as clickAmountFor,
   natureAt,
   resourceDef,
-  streetsOf,
   terrainAt,
+  tileOf,
   type IdlePerson,
   type IdleWorld,
   type PlacedBuilding,
+  type ProposalAction,
   type ResourceId,
 } from "@app/shared/idle";
 import {
@@ -55,6 +58,8 @@ export interface WorldOptions {
   onSelect(building: PlacedBuilding | null): void;
   /** Land (no building, no nature) was clicked, or any tile while placing; screen point for a popup. */
   onTile(x: number, y: number, px: number, py: number): void;
+  /** Drawing paths: the pointer touched this tile; `first` at the start of a stroke. */
+  onPaint(x: number, y: number, first: boolean): void;
 }
 
 export interface TownWorld {
@@ -73,8 +78,12 @@ export interface TownWorld {
   setPlacing(ok: ((x: number, y: number) => boolean) | null): void;
   /** Outline a tile (the build popup's), or none. */
   mark(tile: { x: number; y: number } | null): void;
-  /** A see-through building where a vote would build one. */
-  setGhost(ghost: { type: string; x: number; y: number } | null): void;
+  /** What a running vote would do, shown in the town (a see-through building, marked tiles). */
+  setGhost(action: ProposalAction | null): void;
+  /** Drawing paths: drags paint tiles, the hovered one shows green/red by `ok`. Null ends it. */
+  setPainting(ok: ((x: number, y: number) => boolean) | null): void;
+  /** The tiles drawn so far: new path (green) or path to remove (red). */
+  setDraft(draft: { tiles: Iterable<number>; erase: boolean } | null): void;
 }
 
 interface Float {
@@ -113,7 +122,9 @@ export function createWorld(opts: WorldOptions): TownWorld {
   let placing: ((x: number, y: number) => boolean) | null = null;
   let hover: { x: number; y: number } | null = null;
   let marked: { x: number; y: number } | null = null;
-  let ghost: { type: string; x: number; y: number } | null = null;
+  let ghost: ProposalAction | null = null;
+  let painting: ((x: number, y: number) => boolean) | null = null;
+  let draft: { tiles: Iterable<number>; erase: boolean } | null = null;
   let clickAmount = 1;
   const floats: Float[] = [];
   const particles: Particle[] = [];
@@ -161,6 +172,9 @@ export function createWorld(opts: WorldOptions): TownWorld {
   let downAt: { x: number; y: number } | null = null;
   let moved = false;
   let pinchDist = 0;
+  let pinchMid: { x: number; y: number } | null = null;
+  /** The last tile of the paint stroke under way, if any. */
+  let stroke: { x: number; y: number } | null = null;
 
   const local = (e: PointerEvent | WheelEvent) => {
     const r = canvas.getBoundingClientRect();
@@ -174,27 +188,55 @@ export function createWorld(opts: WorldOptions): TownWorld {
     if (pointers.size === 1) {
       downAt = p;
       moved = false;
+      if (painting && e.button === 0) {
+        stroke = tileAt(p.x, p.y);
+        opts.onPaint(stroke.x, stroke.y, true);
+      }
     } else if (pointers.size === 2) {
       const [a, b] = [...pointers.values()];
       pinchDist = Math.hypot(a.x - b.x, a.y - b.y);
+      pinchMid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
       moved = true;
+      stroke = null;
     }
   });
+  canvas.addEventListener("contextmenu", (e) => {
+    if (painting) e.preventDefault();
+  });
+
+  /** Paint every tile on the line from the stroke's last tile to this one, so fast drags leave no gaps. */
+  function paintTo(t: { x: number; y: number }): void {
+    if (!stroke || (t.x === stroke.x && t.y === stroke.y)) return;
+    const from = stroke;
+    const steps = Math.max(Math.abs(t.x - from.x), Math.abs(t.y - from.y));
+    for (let i = 1; i <= steps; i++) {
+      opts.onPaint(Math.round(from.x + ((t.x - from.x) * i) / steps), Math.round(from.y + ((t.y - from.y) * i) / steps), false);
+    }
+    stroke = t;
+  }
 
   canvas.addEventListener("pointermove", (e) => {
     const p = local(e);
     const prev = pointers.get(e.pointerId);
     if (!prev) {
       hover = tileAt(p.x, p.y);
-      canvas.style.cursor = placing || hit(p.x, p.y) ? "pointer" : "grab";
+      canvas.style.cursor = placing || painting ? "crosshair" : hit(p.x, p.y) ? "pointer" : "grab";
       return;
     }
     pointers.set(e.pointerId, p);
     if (pointers.size === 2) {
       const [a, b] = [...pointers.values()];
       const d = Math.hypot(a.x - b.x, a.y - b.y);
-      if (pinchDist > 0) cam.zoomAt(d / pinchDist, (a.x + b.x) / 2, (a.y + b.y) / 2);
+      const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+      if (pinchDist > 0) cam.zoomAt(d / pinchDist, mid.x, mid.y);
+      if (pinchMid) cam.pan(mid.x - pinchMid.x, mid.y - pinchMid.y);
       pinchDist = d;
+      pinchMid = mid;
+      return;
+    }
+    if (stroke) {
+      hover = tileAt(p.x, p.y);
+      paintTo(hover);
       return;
     }
     if (downAt && Math.hypot(p.x - downAt.x, p.y - downAt.y) > DRAG_THRESHOLD) moved = true;
@@ -208,10 +250,14 @@ export function createWorld(opts: WorldOptions): TownWorld {
     const p = local(e);
     if (pointers.size === 1 && !moved && pointers.has(e.pointerId)) click(p.x, p.y);
     pointers.delete(e.pointerId);
-    if (pointers.size < 2) pinchDist = 0;
+    if (pointers.size < 2) {
+      pinchDist = 0;
+      pinchMid = null;
+    }
     if (pointers.size === 0) {
       downAt = null;
-      canvas.style.cursor = "grab";
+      stroke = null;
+      canvas.style.cursor = painting ? "crosshair" : "grab";
     }
   };
   canvas.addEventListener("pointerup", end);
@@ -219,6 +265,7 @@ export function createWorld(opts: WorldOptions): TownWorld {
   canvas.addEventListener("pointercancel", (e) => {
     pointers.delete(e.pointerId);
     moved = true;
+    stroke = null;
   });
 
   canvas.addEventListener(
@@ -271,6 +318,7 @@ export function createWorld(opts: WorldOptions): TownWorld {
   }
 
   function click(px: number, py: number): void {
+    if (painting) return;
     if (placing) {
       const t = tileAt(px, py);
       opts.onTile(t.x, t.y, px, py);
@@ -445,15 +493,26 @@ export function createWorld(opts: WorldOptions): TownWorld {
       }
     }
 
-    // Tile outlines under everything standing: placing (green/red), the build popup's tile (yellow).
-    if (placing && hover) outline(hover.x, hover.y, placing(hover.x, hover.y) ? "#b6ff2e" : "#ff3b3b");
+    // Tile outlines under everything standing: a vote's tiles (yellow, red to remove), the
+    // paths being drawn, placing or painting (green/red), the build popup's tile (yellow).
+    if (ghost?.kind === "paths" || ghost?.kind === "unpave") {
+      for (const i of ghost.tiles) outline(tileOf(i).x, tileOf(i).y, ghost.kind === "paths" ? "#ffe82e" : "#ff3b3b");
+    }
+    if (ghost?.kind === "demolish") {
+      const id = ghost.building;
+      const b = world?.buildings.find((x) => x.id === id);
+      if (b) outline(b.x, b.y, "#ff3b3b");
+    }
+    if (draft) for (const i of draft.tiles) outline(tileOf(i).x, tileOf(i).y, draft.erase ? "#ff3b3b" : "#b6ff2e");
+    const ok = placing ?? painting;
+    if (ok && hover) outline(hover.x, hover.y, ok(hover.x, hover.y) ? "#b6ff2e" : "#ff3b3b");
     if (marked) outline(marked.x, marked.y, "#ffe82e");
 
     for (const b of world?.buildings ?? []) {
       if (b.x < x0 - 1 || b.x > x1 || b.y < y0 - 1 || b.y > y1) continue;
       items.push({ d: b.x + b.y + 1.01, f: () => drawBuilding(ctx, b, t, b.id === selected) });
     }
-    if (ghost) {
+    if (ghost?.kind === "build") {
       const g = { id: -1, type: ghost.type, level: era, x: ghost.x, y: ghost.y };
       items.push({
         d: g.x + g.y + 1.01,
@@ -560,6 +619,7 @@ export function createWorld(opts: WorldOptions): TownWorld {
   return {
     setWorld(w) {
       const changed = !world || world.buildings !== w.buildings;
+      if (!world || world.roads !== w.roads) roads = new Set(w.roads.map((i) => `${tileOf(i).x},${tileOf(i).y}`));
       world = w;
       roadLevel = w.roadLevel;
       // Which tiles are used up only changes when a patch crosses a tile's worth.
@@ -577,10 +637,7 @@ export function createWorld(opts: WorldOptions): TownWorld {
         }
       }
       clickAmount = clickAmountFor(w.era);
-      if (changed) {
-        roads = streetsOf(w.buildings);
-        pop.sync(w, Date.now());
-      }
+      if (changed) pop.sync(w, Date.now());
     },
     setPeople(people, me) {
       pop.setPeople(people, me, Date.now());
@@ -617,8 +674,16 @@ export function createWorld(opts: WorldOptions): TownWorld {
     mark(tile) {
       marked = tile;
     },
-    setGhost(g) {
-      ghost = g;
+    setGhost(action) {
+      ghost = action;
+    },
+    setPainting(ok) {
+      painting = ok;
+      stroke = null;
+      canvas.style.cursor = ok ? "crosshair" : "grab";
+    },
+    setDraft(d) {
+      draft = d;
     },
   };
 }

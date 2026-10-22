@@ -1,12 +1,14 @@
 // The DOM around the town: a compact HUD (resources, villagers, boosts), the
 // vote toast, the popup on a clicked tile (build there, or upgrade the
-// streets), the building inspector (which is the shop window for shops), and
-// the "choose a spot" banner for decorations. Numbers refresh a few times a second; elements are kept, not
-// rebuilt, so buttons never vanish under a click.
+// streets), the building inspector (which is the shop window for shops, and
+// where buildings are torn down), the "choose a spot" banner for decorations
+// and the path-drawing banner. Numbers refresh a few times a second; elements
+// are kept, not rebuilt, so buttons never vanish under a click.
 
 import {
   BOOST_MULT,
   ERAS,
+  MAX_PATH_TILES,
   RESOURCES,
   STORAGE_CAP,
   actionError,
@@ -21,7 +23,7 @@ import {
   decorTypes,
   fullRateOf,
   housingOf,
-  isStreet,
+  isRoad,
   itemCost,
   itemError,
   itemLevel,
@@ -30,8 +32,11 @@ import {
   outfitCost,
   outfitError,
   outfitsFor,
+  pathCost,
+  pathError,
   placeError,
   ratesOf,
+  refundOf,
   resourceDef,
   roadCost,
   roadName,
@@ -42,6 +47,7 @@ import {
   slotsOf,
   sourceLeft,
   terrainAt,
+  tileIndex,
   tradeQuote,
   tradeRate,
   unlockedResources,
@@ -88,6 +94,17 @@ export function costChips(world: IdleWorld, cost: Amounts): HTMLElement[] {
     const short = missing[id];
     const chip = h("span", short ? "sx-cost sx-cost-short" : "sx-cost", `${resourceDef(id)?.emoji ?? id} ${fmt(n)}`);
     chip.title = short ? `nog ${fmt(short)} ${resourceDef(id)?.name ?? id} nodig` : resourceDef(id)?.name ?? id;
+    return chip;
+  });
+}
+
+/** What comes back (tearing down): "+🪵 7" chips. */
+function gainChips(gain: Amounts): HTMLElement[] {
+  const entries = Object.entries(gain);
+  if (!entries.length) return [h("span", "sx-cost", "niets terug")];
+  return entries.map(([id, n]) => {
+    const chip = h("span", "sx-cost", `+${resourceDef(id)?.emoji ?? id} ${fmt(n)}`);
+    chip.title = `${fmt(n)} ${resourceDef(id)?.name ?? id} terug`;
     return chip;
   });
 }
@@ -156,6 +173,8 @@ function offer(opts: {
   now?: boolean;
   onClick: () => void;
   cost: (w: IdleWorld) => Amounts;
+  /** Shown instead of the cost when something comes back. */
+  gain?: (w: IdleWorld) => Amounts;
   error: (w: IdleWorld) => string | null;
   level?: (w: IdleWorld) => string;
   /** Votes block this offer while one runs. */
@@ -175,7 +194,7 @@ function offer(opts: {
     el,
     update(world, busy, connected) {
       const cost = opts.cost(world);
-      costs.replaceChildren(...costChips(world, cost));
+      costs.replaceChildren(...(opts.gain ? gainChips(opts.gain(world)) : costChips(world, cost)));
       const err = opts.error(world);
       missing.textContent = err === "te duur" ? missingText(world, cost) : err ?? "";
       level.textContent = opts.level?.(world) ?? "";
@@ -197,7 +216,9 @@ export interface PanelDeps {
   select(id: number | null): void;
   setPlacing(ok: ((x: number, y: number) => boolean) | null): void;
   mark(tile: { x: number; y: number } | null): void;
-  setGhost(ghost: { type: string; x: number; y: number } | null): void;
+  setGhost(action: ProposalAction | null): void;
+  setPainting(ok: ((x: number, y: number) => boolean) | null): void;
+  setDraft(draft: { tiles: Iterable<number>; erase: boolean } | null): void;
   /** Open the editor for your own NPC. */
   openAvatar(): void;
 }
@@ -206,6 +227,8 @@ export interface Panels {
   inspect(b: PlacedBuilding | null): void;
   /** A tile was clicked (land, or anything while placing). */
   tile(x: number, y: number, px: number, py: number): void;
+  /** Drawing paths: the pointer touched a tile. */
+  paint(x: number, y: number, first: boolean): void;
   refresh(): void;
 }
 
@@ -216,14 +239,17 @@ export function createPanels(deps: PanelDeps): Panels {
   const placeEl = $<HTMLDivElement>("sx-place");
   const banner = $<HTMLDivElement>("sx-banner");
   const recenterBtn = $<HTMLButtonElement>("sx-recenter");
+  const pathsBtn = $<HTMLButtonElement>("sx-paths");
 
   const propose = (action: ProposalAction) => deps.send({ type: "propose", action, name: session.nickname });
   const busy = () => !!deps.msg()?.proposal;
 
   recenterBtn.addEventListener("click", () => window.dispatchEvent(new CustomEvent("sx-recenter")));
+  pathsBtn.addEventListener("click", () => (paths ? stopPaths() : startPaths(false)));
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
     stopPlacing();
+    stopPaths();
     closePlace();
     inspect(null);
   });
@@ -274,7 +300,7 @@ export function createPanels(deps: PanelDeps): Panels {
     boosts.forEach((text, i) => (boostBox.children[i].textContent = text));
   }
 
-  // ---------- vote toast (and the ghost of what it would build) ----------
+  // ---------- vote toast (and the ghost of what it would do) ----------
 
   const voteText = h("p", "sx-vote-text");
   const voteRow = h("div", "sx-vote-row");
@@ -291,7 +317,7 @@ export function createPanels(deps: PanelDeps): Panels {
   function renderVote(now: number): void {
     const p = deps.msg()?.proposal ?? null;
     vote.hidden = !p;
-    deps.setGhost(p?.action.kind === "build" ? p.action : null);
+    deps.setGhost(p?.action ?? null);
     if (!p) return;
     voteText.textContent = `🗳️ ${p.by} stelt voor: ${p.label}`;
     voteCount.textContent = `👍 ${p.yes} · 👎 ${p.no} · nodig ${p.needed} · ${Math.max(0, Math.ceil((p.deadline - now) / 1000))} s`;
@@ -304,19 +330,22 @@ export function createPanels(deps: PanelDeps): Panels {
 
   let placing: BuildingType | null = null;
   const bannerText = h("span");
-  banner.append(bannerText, button("sx-act", "✕ stoppen", () => stopPlacing()));
+  const placingParts = [bannerText, button("sx-act", "✕ stoppen", () => stopPlacing())];
 
   function startPlacing(t: BuildingType): void {
     const world = deps.world();
     if (!world) return;
+    stopPaths();
     placing = t;
     inspect(null);
     closePlace();
+    banner.className = "sx-banner";
+    banner.replaceChildren(...placingParts);
     bannerText.textContent = `📍 Klik op een plek voor ${t.emoji} ${buildingName(t.id, world.era)} · Esc = stoppen`;
     banner.hidden = false;
     deps.setPlacing((x, y) => {
       const w = deps.world();
-      return !!w && !placeError(w.buildings, t.id, x, y);
+      return !!w && !placeError(w.buildings, w.roads, t.id, x, y);
     });
   }
 
@@ -330,13 +359,107 @@ export function createPanels(deps: PanelDeps): Panels {
   function placeAt(x: number, y: number): void {
     const world = deps.world();
     if (!world || !placing) return;
-    const err = placeError(world.buildings, placing.id, x, y);
+    const err = placeError(world.buildings, world.roads, placing.id, x, y);
     if (err) {
       bannerText.textContent = `❌ ${err} — probeer een andere plek (Esc = stoppen)`;
       return;
     }
     propose({ kind: "build", type: placing.id, x, y });
     stopPlacing();
+  }
+
+  // ---------- drawing paths ----------
+  // Drag over tiles to draw (or pick paths to remove), then propose it all at once.
+
+  /** The drawing under way; `adding` is whether the current stroke adds tiles or takes them off again. */
+  let paths: { erase: boolean; tiles: Set<number>; adding: boolean } | null = null;
+  const pathsText = h("span");
+  /** Switching between laying and removing starts a new drawing. */
+  const tool = (erase: boolean) => () => {
+    if (paths?.erase !== erase) startPaths(erase);
+  };
+  const layBtn = button("sx-act", "🛤️ leggen", tool(false));
+  const eraseBtn = button("sx-act", "⛏️ weghalen", tool(true));
+  const pathsCosts = h("div", "sx-costs");
+  const pathsMissing = h("span", "sx-missing");
+  const pathsGo = button("sx-act sx-act-now", "🗳️ voorstellen", () => proposePaths());
+  const pathsParts = [pathsText, layBtn, eraseBtn, pathsCosts, pathsMissing, pathsGo, button("sx-act", "✕ stoppen", () => stopPaths())];
+
+  /** Can this tile be drawn on in the current mode? */
+  const paintable = (w: IdleWorld, erase: boolean, x: number, y: number) =>
+    erase ? isRoad(w.roads, x, y) : !pathError(w.buildings, w.roads, x, y);
+
+  const pathsAction = (): ProposalAction | null =>
+    paths && { kind: paths.erase ? "unpave" : "paths", tiles: [...paths.tiles] };
+
+  /** Start drawing (or switch between laying and removing, which starts over), optionally from a tile. */
+  function startPaths(erase: boolean, from?: { x: number; y: number }): void {
+    stopPlacing();
+    inspect(null);
+    closePlace();
+    paths = { erase, tiles: new Set(), adding: true };
+    const w = deps.world();
+    if (from && w && paintable(w, erase, from.x, from.y)) paths.tiles.add(tileIndex(from.x, from.y));
+    pathsText.textContent = erase ? "⛏️ Sleep over paden om ze weg te halen" : "🛤️ Sleep over tegels om een pad te tekenen";
+    layBtn.setAttribute("aria-pressed", String(!erase));
+    eraseBtn.setAttribute("aria-pressed", String(erase));
+    banner.className = "sx-banner sx-banner-paths";
+    banner.replaceChildren(...pathsParts);
+    banner.hidden = false;
+    pathsBtn.setAttribute("aria-pressed", "true");
+    deps.setPainting((x, y) => {
+      const w = deps.world();
+      return !!w && paintable(w, erase, x, y);
+    });
+    deps.setDraft({ tiles: paths.tiles, erase });
+    renderPaths();
+  }
+
+  function stopPaths(): void {
+    if (!paths) return;
+    paths = null;
+    banner.hidden = true;
+    pathsBtn.setAttribute("aria-pressed", "false");
+    deps.setPainting(null);
+    deps.setDraft(null);
+  }
+
+  function paint(x: number, y: number, first: boolean): void {
+    const w = deps.world();
+    if (!w || !paths) return;
+    const i = tileIndex(x, y);
+    // A stroke that starts on a drawn tile takes tiles off the drawing again.
+    if (first) paths.adding = !paths.tiles.has(i);
+    if (!paths.adding) paths.tiles.delete(i);
+    else if (paths.tiles.size < MAX_PATH_TILES && paintable(w, paths.erase, x, y)) paths.tiles.add(i);
+    renderPaths();
+  }
+
+  function proposePaths(): void {
+    const action = pathsAction();
+    if (!action) return;
+    propose(action);
+    stopPaths();
+  }
+
+  function renderPaths(): void {
+    const w = deps.world();
+    const action = pathsAction();
+    if (!w || !paths || !action) return;
+    const n = paths.tiles.size;
+    pathsCosts.replaceChildren(
+      ...(!n
+        ? [h("span", "sx-cost", paths.erase ? "nog geen paden gekozen" : "nog geen tegels")]
+        : [
+            h("span", "sx-cost", `${n}${n >= MAX_PATH_TILES ? " (max)" : ""} ×`),
+            ...(paths.erase ? gainChips(refundOf(w, action)) : costChips(w, pathCost(w, n))),
+          ]),
+    );
+    const err = n ? actionError(w, action) : null;
+    pathsMissing.textContent = err === "te duur" ? missingText(w, pathCost(w, n)) : err ?? "";
+    const blocked = busy();
+    pathsGo.disabled = !deps.connected() || blocked || !n || !!err;
+    pathsGo.title = !deps.connected() ? "offline" : blocked ? "er loopt al een stemming" : !n ? "teken eerst een paar tegels" : err ?? "";
   }
 
   // ---------- build popup on a free tile ----------
@@ -374,15 +497,19 @@ export function createPanels(deps: PanelDeps): Panels {
     const world = deps.world();
     if (!world || !placeTile) return;
     const { x, y } = placeTile;
-    const sig = `${x},${y}|${world.era}|${world.buildings.length}|${world.roadLevel}`;
+    const sig = `${x},${y}|${world.era}|${world.buildings.length}|${world.roadLevel}|${world.roads.length}`;
     if (sig !== placeSig) {
       placeSig = sig;
       placeOffers = [];
       placeTitle.textContent = `${TERRAIN_NAMES[terrainAt(x, y)]} (${x}, ${y})`;
       placeBody.replaceChildren();
-      if (isStreet(world.buildings, x, y)) {
+      if (isRoad(world.roads, x, y)) {
         placeTitle.textContent = `🛣️ ${roadName(world.roadLevel)}`;
         placeSub.textContent = "De straten van het hele dorp gaan samen omhoog.";
+        placeBody.append(
+          button("sx-act sx-act-now", "⛏️ Paden weghalen", () => startPaths(true, { x, y })),
+          button("sx-act", "🛤️ Paden tekenen", () => startPaths(false)),
+        );
         if (world.roadLevel < world.era) {
           const o = offer({
             emoji: "⬆️",
@@ -406,11 +533,14 @@ export function createPanels(deps: PanelDeps): Panels {
         const fits: BuildingType[] = [];
         const elsewhere: string[] = [];
         for (const t of buildableTypes(world)) {
-          const err = placeError(world.buildings, t.id, x, y);
+          const err = placeError(world.buildings, world.roads, t.id, x, y);
           if (err) elsewhere.push(`${t.emoji} ${buildingName(t.id, world.era)}: ${err}`);
           else fits.push(t);
         }
         placeSub.textContent = fits.length ? "Wat bouwen we hier? Iedereen stemt mee." : "Hier past niets.";
+        if (!pathError(world.buildings, world.roads, x, y)) {
+          placeBody.append(button("sx-act", "🛤️ Pad tekenen vanaf hier", () => startPaths(false, { x, y })));
+        }
         for (const t of fits) {
           const o = offer({
             emoji: t.emoji,
@@ -457,6 +587,7 @@ export function createPanels(deps: PanelDeps): Panels {
     if (b) {
       closePlace();
       stopPlacing();
+      stopPaths();
     }
     deps.select(inspected);
     renderInspector();
@@ -611,6 +742,22 @@ export function createPanels(deps: PanelDeps): Panels {
           insActions.append(h("p", "sx-note", "✓ Helemaal bij voor dit tijdperk."));
         }
       }
+      if (t.category !== "center") {
+        const demolish: ProposalAction = { kind: "demolish", building: b.id };
+        const o = offer({
+          emoji: "🧨",
+          name: "Afbreken",
+          effect: "Weg is weg; je krijgt een deel van de bouwkosten terug.",
+          action: "🗳️ voorstellen",
+          votes: true,
+          onClick: () => propose(demolish),
+          cost: () => ({}),
+          gain: (w) => refundOf(w, demolish),
+          error: (w) => actionError(w, demolish),
+        });
+        insActions.append(o.el);
+        insOffers.push(o);
+      }
     }
     // Live info.
     const lines: string[] = [`${ERAS[b.level].emoji} ${ERAS[b.level].name}`];
@@ -647,6 +794,7 @@ export function createPanels(deps: PanelDeps): Panels {
     renderVote(now);
     renderInspector();
     renderPlace();
+    renderPaths();
   }
 
   window.setInterval(render, TICK_MS);
@@ -658,6 +806,7 @@ export function createPanels(deps: PanelDeps): Panels {
       if ((placeTile && placeTile.x === x && placeTile.y === y) || !["grass", "sand"].includes(terrainAt(x, y))) return closePlace();
       openPlace(x, y, px, py);
     },
+    paint,
     refresh: render,
   };
 }

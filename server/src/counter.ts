@@ -48,7 +48,8 @@ export function createCounterServer(opts: CounterServerOptions = {}): WebSocketS
   const file = opts.file ?? DEFAULT_FILE;
   const idleFile = opts.idleFile ?? process.env.IDLE_FILE ?? path.join(path.dirname(file), "idle.json");
 
-  const wss = new WebSocketServer({ noServer: true, maxPayload: 256 });
+  // Room for a path proposal of MAX_PATH_TILES tiles; everything else is tiny.
+  const wss = new WebSocketServer({ noServer: true, maxPayload: 2048 });
   let { count, peak } = loadJsonFile(file, parseCounter, () => ({ count: 0, peak: 0 }), "counter");
   const saver = debouncedSaver(() => saveJsonFile(file, { count, peak }, "counter"), SAVE_DELAY_MS);
   const idle = createIdleGame(idleFile);

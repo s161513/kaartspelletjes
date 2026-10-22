@@ -14,6 +14,7 @@ import {
   MAP_SIZE,
   MAX_BOOST_MS,
   MAX_OFFLINE_MS,
+  MAX_PATH_TILES,
   MARKET_HALF_LIFE_MS,
   SHOP_ITEMS,
   VOTE_MS,
@@ -27,12 +28,13 @@ import {
   buildCost,
   buyItem,
   capOf,
+  classicStreets,
   eraFor,
   gather,
   isLand,
+  isRoad,
   isRoadTile,
   isUsedUp,
-  isStreet,
   itemCost,
   itemError,
   multiplierAt,
@@ -40,14 +42,18 @@ import {
   newIdleState,
   patchAt,
   patches,
+  pathCost,
+  pathError,
   placeBuilding,
   placeError,
   ratesOf,
+  refundOf,
   roadCost,
   sourceLeft,
   sourcePatches,
-  streetsOf,
   terrainAt,
+  tileIndex,
+  tileOf,
   trade,
   tradeQuote,
   tradeRate,
@@ -233,6 +239,7 @@ test("build: at the current era, unlocked types only, cost grows per copy, pays"
   assert.equal(actionError({ ...s, resources: {} }, at(s, "house")), "te duur");
 
   const first = buildCost(s, "house")!;
+  assert.deepEqual(first, { wood: Math.ceil(30 * 1.5 * 1.2 ** 2), stone: Math.ceil(10 * 1.5 * 1.2 ** 2) }, "×1.5, ×1.2 per hut already there");
   s = { ...s, resources: { wood: 1000, stone: 1000 } };
   const action = at(s, "house");
   const { state, building } = applyAction(s, action);
@@ -270,6 +277,27 @@ test("upgrade: old buildings go straight to the current era, decorations never",
   assert.equal(actionError(s, { kind: "upgrade", building: 12345 }), "onbekend gebouw");
 });
 
+test("demolish: anything but the center, for a share of its cost back, up to the storage limit", () => {
+  const s = rich(newIdleState(T0), 0);
+  const center = s.buildings.find((b) => b.type === "center")!;
+  assert.equal(actionError(s, { kind: "demolish", building: center.id }), "het centrum blijft staan");
+  assert.equal(actionError(s, { kind: "demolish", building: 12345 }), "onbekend gebouw");
+  const hut = s.buildings.find((b) => b.type === "house")!;
+  const action = { kind: "demolish" as const, building: hut.id };
+  assert.equal(actionError(s, action), null, "free: nothing to pay");
+  assert.equal(actionLabel(s, action), "🧨 Hut afbreken");
+  assert.deepEqual(refundOf(s, action), { wood: 11, stone: 3 }, "25% of 1.5 × the base cost");
+  const { state } = applyAction(s, action);
+  assert.ok(!state.buildings.some((b) => b.id === hut.id));
+  assert.equal(assignWorkers(state).population, assignWorkers(s).population - 3);
+  assert.deepEqual([state.resources.wood, state.resources.stone], [11, 3]);
+  const full = { ...s, resources: { wood: capOf(s) } };
+  assert.equal(applyAction(full, action).state.resources.wood, capOf(s), "storage limit holds");
+  // A building from an earlier era gives back what it cost then.
+  const old = unlockEra(s, 2);
+  assert.deepEqual(refundOf(old, action), refundOf(s, action));
+});
+
 test("voteOutcome: majority of online passes, impossible majority fails, deadline decides the rest", () => {
   const p = (votes: boolean[]): IdleProposal => ({
     id: 1, action: { kind: "upgrade", building: 1 }, by: "x", deadline: T0 + VOTE_MS,
@@ -298,47 +326,77 @@ const nearTerrain = (x: number, y: number, r: number, kinds: string[]) => {
 };
 
 test("placeError: land only, off streets, free, work by its source, the rest in the village", () => {
-  const { buildings } = newIdleState(T0);
+  const { buildings, roads } = newIdleState(T0);
   const home = placeBuilding(buildings, "house")!;
-  assert.equal(placeError(buildings, "house", home.x, home.y), null);
-  assert.equal(placeError(buildings, "house", buildings[1].x, buildings[1].y), "daar staat al iets");
-  assert.equal(placeError(buildings, "house", 0, 0), "hier kan je niet bouwen");
-  assert.equal(placeError(buildings, "house", -1, 3), "buiten de kaart");
-  const street = findTile((x, y) => isStreet(buildings, x, y));
-  assert.equal(placeError(buildings, "house", street.x, street.y), "dat is een straat");
+  assert.equal(placeError(buildings, roads, "house", home.x, home.y), null);
+  assert.equal(placeError(buildings, roads, "house", buildings[1].x, buildings[1].y), "daar staat al iets");
+  assert.equal(placeError(buildings, roads, "house", 0, 0), "hier kan je niet bouwen");
+  assert.equal(placeError(buildings, roads, "house", -1, 3), "buiten de kaart");
+  const street = tileOf(roads[0]);
+  assert.equal(placeError(buildings, roads, "house", street.x, street.y), "daar ligt een pad");
+  assert.equal(placeError(buildings, [], "house", street.x, street.y), null, "without the path it's free land");
 
   const villageDist = (x: number, y: number) => Math.min(...buildings.map((b) => Math.max(Math.abs(b.x - x), Math.abs(b.y - y))));
   const far = findTile((x, y) => isBuildableTile(x, y) && villageDist(x, y) > 10 && !nearTerrain(x, y, 2, ["deposit"]));
-  assert.equal(placeError(buildings, "house", far.x, far.y), "te ver van het dorp");
+  assert.equal(placeError(buildings, roads, "house", far.x, far.y), "te ver van het dorp");
   const roomy = findTile((x, y) => isBuildableTile(x, y) && villageDist(x, y) === 9);
-  assert.equal(placeError(buildings, "house", roomy.x, roomy.y), null, "the village grows loosely");
+  assert.equal(placeError(buildings, roads, "house", roomy.x, roomy.y), null, "the village grows loosely");
 
   // A woodcutter goes by the forest, wherever that is; not in the middle of the fields.
   const field = findTile((x, y) => isBuildableTile(x, y) && villageDist(x, y) <= 10 && !nearTerrain(x, y, 2, ["forest"]));
-  assert.equal(placeError(buildings, "wood", field.x, field.y), "moet vlak bij het bos staan");
+  assert.equal(placeError(buildings, roads, "wood", field.x, field.y), "moet vlak bij het bos staan");
   const woods = findTile((x, y) => isBuildableTile(x, y) && villageDist(x, y) > 10 && nearTerrain(x, y, 1, ["forest"]));
-  assert.equal(placeError(buildings, "wood", woods.x, woods.y), null);
+  assert.equal(placeError(buildings, roads, "wood", woods.x, woods.y), null);
 
   for (const d of DEPOSITS) {
     const type = `mine_${d.resource}`;
-    assert.doesNotThrow(() => findTile((x, y) => !placeError([], type, x, y)), `${d.name} has room for a mine`);
-    assert.equal(placeError([], type, far.x, far.y), `moet bij de ${d.name} staan`);
+    assert.doesNotThrow(() => findTile((x, y) => !placeError([], [], type, x, y)), `${d.name} has room for a mine`);
+    assert.equal(placeError([], [], type, far.x, far.y), `moet bij de ${d.name} staan`);
   }
 });
 
-test("streets: grow with the town, upgrade all at once to the current era", () => {
+test("streets: a new town starts on a grid, more is laid and removed by vote, upgraded all at once", () => {
   let s = rich(newIdleState(T0));
-  const before = streetsOf(s.buildings);
-  assert.ok(before.size > 0);
-  for (const key of before) {
-    const [x, y] = key.split(",").map(Number);
-    assert.ok(isRoadTile(x, y) && isLand(x, y));
-  }
-  // A grid tile far from town is no street (yet), so you could build there later.
-  const lonely = findTile((x, y) => isRoadTile(x, y) && isLand(x, y) && !before.has(`${x},${y}`));
-  assert.equal(isStreet(s.buildings, lonely.x, lonely.y), false);
+  assert.ok(s.roads.length > 0);
+  assert.deepEqual(s.roads, classicStreets(s.buildings));
+  for (const i of s.roads) assert.ok(isRoadTile(tileOf(i).x, tileOf(i).y) && isLand(tileOf(i).x, tileOf(i).y));
+  // Streets don't grow by themselves anymore.
+  const before = s.roads;
   s = build(s, "house");
-  assert.ok(streetsOf(s.buildings).size >= before.size, "more town, more streets");
+  assert.equal(s.roads, before);
+
+  // Lay a path: anywhere on free land in the village, paid per tile.
+  const free = (x: number, y: number) => !pathError(s.buildings, s.roads, x, y);
+  const a = findTile((x, y) => free(x, y) && free(x + 1, y) && free(x + 2, y));
+  const tiles = [0, 1, 2].map((dx) => tileIndex(a.x + dx, a.y));
+  const lay = { kind: "paths" as const, tiles };
+  assert.equal(actionError(s, lay), null);
+  assert.deepEqual(pathCost(s, 3), { stone: 9, wood: 3 });
+  assert.equal(actionLabel(s, lay), "🛤️ 3 tegels pad leggen");
+  const laid = applyAction(s, lay).state;
+  assert.ok(tiles.every((i) => isRoad(laid.roads, tileOf(i).x, tileOf(i).y)));
+  assert.equal(laid.resources.stone, s.resources.stone - 9);
+  assert.deepEqual(laid.roads, [...laid.roads].sort((x, y) => x - y), "kept sorted");
+  assert.match(actionError(laid, lay)!, /daar ligt al een pad/);
+  assert.equal(actionError({ ...s, resources: {} }, lay), "te duur");
+  assert.equal(actionError(s, { kind: "paths", tiles: [] }), "geen tegels gekozen");
+  assert.equal(actionError(s, { kind: "paths", tiles: [tiles[0], tiles[0]] }), "ongeldige tegels");
+  assert.match(actionError(s, { kind: "paths", tiles: Array.from({ length: MAX_PATH_TILES + 1 }, (_, i) => i) })!, /te veel tegels/);
+  assert.match(actionError(s, { kind: "paths", tiles: [tileIndex(0, 0)] })!, /hier kan geen pad/);
+  const house = s.buildings.find((b) => b.type === "house")!;
+  assert.match(actionError(s, { kind: "paths", tiles: [tileIndex(house.x, house.y)] })!, /daar staat al iets/);
+  // A path blocks building there, until it's gone again.
+  assert.equal(placeError(laid.buildings, laid.roads, "house", a.x, a.y), "daar ligt een pad");
+
+  // Remove it again for a bit back (a share of the cost, rounded down).
+  const unpave = { kind: "unpave" as const, tiles };
+  assert.equal(actionError(s, unpave), "daar ligt geen pad");
+  assert.equal(actionError(laid, unpave), null);
+  assert.deepEqual(refundOf(laid, unpave), { stone: 2 });
+  assert.equal(actionLabel(laid, unpave), "⛏️ 3 tegels pad weghalen");
+  const gone = applyAction({ ...laid, resources: {} }, unpave).state;
+  assert.deepEqual(gone.roads, s.roads);
+  assert.deepEqual(gone.resources, { stone: 2 });
 
   assert.equal(actionError(s, { kind: "roads" }), "al up-to-date");
   s = unlockEra(s, 2);
@@ -413,19 +471,21 @@ test("idle game: propose + vote builds and places, state survives a reload, v1 f
   try {
     const file = path.join(dir, "idle.json");
     const game = createIdleGame(file, T0);
+    // A fresh town needs a few seconds of production for its first hut.
+    const later = T0 + 10_000;
     const action = at(newIdleState(T0), "house");
-    const { error, events } = game.propose("a", "  Ann  ", action, 3, T0);
+    const { error, events } = game.propose("a", "  Ann  ", action, 3, later);
     assert.equal(error, undefined);
     assert.deepEqual(events, [{ kind: "proposed", label: "🛖 Hut bouwen", by: "Ann" }]);
-    assert.equal(game.propose("b", "Bob", action, 3, T0).error, "er loopt al een stemming");
+    assert.equal(game.propose("b", "Bob", action, 3, later).error, "er loopt al een stemming");
 
-    const done = game.vote("b", 1, true, 3, T0);
+    const done = game.vote("b", 1, true, 3, later);
     assert.equal(done.length, 1);
     const bought = done[0] as { kind: string; building: PlacedBuilding };
     assert.equal(bought.kind, "bought");
     assert.equal(bought.building.type, "house");
     assert.deepEqual([bought.building.x, bought.building.y], [action.x, action.y]);
-    const msg = game.message("a", 0, 0, 3, T0);
+    const msg = game.message("a", 0, 0, 3, later);
     assert.ok(msg.state.buildings.some((b) => b.id === bought.building.id));
     assert.equal(msg.proposal, null);
 
@@ -436,7 +496,8 @@ test("idle game: propose + vote builds and places, state survives a reload, v1 f
 
     game.flush();
     const saved = JSON.parse(readFileSync(file, "utf8"));
-    assert.equal(saved.v, 3);
+    assert.equal(saved.v, 4);
+    assert.deepEqual(saved.roads, msg.state.roads);
     const reloaded = createIdleGame(file, T0 + 1000);
     assert.equal(reloaded.message("a", 0, 0, 1, T0 + 1000).state.buildings.length, msg.state.buildings.length);
 
@@ -457,6 +518,7 @@ test("idle game: a v2 file keeps its town; trades and small buys are instant, bi
     const game = createIdleGame(file, T0);
     const first = game.message("a", 0, 0, 1, T0).state;
     assert.equal(first.buildings.length, town.buildings.length);
+    assert.deepEqual(first.roads, classicStreets(town.buildings), "old towns get their grid streets as paths");
     assert.deepEqual([first.boosts, first.perks, first.market], [[], {}, {}]);
 
     assert.deepEqual(game.trade("a", "  Ann ", "wood", "stone", 100, T0).events, [{ kind: "deal", label: "100 🪵 → 40 🪨", by: "Ann" }]);
@@ -644,6 +706,10 @@ test("counter socket: 67 unlocks an era, clicks reach the others, vote builds, u
     assert.equal((await a.wait(event("error"))).event.message, "eerst een Marktkraam bouwen");
     a.send({ type: "buy", item: "party" });
     assert.equal((await a.wait(event("error"))).event.message, "hiervoor is een stemming nodig");
+    // A path proposal of the biggest size fits through the socket (here: all water, at the map's edge).
+    const tiles = Array.from({ length: MAX_PATH_TILES }, (_, i) => MAP_SIZE * MAP_SIZE - 1 - i);
+    a.send({ type: "propose", action: { kind: "paths", tiles }, name: "Ann Annabella Anders" });
+    assert.equal((await a.wait(event("error"))).event.message, "(79, 79): hier kan geen pad");
   } finally {
     for (const p of peers) await p.close();
     wss.close();

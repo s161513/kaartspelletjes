@@ -3,6 +3,7 @@ import {
   ERAS,
   MAP_SIZE,
   MAX_ITEM_BOOST_MS,
+  MAX_PATH_TILES,
   MAX_NAME_LENGTH,
   STATE_VERSION,
   VOTE_MS,
@@ -14,9 +15,11 @@ import {
   buildingType,
   buyItem,
   buyOutfit,
+  classicStreets,
   clickAmount,
   defaultLook,
   gather,
+  isLand,
   itemError,
   lookError,
   newIdleState,
@@ -118,15 +121,25 @@ function parsePlayers(raw: unknown): Record<string, IdlePlayer> {
   return out;
 }
 
+/** Street tiles on free land, once each, sorted. */
+function parseRoads(raw: unknown, buildings: readonly PlacedBuilding[]): number[] {
+  if (!Array.isArray(raw)) return [];
+  const taken = new Set(buildings.map((b) => b.y * MAP_SIZE + b.x));
+  const ok = (i: unknown): i is number =>
+    Number.isInteger(i) && (i as number) >= 0 && (i as number) < MAP_SIZE * MAP_SIZE && !taken.has(i as number) && isLand((i as number) % MAP_SIZE, Math.floor((i as number) / MAP_SIZE));
+  return [...new Set(raw.filter(ok))].sort((a, b) => a - b);
+}
+
 /**
  * Keep only known, sane fields; an open vote is dropped (its deadline is gone
- * anyway). A v2 file gets empty shops; anything older is replaced by a fresh
- * town, quietly: it was never in production.
+ * anyway). A v2 file gets empty shops; v2 and v3 files (streets on a fixed
+ * grid) get those streets as laid paths; anything older is replaced by a
+ * fresh town, quietly: it was never in production.
  */
 function parseIdle(raw: unknown, now: number): IdleState | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const r = raw as Record<string, unknown>;
-  if (r.v !== STATE_VERSION && r.v !== 2) return newIdleState(now);
+  if (r.v !== STATE_VERSION && r.v !== 3 && r.v !== 2) return newIdleState(now);
   const s = newIdleState(now);
   if (Number.isInteger(r.era)) s.era = Math.max(0, Math.min(ERAS.length - 1, r.era as number));
   s.resources = {};
@@ -172,6 +185,7 @@ function parseIdle(raw: unknown, now: number): IdleState | null {
     if (p && String(p.id) === id && finite(n) && n > 0) s.nature[id] = Math.min(n, p.capacity);
   }
   if (Number.isInteger(r.roadLevel)) s.roadLevel = Math.max(0, Math.min(s.era, r.roadLevel as number));
+  s.roads = r.v === STATE_VERSION ? parseRoads(r.roads, s.buildings) : classicStreets(s.buildings);
   if (Number.isInteger(r.nextProposalId) && (r.nextProposalId as number) >= 1) s.nextProposalId = r.nextProposalId as number;
   s.players = parsePlayers(r.players);
   return s;
@@ -183,6 +197,11 @@ function parseAction(a: unknown): ProposalAction | null {
   if (r.kind === "upgrade" && Number.isInteger(r.building)) return { kind: "upgrade", building: r.building as number };
   if (r.kind === "roads") return { kind: "roads" };
   if (r.kind === "buy" && typeof r.item === "string") return { kind: "buy", item: r.item };
+  if (r.kind === "demolish" && Number.isInteger(r.building)) return { kind: "demolish", building: r.building as number };
+  if ((r.kind === "paths" || r.kind === "unpave") && Array.isArray(r.tiles) && r.tiles.length <= MAX_PATH_TILES) {
+    const tiles = r.tiles.filter((i): i is number => Number.isInteger(i) && i >= 0 && i < MAP_SIZE * MAP_SIZE);
+    if (tiles.length === r.tiles.length) return { kind: r.kind, tiles: [...new Set(tiles)] };
+  }
   return null;
 }
 

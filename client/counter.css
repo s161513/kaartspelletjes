@@ -330,6 +330,26 @@ body.sx-era-10 { --sx-bg: #12002b; --sx-bg2: #2a0050; }
   pointer-events: auto;
 }
 
+/* Drawing paths: tools, cost and "propose" in the banner; it wraps on small screens. */
+.sx-banner-paths {
+  flex-wrap: wrap;
+  justify-content: center;
+  border-radius: 18px;
+}
+
+.sx-banner .sx-cost {
+  color: #000;
+}
+
+.sx-banner .sx-cost-short,
+.sx-banner .sx-missing {
+  color: #b00000;
+}
+
+.sx-act[aria-pressed="false"] {
+  background: #fff;
+}
+
 /* ---------- floating buttons ---------- */
 
 .sx-fabs {
@@ -337,6 +357,8 @@ body.sx-era-10 { --sx-bg: #12002b; --sx-bg2: #2a0050; }
   right: 16px;
   bottom: 16px;
   z-index: 6;
+  display: flex;
+  gap: 8px;
 }
 
 .sx-fab {

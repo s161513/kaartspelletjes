@@ -273,6 +273,10 @@ export const ROAD_NAMES: readonly string[] = [
 /** Level-0 cost of upgrading the streets (×4 per era, plus that era's special). */
 export const ROAD_COST: Amounts = { stone: 80, wood: 30 };
 export const ROAD_SPECIAL_COST = 20;
+/** Laying one tile of path, at the street network's level (×4 per level). */
+export const PATH_TILE_COST: Amounts = { stone: 3, wood: 1 };
+/** At most this many path tiles in one proposal. */
+export const MAX_PATH_TILES = 150;
 
 // ---------- players' own NPCs ----------
 
@@ -326,10 +330,14 @@ export interface NpcLook {
 
 /** Costs, production and storage all grow ×4 per level/era, so every era plays at the same pace. */
 export const LEVEL_SCALE = 4;
+/** Building something new costs this × its base cost, so the town grows at a steady pace. */
+export const BUILD_COST_MULT = 1.5;
 /** Each copy of a type costs this much more than the previous one. */
-export const COST_GROWTH = 1.12;
-/** Upgrading costs this share of building new at the target level. */
+export const COST_GROWTH = 1.2;
+/** Upgrading costs this share of building new at the target level (before BUILD_COST_MULT). */
 export const UPGRADE_SHARE = 0.6;
+/** Tearing down a building or a path gives back this share of what it costs at its level. */
+export const REFUND_SHARE = 0.25;
 /** Per work building at full staff, per second, at level 0. */
 export const BASE_RATE: Readonly<Record<ResourceId, number>> = { food: 1, wood: 1, stone: 0.8 };
 export const SPECIAL_BASE_RATE = 0.5;
@@ -355,7 +363,7 @@ export const MARKET_HALF_LIFE_MS = 2 * MIN;
 export const VILLAGE_RANGE = 10;
 /** Work buildings with a source (forest, rocks, a vein) stand this close to it. */
 export const SOURCE_RANGE = 2;
-/** Every 4th row and column is a street within this many tiles of a building. */
+/** A new town starts with streets on every 4th row and column within this many tiles of a building. */
 export const STREET_RANGE = 2;
 
 // ---------- nature runs out ----------

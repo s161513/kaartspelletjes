@@ -50,6 +50,7 @@ export function createTown(send: (msg: IdleClientMsg) => void): Town {
     canvas: document.getElementById("sx-world") as HTMLCanvasElement,
     onGather: (_resource, x, y) => gatherHere(x, y),
     onSelect: (b) => panels.inspect(b),
+    onVillager: (id) => panels.inspectVillager(id),
     onTile: (x, y, px, py) => panels.tile(x, y, px, py),
     onPaint: (x, y, first) => panels.paint(x, y, first),
   });
@@ -61,6 +62,8 @@ export function createTown(send: (msg: IdleClientMsg) => void): Town {
     serverNow,
     connected: () => connected,
     select: (id) => world.select(id),
+    selectVillager: (id) => world.selectVillager(id),
+    villager: (id) => world.villager(id),
     setPlacing: (ok) => world.setPlacing(ok),
     mark: (tile) => world.mark(tile),
     setGhost: (action) => world.setGhost(action),

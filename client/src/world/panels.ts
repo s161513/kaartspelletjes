@@ -68,6 +68,7 @@ import {
   type Terrain,
 } from "@app/shared/idle";
 import { session } from "../session";
+import type { VillagerInfo } from "./villagers";
 
 const TICK_MS = 300;
 
@@ -219,6 +220,9 @@ export interface PanelDeps {
   serverNow(): number;
   connected(): boolean;
   select(id: number | null): void;
+  selectVillager(id: string | null): void;
+  /** What a villager is up to, or null if they're gone. */
+  villager(id: string): VillagerInfo | null;
   setPlacing(ok: ((x: number, y: number) => boolean) | null): void;
   mark(tile: { x: number; y: number } | null): void;
   setGhost(action: ProposalAction | null): void;
@@ -232,6 +236,8 @@ export interface PanelDeps {
 
 export interface Panels {
   inspect(b: PlacedBuilding | null): void;
+  /** Show who this villager is and what they do. */
+  inspectVillager(id: string): void;
   /** A tile was clicked (land, or anything while placing). */
   tile(x: number, y: number, px: number, py: number): void;
   /** Drawing paths: the pointer touched a tile. */
@@ -663,9 +669,13 @@ export function createPanels(deps: PanelDeps): Panels {
   let insOffers: Offer[] = [];
   let insLive: (() => void) | null = null;
 
+  let villagerId: string | null = null;
+
   function inspect(b: PlacedBuilding | null): void {
     inspected = b?.id ?? null;
     inspectSig = "";
+    villagerId = null;
+    deps.selectVillager(null);
     if (b) {
       closePlace();
       stopPlacing();
@@ -741,7 +751,43 @@ export function createPanels(deps: PanelDeps): Panels {
     });
   }
 
+  function inspectVillager(id: string): void {
+    inspect(null);
+    closePlace();
+    stopPlacing();
+    stopPaths();
+    villagerId = id;
+    deps.selectVillager(id);
+    renderInspector();
+  }
+
+  function renderVillager(v: VillagerInfo): void {
+    const sig = `v:${villagerId}`;
+    if (sig !== inspectSig) {
+      inspectSig = sig;
+      insTitle.textContent = `🧍 ${v.name}`;
+      insActions.replaceChildren();
+      insOffers = [];
+      insLive = null;
+    }
+    const lines = v.player
+      ? [`🎮 ${v.player}`, v.doing]
+      : [
+          v.job ? `👷 werkt bij: ${v.job}` : "😴 werkloos: bouw een werkgebouw met plek vrij",
+          `🏠 woont in: ${v.home ?? "—"}`,
+          `⏱️ nu: ${v.doing}`,
+        ];
+    insInfo.replaceChildren(...lines.map((l) => h("div", "", l)));
+  }
+
   function renderInspector(): void {
+    if (villagerId !== null) {
+      const v = deps.villager(villagerId);
+      inspectEl.hidden = !v;
+      if (v) return renderVillager(v);
+      villagerId = null;
+      deps.selectVillager(null);
+    }
     const world = deps.world();
     const b = world?.buildings.find((x) => x.id === inspected);
     inspectEl.hidden = !b;
@@ -882,6 +928,7 @@ export function createPanels(deps: PanelDeps): Panels {
   window.setInterval(render, TICK_MS);
   return {
     inspect,
+    inspectVillager,
     tile(x, y, px, py) {
       if (placing) return placeAt(x, y);
       // Clicking the same tile again, or water/mountains (unless a path or bridge is there), just closes the popup.

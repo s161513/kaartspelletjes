@@ -265,7 +265,8 @@ export function createPanels(deps: PanelDeps): Panels {
   // ---------- HUD ----------
 
   let hudEra = -1;
-  const hudChips = new Map<string, HTMLSpanElement>();
+  /** Per resource: the chip, its text and the bar showing how full storage is. */
+  const hudChips = new Map<string, { chip: HTMLSpanElement; text: HTMLSpanElement; fill: HTMLSpanElement }>();
   const popChip = h("span", "sx-hud-chip sx-hud-pop");
   const boostBox = h("span");
   boostBox.style.display = "contents";
@@ -276,18 +277,24 @@ export function createPanels(deps: PanelDeps): Panels {
       hud.replaceChildren();
       hudChips.clear();
       for (const r of RESOURCES.filter((r) => r.era <= world.era)) {
-        const chip = h("span", "sx-hud-chip");
+        const chip = h("span", "sx-hud-chip sx-hud-res");
+        const text = h("span");
+        const bar = h("span", "sx-hud-bar");
+        const fill = h("span", "sx-hud-fill");
+        bar.append(fill);
+        chip.append(text, bar);
         hud.append(chip);
-        hudChips.set(r.id, chip);
+        hudChips.set(r.id, { chip, text, fill });
       }
       hud.append(popChip, boostBox);
     }
     const cap = capOf(world);
     const rates = ratesOf(world);
-    for (const [id, chip] of hudChips) {
+    for (const [id, { chip, text, fill }] of hudChips) {
       const have = world.resources[id] ?? 0;
       const rate = (rates[id] ?? 0) * multiplierAt(world, id, now);
-      chip.textContent = `${resourceDef(id)!.emoji} ${fmt(have)}${rate ? ` +${fmt(rate)}/s` : ""}`;
+      text.textContent = `${resourceDef(id)!.emoji} ${fmt(have)}${rate ? ` +${fmt(rate)}/s` : ""}`;
+      fill.style.width = `${Math.min(100, (have / cap) * 100)}%`;
       chip.classList.toggle("sx-hud-full", have >= cap);
       chip.title = `${resourceDef(id)!.name}: ${fmt(have)} van max ${fmt(cap)}${have >= cap ? " — vol! bouw opslag" : ""}`;
     }

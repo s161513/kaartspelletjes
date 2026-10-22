@@ -75,25 +75,13 @@ Status: gepland | bezig | in review (PR #x) | gedaan (PR #x)
 - [ ] <wat er moet gebeuren> (bron: feedback <datum>, <wie>)
 -->
 
-Volgorde: van boven naar beneden. Een latere update kan steunen op een
-eerdere; dat staat er dan bij. Alle bronnen zijn feedback van 2026-10-22,
-tenzij anders vermeld.
+Volgorde: van boven naar beneden, op volgorde van belangstelling. De
+nummers volgen die volgorde, dus "doe de volgende update" is de bovenste die
+nog gepland staat. Een latere update kan steunen op een eerdere; dat staat er
+dan bij. Alle bronnen zijn feedback van 2026-10-22, tenzij anders vermeld.
 
-### Update 3: Balans
-Status: gepland. Bouw deze pas als er een paar dagen gespeeld is.
-
-- [ ] Kijk hoe snel een groep door een tijdperk heen komt. Pas zo nodig
-      `BUILD_COST_MULT`, `COST_GROWTH` en de productie aan in
-      `idleContent.ts`. (bron: Richard, "het tempo ligt te hoog")
-- [ ] Grondstoffen moeilijker maken om te krijgen. (bron: "moeilijker
-      resources")
-- [ ] De kosten van het Groot dorpsfeest laten meegroeien met de bevolking,
-      niet alleen met het tijdperk. (bron: "dorpsfeest resources moeten scalen
-      met population")
-
-### Update 4: Overzicht & bediening
-Status: gepland. Aanrader om als eerste te bouwen: klein, en spelers merken
-het meteen.
+### Update 3: Overzicht & bediening
+Status: gepland. Als eerste bouwen: klein, en spelers merken het meteen.
 
 - [ ] Een balkje per grondstof in de HUD dat laat zien hoe vol de opslag is.
       (bron: "een balk voor resources")
@@ -108,8 +96,29 @@ het meteen.
       los van `assignWorkers`; laat dat overeenkomen. (bron: "iemand zegt dat
       die werkloos is, ma die is nie werkloos")
 
+### Update 4: Dorpelingen doen het werk
+Status: gepland. Steunt op update 3 (het overzicht als je op een dorpeling
+klikt).
+
+- [ ] Klikken op natuur levert geen grondstoffen meer op (`gather` en de
+      move `{ type: "gather" }` in `shared/idle.ts`). Al het andere blijft
+      klikbaar: een tegel kiezen om te bouwen, paden, stemmen, markt en
+      winkels. (bron: speler, "maak de recourses nietmeer clickable maar dat
+      de mannetjes het werk doen")
+- [ ] Dorpelingen zonder baan verzamelen zelf langzaam uit de natuur in de
+      buurt, en gebruiken die op zoals klikken nu doet. Zo valt het begin, nog
+      zonder werkgebouw, niet stil. (bron: idem, "meer idle")
+- [ ] Klik op een werkloze dorpeling en kies wat die gaat verzamelen (hout,
+      steen, voedsel, …). Dat is gedeelde staat op de server, bijvoorbeeld
+      het aantal werklozen per grondstof, en niet per browser: de NPC's zijn
+      nu alleen iets van de browser. (bron: Richard, "wel de mannetjes kan
+      klikken zodat je kan kiezen wat ze gaan doen als ze bv nog geen job
+      hebben")
+- [ ] Duidelijker welke banen er zijn, en kunnen kiezen wie waar werkt.
+      (bron: "duidelijkere jobs / jobs kiezen")
+
 ### Update 5: Dorpelingen op straat
-Status: gepland. Bouw na update 4.
+Status: gepland. Bouw na update 3.
 
 - [ ] Dorpelingen lopen bij voorkeur over wegen en paden, en nooit dwars door
       gebouwen. Gebouwen gelden als niet beloopbaar in `path.ts`, en wegen
@@ -133,7 +142,7 @@ Status: gepland.
 - [ ] Verschillende soorten voedsel, zoals graan, vlees en vis. Dat is nodig
       voor update 7. (bron: "variatie in voedsel")
 
-### Update 7: Geluk, wonen & werk
+### Update 7: Geluk & wonen
 Status: gepland. Steunt op update 6 (soorten voedsel).
 
 - [ ] Een geluksniveau voor het dorp. Ongelukkige inwoners werken minder
@@ -143,8 +152,6 @@ Status: gepland. Steunt op update 6 (soorten voedsel).
       (bron: "elke persoon heeft een huis nodig of die worden ongelukkig")
 - [ ] Te weinig variatie in voedsel maakt mensen boos. (bron: "variatie in
       voedsel of mensen worden boos")
-- [ ] Duidelijker welke banen er zijn, en kunnen kiezen wie waar werkt.
-      (bron: "duidelijkere jobs / jobs kiezen")
 - [ ] Een bevolkingsoverzicht op een vaste plek, bijvoorbeeld in een raadhuis.
       (bron: "Population overzicht plek zoals een council house")
 
@@ -174,8 +181,21 @@ Status: gepland.
       gamedev")
 - [ ] Nieuwe textures, met die skills. (bron: "Retexturing nadat de gamedev
       skills erdoor zijn gegaan")
-- [ ] De Steentijd moet echt prehistorisch aanvoelen. (bron: "Tijdperk voelt
+- [ ] De tijdperken moeten echt historisch aanvoelen. (bron: "Tijdperk voelt
       nu niet als prehistory")
+
+### Update 11: Balans
+Status: gepland. Bouw deze pas als er een paar dagen gespeeld is, en na
+update 4 (zonder klikken verandert het tempo).
+
+- [ ] Kijk hoe snel een groep door een tijdperk heen komt. Pas zo nodig
+      `BUILD_COST_MULT`, `COST_GROWTH` en de productie aan in
+      `idleContent.ts`. (bron: Richard, "het tempo ligt te hoog")
+- [ ] Grondstoffen moeilijker maken om te krijgen. (bron: "moeilijker
+      resources")
+- [ ] De kosten van het Groot dorpsfeest laten meegroeien met de bevolking,
+      niet alleen met het tijdperk. (bron: "dorpsfeest resources moeten scalen
+      met population")
 
 ### Eerst beslissen (nog niet ingepland)
 

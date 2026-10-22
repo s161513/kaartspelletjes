@@ -15,12 +15,17 @@ thema (zie [ROADMAP.md](ROADMAP.md)):
 
 ## Nieuw
 
-<!-- Voorbeeld:
-- 2026-10-23, speler, laptop: de stemlijst bedekt het dorp
--->
+(leeg)
 
 ## Verwerkt
 
+- 2026-10-22, speler: "maak de recourses nietmeer clickable maar dat de
+  mannetjes het werk doen (meer idle). wij kunnen nog steeds de rest klikken
+  en uitvoeren": Update 4
+- 2026-10-22, Richard: "wel de mannetjes kan klikken zodat je kan kiezen wat
+  ze gaan doen als ze bv nog geen job hebben": Update 4
+- 2026-10-22, Richard: updates op volgorde van belangstelling, nummers
+  opnieuw toegekend: zie ROADMAP.md
 - 2026-10-22, speler: "paden bouwen": Update 2 (PR #27)
 - 2026-10-22, speler: "bruggen bouwen": Update 2 (PR #27)
 - 2026-10-22, speler: "resources kunnen verwijderen om een pad op te
@@ -31,20 +36,20 @@ thema (zie [ROADMAP.md](ROADMAP.md)):
 - 2026-10-22, Richard: minimaal 2 ja-stemmen, dus alleen kun je niet direct
   bouwen: Update 2 (PR #27)
 - 2026-10-22, Richard: bouwen moet duurder, het tempo ligt te hoog:
-  Update 2 (PR #27); de balans wordt opnieuw bekeken in Update 3
+  Update 2 (PR #27); de balans wordt opnieuw bekeken in Update 11
 - 2026-10-22, Richard: afbreken voor een deel van de grondstoffen terug, ook
   bij paden: Update 2 (PR #27)
 - 2026-10-22, Richard: telefoon voorlopig negeren, de browser op een computer
   is genoeg: zie "Scope" in ROADMAP.md
-- 2026-10-22: "moeilijker resources": Update 3
-- 2026-10-22: "de dorpsfeest resources moeten scalen met population": Update 3
+- 2026-10-22: "moeilijker resources": Update 11
+- 2026-10-22: "de dorpsfeest resources moeten scalen met population": Update 11
 - 2026-10-22: "een balk voor resources om makkelijk te zien hoe vol iets is":
-  Update 4
-- 2026-10-22: "scrollen op mousepad werkt veel te traag": Update 4
+  Update 3
+- 2026-10-22: "scrollen op mousepad werkt veel te traag": Update 3
 - 2026-10-22: "als je op iemand klikt een duidelijk overzicht van job status":
-  Update 4
+  Update 3
 - 2026-10-22: "iemand zegt dat die werkloos is, ma die is nie werkloos" (bug):
-  Update 4
+  Update 3
 - 2026-10-22: "laat de npcs de roads gebruiken en nie gwn door de huizen
   glitchen": Update 5
 - 2026-10-22: "teveel random npc's": Update 5
@@ -57,7 +62,7 @@ thema (zie [ROADMAP.md](ROADMAP.md)):
 - 2026-10-22: "Happiness level": Update 7
 - 2026-10-22: "elke persoon heeft een huis nodig of die worden ongelukkig":
   Update 7
-- 2026-10-22: "duidelijkere jobs / jobs kiezen": Update 7
+- 2026-10-22: "duidelijkere jobs / jobs kiezen": Update 4
 - 2026-10-22: "Population overzicht plek zoals een council house": Update 7
 - 2026-10-22: "Mines": Update 8
 - 2026-10-22: "coal": Update 8

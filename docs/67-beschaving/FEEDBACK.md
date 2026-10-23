@@ -19,6 +19,10 @@ thema (zie [ROADMAP.md](ROADMAP.md)):
 
 ## Verwerkt
 
+- 2026-10-23, Richard: voedsel blijft één voorraad met een soort per bron,
+  vier voedselgebouwen, jagerskamp vangt minder bij gekapt bos, veehouderij
+  vanaf de Bronstijd: Update 6
+
 - 2026-10-22, speler: "maak de recourses nietmeer clickable maar dat de
   mannetjes het werk doen (meer idle). wij kunnen nog steeds de rest klikken
   en uitvoeren": Update 4 (PR #29)
@@ -51,9 +55,9 @@ thema (zie [ROADMAP.md](ROADMAP.md)):
 - 2026-10-22: "iemand zegt dat die werkloos is, ma die is nie werkloos" (bug):
   Update 3 (PR #28)
 - 2026-10-22: "laat de npcs de roads gebruiken en nie gwn door de huizen
-  glitchen": Update 5
-- 2026-10-22: "teveel random npc's": Update 5
-- 2026-10-22: extra zin "Who's gonna carry the logs and the boats?": Update 5
+  glitchen": Update 5 (PR #31)
+- 2026-10-22: "teveel random npc's": Update 5 (PR #31)
+- 2026-10-22: extra zin "Who's gonna carry the logs and the boats?": Update 5 (PR #31)
 - 2026-10-22: "Farm land": Update 6
 - 2026-10-22: "Animals, Hunting, Animal husbandry": Update 6
 - 2026-10-22: "fishery": Update 6

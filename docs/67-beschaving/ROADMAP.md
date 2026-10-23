@@ -122,7 +122,7 @@ Status: gedaan (PR #29, samen met update 3 naar main in PR #30)
       (bron: "duidelijkere jobs / jobs kiezen")
 
 ### Update 5: Dorpelingen op straat
-Status: in review (PR #31), steunt op PR #30.
+Status: gedaan (PR #31)
 
 - [x] Dorpelingen lopen bij voorkeur over wegen en paden, en nooit dwars door
       gebouwen. Gebouwen gelden als niet beloopbaar in `path.ts`, en wegen
@@ -138,18 +138,28 @@ Status: in review (PR #31), steunt op PR #30.
       bekende beperking)
 
 ### Update 6: Eten & dieren
-Status: gepland.
+Status: in review (PR #32)
 
-- [ ] Akkers als gebouw of tegel, voor voedsel van het land. (bron: "Farm
-      land")
-- [ ] Dieren in de wereld: jagen, en dieren houden (veeteelt). (bron:
-      "Animals, Hunting, Animal husbandry")
-- [ ] Visserij aan de rivier. (bron: "fishery")
-- [ ] Verschillende soorten voedsel, zoals graan, vlees en vis. Dat is nodig
-      voor update 7. (bron: "variatie in voedsel")
+Afgesproken met Richard (2026-10-23): voedsel blijft één voorraad, met een
+soort per bron; vier voedselgebouwen; een jagerskamp vangt minder waar het
+bos gekapt is; veehouderij pas vanaf de Bronstijd.
+
+- [x] Akkers als gebouw, voor voedsel van het land. Gedaan: de Akker
+      (graan), met velden op de tegel. (bron: "Farm land")
+- [x] Dieren in de wereld: jagen, en dieren houden (veeteelt). Gedaan: het
+      Jagerskamp staat bij het bos en vangt zoveel als er nog bos rondom
+      staat, zonder het te kappen. De Veehouderij heeft een wei met vee.
+      Herten en zwijnen lopen in de bossen bij het dorp, minder waar gekapt
+      is; ze zijn alleen om te zien. (bron: "Animals, Hunting, Animal
+      husbandry")
+- [x] Visserij aan de rivier. (bron: "fishery")
+- [x] Verschillende soorten voedsel: graan, vlees, vis, en bessen van wie
+      zonder baan verzamelt. Het is één 🍖 in de opslag, maar `foodKindsOf`
+      geeft per soort wat het dorp maakt, voor update 7. (bron: "variatie in
+      voedsel")
 
 ### Update 7: Geluk & wonen
-Status: gepland. Steunt op update 6 (soorten voedsel).
+Status: gepland. Steunt op update 6 (soorten voedsel, `foodKindsOf`).
 
 - [ ] Een geluksniveau voor het dorp. Ongelukkige inwoners werken minder
       hard. (bron: "Happiness level")
@@ -249,6 +259,10 @@ een update worden opgenomen als het past.
 - **Stemmen voor de hello:** een stem van een verbinding die nog geen `hello`
   heeft gestuurd, telt per verbinding en niet per speler. De browser stuurt
   `hello` meteen bij het verbinden, dus in de praktijk speelt dit niet.
+- **Voedselgebouwen delen hun prijsstijging:** het zoveelste voedselgebouw
+  kost evenveel, welk soort het ook is (`costGroup`). Zo maakt het opsplitsen
+  voedsel niet goedkoper. Voor de rest is alles even sterk als de oude
+  boerderij; de balans komt in update 11.
 - **Berichtgrootte:** `MAX_PATH_TILES` (150) en de `maxPayload` van de
   counter-socket (2048 bytes) horen bij elkaar. Verhoog je het ene, controleer
   dan het andere. Daar is een test voor.

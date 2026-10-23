@@ -1,5 +1,5 @@
 // A* over the tile grid so villagers walk around water and mountains (and over
-// the bridges). The map never changes, so paths are cached.
+// the bridges). Paths are cached until the town builds or removes a bridge.
 
 import { MAP_SIZE, isWalkable, terrainAt } from "@app/shared/idle";
 import type { Point } from "./iso";
@@ -8,12 +8,27 @@ const MAX_CACHE = 600;
 const cache = new Map<string, Point[] | null>();
 
 let walkable: Uint8Array | null = null;
+/** Paths over the river (bridges the town built), as tile numbers. */
+let bridges: readonly number[] = [];
+
 function canWalk(x: number, y: number): boolean {
   if (x < 0 || y < 0 || x >= MAP_SIZE || y >= MAP_SIZE) return false;
-  walkable ??= Uint8Array.from({ length: MAP_SIZE * MAP_SIZE }, (_, i) =>
-    isWalkable(terrainAt(i % MAP_SIZE, Math.floor(i / MAP_SIZE))) ? 1 : 0,
-  );
+  if (!walkable) {
+    walkable = Uint8Array.from({ length: MAP_SIZE * MAP_SIZE }, (_, i) =>
+      isWalkable(terrainAt(i % MAP_SIZE, Math.floor(i / MAP_SIZE))) ? 1 : 0,
+    );
+    for (const i of bridges) walkable[i] = 1;
+  }
   return walkable[y * MAP_SIZE + x] === 1;
+}
+
+/** The town's streets changed: bridges make the river crossable there. */
+export function setRoads(roads: readonly number[]): void {
+  const next = roads.filter((i) => terrainAt(i % MAP_SIZE, Math.floor(i / MAP_SIZE)) === "water");
+  if (next.length === bridges.length && next.every((i, k) => i === bridges[k])) return;
+  bridges = next;
+  walkable = null;
+  cache.clear();
 }
 
 /** The nearest walkable tile (deposits next to water, villagers spawned oddly). */

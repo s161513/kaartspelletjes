@@ -6,8 +6,11 @@
 // can help by clicking nature in the world. Nature runs out: clicks and work
 // buildings use up patches of forest, rock and ore (the more valuable, the
 // longer they last), which slowly grow back. Building (on a tile someone
-// clicked), upgrading (buildings or the whole street network) and big shop
-// purchases go through a short vote; trading on the market and small shop
+// clicked), laying or removing paths (drawn tile by tile, through nature and
+// over the river as bridges), tearing down a building (for a bit of its cost
+// back), upgrading (buildings or the whole street network) and big shop
+// purchases go through a vote: everything proposed stays open side by side
+// for a day, and happens as soon as enough people said yes; trading on the market and small shop
 // items happen right away. Everyone has their own NPC walking around while
 // they're online, dressed in what they bought at the tailor.
 //
@@ -18,7 +21,9 @@
 import {
   BASE_CAP,
   BASE_RATE,
+  BRIDGE_TILE_COST,
   BUILDING_TYPES,
+  BUILD_COST_MULT,
   CENTER_CAP,
   CLICK_BASE,
   COST_GROWTH,
@@ -26,8 +31,11 @@ import {
   MARKET_FEE,
   MARKET_HALF_LIFE_MS,
   MAX_ITEM_BOOST_MS,
+  MAX_PATH_TILES,
   OUTFITS,
+  PATH_TILE_COST,
   PERK_GROWTH,
+  REFUND_SHARE,
   RESOURCES,
   ROAD_COST,
   ROAD_NAMES,
@@ -56,7 +64,19 @@ import {
   type ResourceId,
   type ShopItem,
 } from "./idleContent.js";
-import { natureAt, patchAt, patches, placeBuilding, placeError, type Patch } from "./idleMap.js";
+import {
+  classicStreets,
+  isRiver,
+  natureAt,
+  patchAt,
+  patches,
+  pathError,
+  placeBuilding,
+  placeError,
+  tileIndex,
+  tileOf,
+  type Patch,
+} from "./idleMap.js";
 
 export * from "./idleContent.js";
 export * from "./idleMap.js";
@@ -68,8 +88,11 @@ export const BOOST_MS = 67_000;
 export const MAX_BOOST_MS = 60 * 60_000;
 /** Production while nobody is around is caught up to at most this long. */
 export const MAX_OFFLINE_MS = 7 * 24 * 60 * 60_000;
-export const VOTE_MS = 30_000;
-export const STATE_VERSION = 3;
+/** A proposal stays open this long. */
+export const VOTE_MS = 24 * 60 * 60_000;
+/** Open proposals at once, at most. */
+export const MAX_PROPOSALS = 20;
+export const STATE_VERSION = 4;
 export const MAX_NAME_LENGTH = 20;
 
 // ---------- state ----------
@@ -110,6 +133,8 @@ export interface IdleWorld {
   market: Amounts;
   /** Level (era) of the whole street network. */
   roadLevel: number;
+  /** Street tiles (y × MAP_SIZE + x), sorted. */
+  roads: number[];
   /** Patch id → clicks used up, as of `lastTick` (missing = full). */
   nature: Record<string, number>;
 }
@@ -118,15 +143,22 @@ export type ProposalAction =
   | { kind: "build"; type: string; x: number; y: number }
   | { kind: "upgrade"; building: number }
   | { kind: "roads" }
-  | { kind: "buy"; item: string };
+  | { kind: "buy"; item: string }
+  /** Lay a path on these tiles (y × MAP_SIZE + x). */
+  | { kind: "paths"; tiles: number[] }
+  /** Take the path off these tiles, for a bit back. */
+  | { kind: "unpave"; tiles: number[] }
+  /** Tear a building down, for a bit back. */
+  | { kind: "demolish"; building: number };
 
 export interface IdleProposal {
   id: number;
   action: ProposalAction;
   /** Nickname of whoever proposed it. */
   by: string;
-  /** Per connection: true = yes, false = no. */
+  /** Per player (or connection, before it said who it is): true = yes, false = no. */
   votes: Record<string, boolean>;
+  /** It expires then. */
   deadline: number;
 }
 
@@ -141,7 +173,8 @@ export interface IdlePlayer {
 }
 
 export interface IdleState extends IdleWorld {
-  proposal: IdleProposal | null;
+  /** Open votes, oldest first. */
+  proposals: IdleProposal[];
   nextProposalId: number;
   /** Public player id → player. */
   players: Record<string, IdlePlayer>;
@@ -163,10 +196,10 @@ function addBuilding<T extends IdleWorld>(s: T, type: string, level: number, spo
 export function newIdleState(now: number): IdleState {
   let s: IdleState = {
     v: STATE_VERSION, era: 0, resources: { food: 50, wood: 60, stone: 40 }, buildings: [], nextBuildingId: 1,
-    lastTick: now, boostUntil: 0, boosts: [], perks: {}, market: {}, roadLevel: 0, nature: {}, proposal: null, nextProposalId: 1, players: {},
+    lastTick: now, boostUntil: 0, boosts: [], perks: {}, market: {}, roadLevel: 0, roads: [], nature: {}, proposals: [], nextProposalId: 1, players: {},
   };
   for (const type of ["center", "house", "house", "food", "wood"]) s = addBuilding(s, type, 0, placeBuilding(s.buildings, type)!).state;
-  return s;
+  return { ...s, roads: classicStreets(s.buildings) };
 }
 
 /** Unlock eras up to `era` (never back). */
@@ -376,7 +409,8 @@ export const clickAmount = (era: number): number => CLICK_BASE * scaleOf(era);
  * patch. Null if there's nothing (left) to gather there.
  */
 export function gather<T extends IdleWorld>(s: T, x: number, y: number): { state: T; resource: ResourceId } | null {
-  const resource = natureAt(x, y, s.era, s.nature);
+  // A path cleared this tile's nature.
+  const resource = s.roads.includes(tileIndex(x, y)) ? null : natureAt(x, y, s.era, s.nature);
   if (!resource) return null;
   const cap = capOf(s);
   const have = s.resources[resource] ?? 0;
@@ -408,6 +442,9 @@ function levelCost(typeId: string, level: number): Amounts {
 }
 
 const scaled = (a: Amounts, f: number): Amounts => Object.fromEntries(Object.entries(a).map(([k, n]) => [k, Math.ceil(n * f)]));
+/** Like `scaled`, rounded down and without the zeros: for what you get back. */
+const refunded = (a: Amounts, f: number): Amounts =>
+  Object.fromEntries(Object.entries(a).map(([k, n]): [string, number] => [k, Math.floor(n * f)]).filter(([, n]) => n > 0));
 /** The university's architecture perk: −10% per level. */
 const discountOf = (s: Pick<IdleWorld, "perks">): number => 1 - 0.1 * perkOf(s, "architecture");
 
@@ -415,7 +452,7 @@ const discountOf = (s: Pick<IdleWorld, "perks">): number => 1 - 0.1 * perkOf(s, 
 export function buildCost(s: Pick<IdleWorld, "buildings" | "era" | "perks">, typeId: string): Amounts | null {
   if (!buildingType(typeId)) return null;
   const copies = s.buildings.filter((b) => b.type === typeId).length;
-  return scaled(levelCost(typeId, s.era), COST_GROWTH ** copies * discountOf(s));
+  return scaled(levelCost(typeId, s.era), BUILD_COST_MULT * COST_GROWTH ** copies * discountOf(s));
 }
 
 /** Bringing an old building up to the current era. */
@@ -482,6 +519,14 @@ export function itemError(s: IdleWorld, itemId: string): string | null {
 function pay<T extends IdleWorld>(s: T, cost: Amounts): T {
   const resources = { ...s.resources };
   for (const [id, n] of Object.entries(cost)) resources[id] = Math.max(0, (resources[id] ?? 0) - n);
+  return { ...s, resources };
+}
+
+/** Get resources back, as far as the storage holds them. */
+function receive<T extends IdleWorld>(s: T, amounts: Amounts): T {
+  const cap = capOf(s);
+  const resources = { ...s.resources };
+  for (const [id, n] of Object.entries(amounts)) resources[id] = Math.max(resources[id] ?? 0, Math.min(cap, (resources[id] ?? 0) + n));
   return { ...s, resources };
 }
 
@@ -555,6 +600,51 @@ export function roadCost(s: Pick<IdleWorld, "era" | "perks">): Amounts {
   return scaled(cost, scaleOf(s.era) * discountOf(s));
 }
 
+/** Path tiles at level 0, before discounts: bridges over the river cost more. */
+function pathBase(tiles: readonly number[]): Amounts {
+  const bridges = tiles.filter((i) => isRiver(tileOf(i).x, tileOf(i).y)).length;
+  const out: Amounts = {};
+  for (const [cost, n] of [[PATH_TILE_COST, tiles.length - bridges], [BRIDGE_TILE_COST, bridges]] as const) {
+    for (const [id, a] of Object.entries(cost)) if (n) out[id] = (out[id] ?? 0) + a * n;
+  }
+  return out;
+}
+
+/** Laying a path on these tiles, at the street network's level. */
+export function pathCost(s: Pick<IdleWorld, "roadLevel" | "perks">, tiles: readonly number[]): Amounts {
+  return scaled(pathBase(tiles), scaleOf(s.roadLevel) * discountOf(s));
+}
+
+/** Why this list of tiles can't be one proposal, or null. */
+function tilesError(tiles: readonly number[]): string | null {
+  if (!tiles.length) return "geen tegels gekozen";
+  if (tiles.length > MAX_PATH_TILES) return `te veel tegels (max ${MAX_PATH_TILES})`;
+  if (new Set(tiles).size !== tiles.length || !tiles.every(Number.isInteger)) return "ongeldige tegels";
+  return null;
+}
+
+/** Why a path can't go on all of these tiles, or null. */
+export function pathsError(s: Pick<IdleWorld, "buildings" | "roads">, tiles: readonly number[]): string | null {
+  const err = tilesError(tiles);
+  if (err) return err;
+  for (const i of tiles) {
+    const { x, y } = tileOf(i);
+    const e = pathError(s.buildings, s.roads, x, y);
+    if (e) return `(${x}, ${y}): ${e}`;
+  }
+  return null;
+}
+
+// ---------- tearing down ----------
+
+/** What tearing down gives back: a share of what it costs at its own level. */
+export function refundOf(s: Pick<IdleWorld, "buildings" | "roadLevel">, action: ProposalAction): Amounts {
+  if (action.kind === "unpave") return refunded(pathBase(action.tiles), scaleOf(s.roadLevel) * REFUND_SHARE);
+  if (action.kind !== "demolish") return {};
+  const b = s.buildings.find((x) => x.id === action.building);
+  return b ? refunded(levelCost(b.type, b.level), BUILD_COST_MULT * REFUND_SHARE) : {};
+}
+
 // ---------- players' NPCs ----------
 
 /** A look picked from a seed, for someone who hasn't chosen yet. */
@@ -600,6 +690,8 @@ export function buyOutfit<T extends IdleWorld>(s: T, p: IdlePlayer, id: string):
 export function actionCost(s: IdleWorld, action: ProposalAction): Amounts | null {
   if (action.kind === "build") return buildCost(s, action.type);
   if (action.kind === "roads") return roadCost(s);
+  if (action.kind === "paths") return pathCost(s, action.tiles);
+  if (action.kind === "unpave" || action.kind === "demolish") return {};
   if (action.kind === "buy") {
     const item = shopItem(action.item);
     return item ? itemCost(s, item) : null;
@@ -612,10 +704,21 @@ export function actionCost(s: IdleWorld, action: ProposalAction): Amounts | null
 export function actionError(s: IdleWorld, action: ProposalAction): string | null {
   if (action.kind === "buy") return itemError(s, action.item);
   if (action.kind === "build") {
-    const err = buildTypeError(s, action.type) ?? placeError(s.buildings, action.type, action.x, action.y);
+    const err = buildTypeError(s, action.type) ?? placeError(s.buildings, s.roads, action.type, action.x, action.y);
     if (err) return err;
   } else if (action.kind === "roads") {
     if (s.roadLevel >= s.era) return "al up-to-date";
+  } else if (action.kind === "paths") {
+    const err = pathsError(s, action.tiles);
+    if (err) return err;
+  } else if (action.kind === "unpave") {
+    const err = tilesError(action.tiles);
+    if (err) return err;
+    if (!action.tiles.every((i) => s.roads.includes(i))) return "daar ligt geen pad";
+  } else if (action.kind === "demolish") {
+    const b = s.buildings.find((x) => x.id === action.building);
+    if (!b) return "onbekend gebouw";
+    if (buildingType(b.type)?.category === "center") return "het centrum blijft staan";
   } else {
     const b = s.buildings.find((x) => x.id === action.building);
     if (!b) return "onbekend gebouw";
@@ -629,14 +732,24 @@ export function actionError(s: IdleWorld, action: ProposalAction): string | null
 /** Pay and do it. Call actionError first; returns the new or upgraded building, if any. */
 export function applyAction<T extends IdleWorld>(s: T, action: ProposalAction): { state: T; building?: PlacedBuilding } {
   if (action.kind === "buy") return { state: buyItem(s, action.item) };
+  if (action.kind === "unpave") {
+    const gone = new Set(action.tiles);
+    return { state: { ...receive(s, refundOf(s, action)), roads: s.roads.filter((i) => !gone.has(i)) } };
+  }
+  if (action.kind === "demolish") {
+    return { state: { ...receive(s, refundOf(s, action)), buildings: s.buildings.filter((b) => b.id !== action.building) } };
+  }
   const paid = pay(s, actionCost(s, action)!);
   if (action.kind === "build") return addBuilding(paid, action.type, s.era, action);
   if (action.kind === "roads") return { state: { ...paid, roadLevel: s.era } };
+  if (action.kind === "paths") return { state: { ...paid, roads: [...s.roads, ...action.tiles].sort((a, b) => a - b) } };
   const building = { ...s.buildings.find((b) => b.id === action.building)!, level: s.era };
   return { state: { ...paid, buildings: paid.buildings.map((b) => (b.id === building.id ? building : b)) }, building };
 }
 
-/** "🛖 Hut bouwen" / "⬆️ Hut → Lemen huis" / "🎉 Groot dorpsfeest kopen". */
+const tilesText = (n: number) => (n === 1 ? "1 tegel" : `${n} tegels`);
+
+/** "🛖 Hut bouwen" / "⬆️ Hut → Lemen huis" / "🎉 Groot dorpsfeest kopen" / "🛤️ 12 tegels pad leggen". */
 export function actionLabel(s: Pick<IdleWorld, "buildings" | "era" | "roadLevel">, action: ProposalAction): string {
   if (action.kind === "build") {
     return `${buildingType(action.type)?.emoji ?? ""} ${buildingName(action.type, s.era)} bouwen`.trim();
@@ -646,15 +759,21 @@ export function actionLabel(s: Pick<IdleWorld, "buildings" | "era" | "roadLevel"
     return item ? `${item.emoji} ${item.name} kopen` : "iets kopen";
   }
   if (action.kind === "roads") return `🛣️ ${roadName(s.roadLevel)} → ${roadName(s.era)}`;
+  if (action.kind === "paths") return `🛤️ ${tilesText(action.tiles.length)} pad leggen`;
+  if (action.kind === "unpave") return `⛏️ ${tilesText(action.tiles.length)} pad weghalen`;
   const b = s.buildings.find((x) => x.id === action.building);
+  if (action.kind === "demolish") return b ? `🧨 ${buildingName(b.type, b.level)} afbreken` : "afbreken";
   if (!b) return "upgrade";
   return `⬆️ ${buildingName(b.type, b.level)} → ${buildingName(b.type, s.era)}`;
 }
 
 // ---------- voting ----------
 
-/** Yes votes needed to pass right away: more than half of everyone online. */
-export const votesNeeded = (online: number): number => Math.floor(Math.max(1, online) / 2) + 1;
+/** Nothing passes on fewer yes votes than this, so nobody builds on their own. */
+export const MIN_YES = 2;
+
+/** Yes votes needed to pass right away: more than a third of everyone online, and at least MIN_YES. */
+export const votesNeeded = (online: number): number => Math.max(MIN_YES, Math.floor(Math.max(1, online) / 3) + 1);
 
 export function voteCounts(p: IdleProposal): { yes: number; no: number } {
   const all = Object.values(p.votes);
@@ -663,15 +782,15 @@ export function voteCounts(p: IdleProposal): { yes: number; no: number } {
 }
 
 /**
- * Pass once a majority of everyone online voted yes; fail once that can no
- * longer happen. At the deadline the votes that were cast decide.
+ * Pass once votesNeeded said yes (and yes leads); fail once as many said no.
+ * At the deadline the votes that were cast decide, with at least MIN_YES yes.
  */
 export function voteOutcome(p: IdleProposal, online: number, now: number): "pass" | "fail" | "pending" {
   const { yes, no } = voteCounts(p);
-  const voters = Math.max(1, online);
-  if (yes * 2 > voters) return "pass";
-  if (no * 2 >= voters) return "fail";
-  if (now >= p.deadline) return yes > no ? "pass" : "fail";
+  const needed = votesNeeded(online);
+  if (yes >= needed && yes > no) return "pass";
+  if (no >= needed && no >= yes) return "fail";
+  if (now >= p.deadline) return yes >= MIN_YES && yes > no ? "pass" : "fail";
   return "pending";
 }
 
@@ -688,6 +807,8 @@ export interface IdleProposalView {
   deadline: number;
   /** This viewer's vote, if any. */
   myVote: boolean | null;
+  /** Voted through, waiting until the town can pay for it. */
+  approved: boolean;
 }
 
 /** Someone online, as their NPC. */
@@ -700,7 +821,8 @@ export interface IdlePerson {
 export interface IdleStateMsg {
   type: "idle";
   state: IdleWorld;
-  proposal: IdleProposalView | null;
+  /** Open votes, oldest first. */
+  proposals: IdleProposalView[];
   /** Everyone online who said hello, one NPC each. */
   people: IdlePerson[];
   /** This viewer, once they said hello. */

@@ -275,35 +275,59 @@ export const isLand = (x: number, y: number): boolean => ["grass", "sand"].inclu
 const nearBuilding = (buildings: readonly Spot[], x: number, y: number, r: number) =>
   buildings.some((b) => buildingType(b.type)?.category !== "decor" && Math.max(Math.abs(b.x - x), Math.abs(b.y - y)) <= r);
 
-/**
- * A street: a free bit of land on every 4th row or column, near a building.
- * The street network grows with the town.
- */
-export const isStreet = (buildings: readonly Spot[], x: number, y: number): boolean =>
-  isRoadTile(x, y) && isLand(x, y) && !buildings.some((b) => b.x === x && b.y === y) && nearBuilding(buildings, x, y, STREET_RANGE);
+// ---------- streets ----------
+// Streets are tiles the town laid down itself, kept as tile numbers (y × MAP_SIZE + x):
+// on land, through cleared nature, or as a bridge over the river.
 
-/** Every street tile, as "x,y". */
-export function streetsOf(buildings: readonly Spot[]): Set<string> {
-  const out = new Set<string>();
+export const tileIndex = (x: number, y: number): number => y * MAP_SIZE + x;
+export const tileOf = (i: number): { x: number; y: number } => ({ x: i % MAP_SIZE, y: Math.floor(i / MAP_SIZE) });
+const onMap = (x: number, y: number) => Number.isInteger(x) && Number.isInteger(y) && x >= 0 && y >= 0 && x < MAP_SIZE && y < MAP_SIZE;
+
+export const isRoad = (roads: readonly number[], x: number, y: number): boolean => onMap(x, y) && roads.includes(tileIndex(x, y));
+
+/**
+ * The streets a new town starts with: free land on every 4th row and column
+ * near a building. (Also how towns from before hand-laid paths get theirs.)
+ */
+export function classicStreets(buildings: readonly Spot[]): number[] {
+  const out = new Set<number>();
   for (const b of buildings) {
     if (buildingType(b.type)?.category === "decor") continue;
     for (let dy = -STREET_RANGE; dy <= STREET_RANGE; dy++) {
       for (let dx = -STREET_RANGE; dx <= STREET_RANGE; dx++) {
         const x = b.x + dx;
         const y = b.y + dy;
-        if (isStreet(buildings, x, y)) out.add(`${x},${y}`);
+        if (onMap(x, y) && isRoadTile(x, y) && isLand(x, y) && !buildings.some((o) => o.x === x && o.y === y)) out.add(tileIndex(x, y));
       }
     }
   }
-  return out;
+  return [...out].sort((a, b) => a - b);
+}
+
+/** River water, where a path becomes a bridge (the sea around the map stays sea). */
+export const isRiver = (x: number, y: number): boolean => terrainAt(x, y) === "water" && (x === riverX(y) || x === riverX(y) + 1);
+
+/** Forest, rocks or a bush: a path clears it (deposits and mountains stay). */
+export const isClearable = (x: number, y: number): boolean => ["forest", "rock", "bush"].includes(terrainAt(x, y));
+
+/** Land, nature to clear or river to bridge: where a path could go at all. */
+export const canPave = (x: number, y: number): boolean => onMap(x, y) && (isLand(x, y) || isClearable(x, y) || isRiver(x, y));
+
+/** Why no path can be laid on this tile, or null if it can. */
+export function pathError(buildings: readonly Spot[], roads: readonly number[], x: number, y: number): string | null {
+  if (!onMap(x, y)) return "buiten de kaart";
+  if (!canPave(x, y)) return "hier kan geen pad";
+  if (buildings.some((b) => b.x === x && b.y === y)) return "daar staat al iets";
+  if (isRoad(roads, x, y)) return "daar ligt al een pad";
+  return nearBuilding(buildings, x, y, VILLAGE_RANGE) ? null : "te ver van het dorp";
 }
 
 /** Why this type can't go on this tile, or null if it can. */
-export function placeError(buildings: readonly Spot[], typeId: string, x: number, y: number): string | null {
-  if (!Number.isInteger(x) || !Number.isInteger(y) || x < 0 || y < 0 || x >= MAP_SIZE || y >= MAP_SIZE) return "buiten de kaart";
+export function placeError(buildings: readonly Spot[], roads: readonly number[], typeId: string, x: number, y: number): string | null {
+  if (!onMap(x, y)) return "buiten de kaart";
   if (!isLand(x, y)) return "hier kan je niet bouwen";
   if (buildings.some((b) => b.x === x && b.y === y)) return "daar staat al iets";
-  if (isStreet(buildings, x, y)) return "dat is een straat";
+  if (isRoad(roads, x, y)) return "daar ligt een pad";
   const source = sourceOf(typeId);
   if (source) return near(x, y, SOURCE_RANGE, source.ok) ? null : source.hint;
   return nearBuilding(buildings, x, y, VILLAGE_RANGE) ? null : "te ver van het dorp";
@@ -311,9 +335,9 @@ export function placeError(buildings: readonly Spot[], typeId: string, x: number
 
 /**
  * The free tile closest to where this type likes to stand: homes, storage and
- * decorations around the center, work buildings by their resource. Streets
- * (every 4th row and column) stay free. Null if the map is full. Only for the
- * starting town; later buildings go where people click.
+ * decorations around the center, work buildings by their resource. Every 4th
+ * row and column stays free for the first streets. Null if the map is full.
+ * Only for the starting town; later buildings go where people click.
  */
 export function placeBuilding(buildings: readonly { x: number; y: number }[], typeId: string): { x: number; y: number } | null {
   if (typeId === "center") return { ...CENTER };

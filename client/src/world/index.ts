@@ -51,6 +51,7 @@ export function createTown(send: (msg: IdleClientMsg) => void): Town {
     onGather: (_resource, x, y) => gatherHere(x, y),
     onSelect: (b) => panels.inspect(b),
     onTile: (x, y, px, py) => panels.tile(x, y, px, py),
+    onPaint: (x, y, first) => panels.paint(x, y, first),
   });
 
   const panels = createPanels({
@@ -62,7 +63,10 @@ export function createTown(send: (msg: IdleClientMsg) => void): Town {
     select: (id) => world.select(id),
     setPlacing: (ok) => world.setPlacing(ok),
     mark: (tile) => world.mark(tile),
-    setGhost: (g) => world.setGhost(g),
+    setGhost: (action) => world.setGhost(action),
+    lookAt: (x, y) => world.lookAt(x, y),
+    setPainting: (ok) => world.setPainting(ok),
+    setDraft: (draft) => world.setDraft(draft),
     openAvatar: () => avatar.open(),
   });
 

@@ -1,7 +1,7 @@
 // The town as a full-screen isometric canvas under the counter bar: terrain,
 // nature, buildings and villagers, depth-sorted every frame. Drag to look
 // around, wheel or pinch to zoom, click nature to gather, click a building to
-// inspect it, click free land to build, click a villager to say hi. While
+// inspect it, click free land to build, click a villager to see what they do. While
 // drawing paths, dragging paints tiles instead (pan with the right mouse
 // button or two fingers).
 
@@ -41,7 +41,7 @@ import {
 } from "./draw";
 import { Camera, TILE_H, TILE_W, toTileSpace, toWorld } from "./iso";
 import { setRoads } from "./path";
-import { Population } from "./villagers";
+import { Population, type VillagerInfo } from "./villagers";
 
 const DRAG_THRESHOLD = 6;
 const MAX_PARTICLES = 400;
@@ -57,6 +57,8 @@ export interface WorldOptions {
   /** Nature was clicked; the world already showed the effect. */
   onGather(resource: ResourceId, x: number, y: number): void;
   onSelect(building: PlacedBuilding | null): void;
+  /** A villager (or a player's NPC) was clicked. */
+  onVillager(id: string): void;
   /** Land (no building, no nature) was clicked, or any tile while placing; screen point for a popup. */
   onTile(x: number, y: number, px: number, py: number): void;
   /** Drawing paths: the pointer touched this tile; `first` at the start of a stroke. */
@@ -73,6 +75,10 @@ export interface TownWorld {
   cheer(): void;
   celebrate(): void;
   select(id: number | null): void;
+  /** Ring a villager, or none. */
+  selectVillager(id: string | null): void;
+  /** What a villager is up to, or null if they're gone. */
+  villager(id: string): VillagerInfo | null;
   focus(b: PlacedBuilding): void;
   /** Move the view to a tile. */
   lookAt(x: number, y: number): void;
@@ -124,6 +130,7 @@ export function createWorld(opts: WorldOptions): TownWorld {
   let usedUp = new Set<string>();
   let usedUpKey = "";
   let selected: number | null = null;
+  let selectedVillager: string | null = null;
   let placing: ((x: number, y: number) => boolean) | null = null;
   let hover: { x: number; y: number } | null = null;
   let marked: { x: number; y: number } | null = null;
@@ -278,7 +285,10 @@ export function createWorld(opts: WorldOptions): TownWorld {
     (e) => {
       e.preventDefault();
       const p = local(e);
-      cam.zoomAt(Math.exp(-e.deltaY * 0.0015), p.x, p.y);
+      const dy = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? canvas.clientHeight : 1);
+      // A mouse wheel turns in big steps; a touchpad (and pinching, which comes as ctrl+wheel) sends many small ones.
+      const speed = e.ctrlKey ? 0.012 : e.deltaMode === 0 && Math.abs(dy) < 50 ? 0.006 : 0.0015;
+      cam.zoomAt(Math.exp(Math.max(-0.5, Math.min(0.5, -dy * speed))), p.x, p.y);
     },
     { passive: false },
   );
@@ -341,6 +351,7 @@ export function createWorld(opts: WorldOptions): TownWorld {
     if (h.kind === "villager") {
       const v = pop.villagers.get(h.id);
       if (v) pop.introduce(v, Date.now());
+      opts.onVillager(h.id);
     } else if (h.kind === "building") {
       select(h.b.id);
       opts.onSelect(h.b);
@@ -543,7 +554,20 @@ export function createWorld(opts: WorldOptions): TownWorld {
       const fy = v.y + 0.5 + v.oy;
       const p = toWorld(fx, fy);
       const look = pop.look(v, now);
-      items.push({ d: fx + fy + 0.02, f: () => drawVillager(ctx, p.x, p.y, look) });
+      const ringed = v.id === selectedVillager;
+      items.push({
+        d: fx + fy + 0.02,
+        f: () => {
+          if (ringed) {
+            ctx.beginPath();
+            ctx.ellipse(p.x, p.y + 1, 8, 4, 0, 0, Math.PI * 2);
+            ctx.strokeStyle = "#ffe82e";
+            ctx.lineWidth = 2 / cam.zoom;
+            ctx.stroke();
+          }
+          drawVillager(ctx, p.x, p.y, look);
+        },
+      });
       if (v.bubble) bubbles.push([p.x, p.y, v.bubble.text]);
       if (v.player) tags.push([p.x, p.y, v.player.name, v.player.mine]);
     }
@@ -628,7 +652,16 @@ export function createWorld(opts: WorldOptions): TownWorld {
     selected = id;
   }
 
+  function selectVillager(id: string | null): void {
+    selectedVillager = id;
+  }
+
   return {
+    selectVillager,
+    villager(id) {
+      const v = pop.villagers.get(id);
+      return v ? pop.describe(v, Date.now()) : null;
+    },
     setWorld(w) {
       const changed = !world || world.buildings !== w.buildings;
       const streets = w.roads.join(",");

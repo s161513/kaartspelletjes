@@ -14,6 +14,7 @@ import {
   buildingName,
   buildingType,
   housingOf,
+  resourceDef,
   SKIN_TONES,
   terrainAt,
   type IdlePerson,
@@ -26,6 +27,17 @@ import type { Point } from "./iso";
 import { findPath, nearestWalkable } from "./path";
 
 export const MAX_VILLAGERS = 200;
+
+/** What the villager panel shows. */
+export interface VillagerInfo {
+  name: string;
+  /** "speler" or "dat ben jij!" for a player's NPC. */
+  player: string | null;
+  home: string | null;
+  /** Work building, or null: out of work. */
+  job: string | null;
+  doing: string;
+}
 const SPEED = 1.3; // tiles per second
 const MAX_BUBBLES = 6;
 /** How long everyone does the 67 after a +1 on the counter. */
@@ -40,6 +52,8 @@ const SKINS = ["#f1c27d", "#e0ac69", "#c68642", "#8d5524", "#ffdbac", "#a1665e"]
 
 const CHAT = {
   work: ["hard werken 💪", "nog 67 te gaan", "no cap, dit is zwaar", "wanneer is het pauze", "grind never stops", "sigma grindset"],
+  /** Workers on their way to work or to storage. */
+  walk: ["op weg naar m'n werk", "zwaar spul fr", "bijna bij de opslag", "nog één ritje", "sjouwen sjouwen"],
   idle: ["six seven!", "skibidi", "67?!", "fr fr", "ik ben werkloos lol", "wie bouwt er een huis voor mij", "aura +67", "chillen"],
   dance: ["💃 67 67 67", "vibe check ✅", "dit is fire"],
   photo: ["📸 67!", "story-waardig", "cheese 🧀"],
@@ -317,7 +331,12 @@ export class Population {
       if (now > v.nextChat && !v.hidden) {
         v.nextChat = now + 15_000 + Math.random() * 40_000;
         if (bubbles < MAX_BUBBLES) {
-          const pool = v.task.kind === "work" ? CHAT.work : v.action !== "none" && v.action !== "work" ? CHAT[v.action] : CHAT.idle;
+          // Only the jobless say they're out of work.
+          const pool =
+            v.task.kind === "work" ? CHAT.work
+            : v.job !== null ? CHAT.walk
+            : v.action !== "none" && v.action !== "work" ? CHAT[v.action]
+            : CHAT.idle;
           v.bubble = { text: pick(pool), until: now + 3000 };
           bubbles++;
         }
@@ -343,6 +362,40 @@ export class Population {
     const job = v.job === null ? undefined : this.byId.get(v.job);
     const what = v.player ? (v.player.mine ? "dat ben jij!" : "speler") : job ? buildingName(job.type, job.level).toLowerCase() : "werkloos, chillt";
     v.bubble = { text: `${v.name} · ${what}`, until: now + 3500 };
+  }
+
+  /** For the panel when someone clicks this villager. */
+  describe(v: Villager, now: number): VillagerInfo {
+    const job = v.job === null ? undefined : this.byId.get(v.job);
+    const home = this.byId.get(v.home);
+    const res = job ? buildingType(job.type)?.produces : undefined;
+    const emoji = (r: ResourceId | null | undefined) => (r ? resourceDef(r)?.emoji ?? "" : "");
+    const task = v.task;
+    let doing: string;
+    if (now < v.sixSevenUntil) doing = "🤲 doet de 67";
+    else if (v.hidden || task.kind === "inside") doing = "🏠 is thuis";
+    else if (task.kind === "toWork") doing = "🚶 loopt naar het werk";
+    else if (task.kind === "work") doing = `${emoji(res)} is aan het werk`;
+    else if (task.kind === "toStore") doing = `📦 brengt ${emoji(v.carry)} naar de opslag`;
+    else if (task.kind === "drop") doing = "📦 levert af bij de opslag";
+    else {
+      const what = task.kind === "go" ? task.then : task.action;
+      const going = task.kind === "go";
+      doing =
+        what === "home" ? "🏠 gaat naar huis"
+        : what === "sit" ? (going ? "🔥 gaat bij het kampvuur zitten" : "🔥 zit bij het kampvuur")
+        : what === "dance" ? (going ? "💃 gaat dansen" : "💃 danst")
+        : what === "photo" ? (going ? "📸 gaat foto's maken" : "📸 maakt foto's")
+        : what === "pose" ? (going ? "🗿 gaat poseren" : "🗿 poseert")
+        : going ? "🚶 loopt wat rond" : "😎 chillt";
+    }
+    return {
+      name: v.name,
+      player: v.player ? (v.player.mine ? "dat ben jij!" : "speler") : null,
+      home: home ? `${buildingType(home.type)?.emoji ?? ""} ${buildingName(home.type, home.level)}` : null,
+      job: job ? `${buildingType(job.type)?.emoji ?? ""} ${buildingName(job.type, job.level)}` : null,
+      doing,
+    };
   }
 
   look(v: Villager, now: number): VillagerLook {

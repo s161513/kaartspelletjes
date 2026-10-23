@@ -306,6 +306,34 @@ body.sx-era-10 { --sx-bg: #12002b; --sx-bg2: #2a0050; }
   color: #ffb4b4;
 }
 
+/* How full storage is, under the number. */
+.sx-hud-res {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  padding-bottom: 3px;
+}
+
+.sx-hud-bar {
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.15);
+  overflow: hidden;
+}
+
+.sx-hud-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--sx-lime);
+  transition: width 0.3s;
+}
+
+.sx-hud-full .sx-hud-fill {
+  background: var(--sx-red);
+}
+
 .sx-hud-boost {
   background: var(--sx-yellow);
   border-color: #000;

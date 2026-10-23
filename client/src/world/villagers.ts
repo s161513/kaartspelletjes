@@ -3,8 +3,9 @@
 // of people with the same jobs. Workers and gatherers walk to their spot,
 // work, and carry the loot to storage; whoever has nothing to do hangs out by
 // the fire, the decorations or home.
-// Only some of the townsfolk are on the map (SHOWN_VILLAGERS), so a big town
-// doesn't drown in people; the jobs are shared out over everyone first.
+// Only some of the townsfolk are on the map, NPCS_PER_PLAYER for everyone
+// online, so the town doesn't drown in people; the jobs are shared out over
+// everyone first.
 // Everyone online also has their own NPC (id "p:<player>"), dressed as they
 // chose, wandering around town with a name tag.
 
@@ -18,6 +19,8 @@ import {
   buildingType,
   gatherPatches,
   gatheringOf,
+  isLand,
+  isRiver,
   isRoad,
   isUsedUp,
   housingOf,
@@ -33,8 +36,8 @@ import { rand2, type VillagerLook } from "./draw";
 import type { Point } from "./iso";
 import { findPath, nearestOpen, nearestWalkable } from "./path";
 
-/** About this many townsfolk walk around, picked from all of them. */
-export const SHOWN_VILLAGERS = 40;
+/** For every player online this many townsfolk walk around, picked from all of them. */
+export const NPCS_PER_PLAYER = 1;
 
 /** What the villager panel shows. */
 export interface VillagerInfo {
@@ -120,6 +123,9 @@ export interface Villager {
   player?: { name: string; hat: string; pattern: string; mine: boolean };
 }
 
+/** What a worker swings, by work building (the rest: an axe for wood, a pick for everything mined). */
+const TOOLS: Record<string, VillagerLook["tool"]> = { farm: "hoe", hunter: "spear", fishery: "rod", ranch: "none" };
+
 const pick = <T>(a: readonly T[]): T => a[Math.floor(Math.random() * a.length)];
 const hashStr = (s: string) => [...s].reduce((h, c) => (Math.imul(h, 31) + c.charCodeAt(0)) | 0, 7);
 
@@ -128,8 +134,10 @@ export class Population {
   private world: IdleWorld | null = null;
   private byId = new Map<number, PlacedBuilding>();
   private spots = new Map<number, Point>();
+  /** Players online, set by setPeople; decides how many townsfolk are on the map. */
+  private online = 1;
 
-  /** Match the people to the current town: one per bed, jobs from assignWorkers, a share of them on the map. */
+  /** Match the people to the current town: one per bed, jobs from assignWorkers, a few of them on the map. */
   sync(world: IdleWorld, now: number): void {
     this.world = world;
     this.byId = new Map(world.buildings.map((b) => [b.id, b]));
@@ -137,9 +145,11 @@ export class Population {
     const houses = world.buildings.filter((b) => buildingType(b.type)?.category === "house");
     const people: { id: string; home: PlacedBuilding }[] = [];
     for (const h of houses) for (let i = 0; i < housingOf(h.level); i++) people.push({ id: `${h.id}-${i}`, home: h });
-    // Who's on the map is fixed per person, so the same ones stay as the town grows.
-    const share = SHOWN_VILLAGERS / Math.max(SHOWN_VILLAGERS, people.length);
-    const shown = (id: string) => rand2(hashStr(id), 7) < share;
+    // Who's on the map goes by a fixed draw per person, so mostly the same ones stay as the town grows.
+    const draw = (id: string) => rand2(hashStr(id), 7);
+    const onMap = new Set(
+      [...people].sort((a, b) => draw(a.id) - draw(b.id)).slice(0, this.online * NPCS_PER_PLAYER).map((p) => p.id),
+    );
 
     // The same round robin as assignWorkers, as a list of job ids.
     const { workers } = assignWorkers(world);
@@ -186,7 +196,7 @@ export class Population {
 
     const keep = new Set<string>();
     people.forEach((p, i) => {
-      if (!shown(p.id)) return;
+      if (!onMap.has(p.id)) return;
       keep.add(p.id);
       const job = order[i] ?? null;
       const gather = gathers.get(p.id) ?? null;
@@ -219,6 +229,11 @@ export class Population {
 
   /** One NPC per player online, looking the way they chose. */
   setPeople(people: IdlePerson[], me: string | null, now: number): void {
+    const online = Math.max(1, people.length);
+    if (online !== this.online) {
+      this.online = online;
+      if (this.world) this.sync(this.world, now);
+    }
     const keep = new Set<string>();
     for (const p of people) {
       const id = `p:${p.id}`;
@@ -243,7 +258,7 @@ export class Population {
     for (const id of [...this.villagers.keys()]) if (id.startsWith("p:") && !keep.has(id)) this.villagers.delete(id);
   }
 
-  /** Where a worker of this building works: the forest, the rocks, the ore, or the building itself. */
+  /** Where a worker of this building works: the forest (woodcutters, hunters), the rocks, the ore, the riverbank, or the building itself. */
   private workSpot(b: PlacedBuilding): Point {
     let spot = this.spots.get(b.id);
     if (spot) return spot;
@@ -252,13 +267,15 @@ export class Population {
     spot = { x: b.x, y: b.y };
     const deposit = DEPOSITS.find((d) => d.resource === res);
     if (b.type.startsWith("mine_") && deposit) spot = { x: deposit.x, y: deposit.y };
-    else if (res === "wood" || res === "stone") {
-      const want = res === "wood" ? "forest" : "rock";
+    else if (res === "wood" || res === "stone" || b.type === "hunter" || b.type === "fishery") {
+      const want = (x: number, y: number) =>
+        b.type === "fishery" ? isLand(x, y) && [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => isRiver(x + dx, y + dy))
+        : terrainAt(x, y) === (res === "stone" ? "rock" : "forest");
       let best = Infinity;
       for (let dy = -10; dy <= 10; dy++) {
         for (let dx = -10; dx <= 10; dx++) {
           const d = Math.hypot(dx, dy);
-          if (d < best && terrainAt(b.x + dx, b.y + dy) === want && !isRoad(roads, b.x + dx, b.y + dy)) {
+          if (d < best && want(b.x + dx, b.y + dy) && !isRoad(roads, b.x + dx, b.y + dy)) {
             best = d;
             spot = { x: b.x + dx, y: b.y + dy };
           }
@@ -493,7 +510,7 @@ export class Population {
       // The 67 is in step for the whole town.
       phase: sixSeven ? now : now + hashStr(v.id),
       action: sixSeven ? "sixseven" : v.action,
-      tool: res === "wood" ? "axe" : res === "food" ? "hoe" : "pick",
+      tool: job ? TOOLS[job.type] ?? (res === "wood" ? "axe" : "pick") : res === "wood" ? "axe" : res === "food" ? "none" : "pick",
       carry: v.carry,
       jump: jumpLeft > 0 ? Math.sin((jumpLeft / 700) * Math.PI * 2) ** 2 * 6 : 0,
       hat: v.player?.hat,

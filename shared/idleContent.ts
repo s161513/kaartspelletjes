@@ -30,6 +30,16 @@ export const RESOURCES: readonly ResourceDef[] = [
   { id: "antimatter", name: "antimaterie", emoji: "⚛️", era: 10 },
 ];
 
+/** Food comes in kinds, by where it comes from; in storage it's all the same 🍖. */
+export type FoodKind = "grain" | "meat" | "fish" | "berries";
+
+export const FOOD_KINDS: readonly { id: FoodKind; name: string; emoji: string }[] = [
+  { id: "grain", name: "graan", emoji: "🌾" },
+  { id: "meat", name: "vlees", emoji: "🥩" },
+  { id: "fish", name: "vis", emoji: "🐟" },
+  { id: "berries", name: "bessen", emoji: "🫐" },
+];
+
 /** Colors for drawing an era: buildings, ground and the villagers' clothes. */
 export interface EraStyle {
   wall: string;
@@ -117,6 +127,14 @@ export interface BuildingType {
   minEra: number;
   /** Work buildings: what they make. */
   produces?: ResourceId;
+  /** Food buildings: which kind of food. */
+  foodKind?: FoodKind;
+  /** The nature it works from, if not what it makes (null: none, it grows its own). */
+  source?: ResourceId | null;
+  /** Doesn't use its source up, but makes less as there's less of it (game lives in the forest). */
+  sparesSource?: boolean;
+  /** Types in the same group share the price growth per copy (all food buildings). */
+  costGroup?: string;
   /** Level-0 cost, multiplied by the balance table for higher levels. */
   baseCost: Amounts;
   /** Plus this much of the building's level's special resource (from era 1). */
@@ -144,9 +162,24 @@ export const BUILDING_TYPES: readonly BuildingType[] = [
     names: ["Hut", "Lemen huis", "Langhuis", "Villa", "Vakwerkhuis", "Grachtenpand", "Arbeidershuis", "Rijtjeshuis", "Smart home", "Maanwoning", "Zweefwoning"],
   },
   {
-    id: "food", category: "work", emoji: "🌾", minEra: 0, produces: "food", specialCost: 10,
-    baseCost: { wood: 25 },
-    names: ["Jagerskamp", "Akker", "Boerderij", "Wijngaard", "Hoeve", "Landgoed", "Graanmolen", "Agrobedrijf", "Verticale farm", "Hydrocultuur", "Voedselsynthesizer"],
+    id: "hunter", category: "work", emoji: "🏹", minEra: 0, produces: "food", foodKind: "meat", source: "wood", sparesSource: true,
+    costGroup: "food", specialCost: 10, baseCost: { wood: 25 },
+    names: ["Jagerskamp", "Jagershut", "Jachthut", "Jachtterrein", "Jachtslot", "Jachtgilde", "Jachtvereniging", "Wildbeheer", "Dronejacht", "Holojacht", "Ruimtejacht"],
+  },
+  {
+    id: "farm", category: "work", emoji: "🌾", minEra: 0, produces: "food", foodKind: "grain", source: null,
+    costGroup: "food", specialCost: 10, baseCost: { wood: 25 },
+    names: ["Akker", "Graanveld", "Boerderij", "Wijngaard", "Hoeve", "Landgoed", "Graanmolen", "Agrobedrijf", "Verticale farm", "Hydrocultuur", "Voedselsynthesizer"],
+  },
+  {
+    id: "fishery", category: "work", emoji: "🎣", minEra: 0, produces: "food", foodKind: "fish", source: null,
+    costGroup: "food", specialCost: 10, baseCost: { wood: 30 },
+    names: ["Visstek", "Vissershut", "Visserij", "Vissershaven", "Visafslag", "Vishandel", "Stoomvisserij", "Viskwekerij", "Aquafarm", "Ruimteaquarium", "Oceaansynthesizer"],
+  },
+  {
+    id: "ranch", category: "work", emoji: "🐄", minEra: 1, produces: "food", foodKind: "meat", source: null,
+    costGroup: "food", specialCost: 10, baseCost: { wood: 35, stone: 10 },
+    names: fromEra(1, ["Veekraal", "Veehouderij", "Boerenerf", "Herenboerderij", "Melkveebedrijf", "Stoomzuivel", "Veebedrijf", "Robotstal", "Ruimtestal", "Kweekvleeslab"]),
   },
   {
     id: "wood", category: "work", emoji: "🪓", minEra: 0, produces: "wood", specialCost: 10,

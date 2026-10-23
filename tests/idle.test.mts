@@ -8,7 +8,9 @@ import path from "node:path";
 import WebSocket from "ws";
 import {
   BOOST_MS,
+  BUILD_COST_MULT,
   CENTER,
+  COST_GROWTH,
   DEPOSITS,
   ERAS,
   GATHER_RATE,
@@ -29,10 +31,12 @@ import {
   assignGatherer,
   assignWorkers,
   buildCost,
+  buildTypeError,
   buyItem,
   capOf,
   classicStreets,
   eraFor,
+  foodKindsOf,
   gatherable,
   gatherPatches,
   gatheringOf,
@@ -57,6 +61,7 @@ import {
   roadCost,
   sourceLeft,
   sourcePatches,
+  sourceShareOf,
   terrainAt,
   tileIndex,
   tileOf,
@@ -84,8 +89,8 @@ const rich = (s: IdleState, n = 1e9): IdleState => ({
 /** Build on the tile the starting-town placer would pick (always a valid spot). */
 const at = (s: IdleState, type: string) => ({ kind: "build" as const, type, ...placeBuilding(s.buildings, type)! });
 const build = (s: IdleState, type: string) => applyAction(s, at(s, type)).state;
-/** A second farm takes the two villagers without a job, so nobody gathers. */
-const noGatherers = (s: IdleState): IdleState => ({ ...s, buildings: [...s.buildings, { id: 99, type: "food", level: 0, x: 1, y: 1 }] });
+/** A farm takes the two villagers without a job, so nobody gathers. */
+const noGatherers = (s: IdleState): IdleState => ({ ...s, buildings: [...s.buildings, { id: 99, type: "farm", level: 0, x: 1, y: 1 }] });
 const near = (a: number, b: number) => Math.abs(a - b) < 1e-9;
 
 // ---------- map ----------
@@ -110,7 +115,7 @@ test("placeBuilding: deterministic, no overlap, never on water or streets, work 
   s = rich(unlockEra(s, 3));
   s = build(s, "shop_sculptor");
   for (let i = 0; i < 40; i++) {
-    const type = ["house", "house", "storage", "food", "wood", "stone", "mine_bronze", "decor_statue67"][i % 8];
+    const type = ["house", "house", "storage", "farm", "wood", "stone", "mine_bronze", "decor_statue67"][i % 8];
     s = build(s, type);
   }
   const tiles = new Set(s.buildings.map((b) => `${b.x},${b.y}`));
@@ -235,7 +240,7 @@ test("nature: work buildings use up what's around them and stop when it's gone",
   const cutter = s.buildings.find((b) => b.type === "wood")!;
   const src = sourcePatches(cutter)!;
   assert.ok(src.length > 0 && src.every((p) => p.resource === "wood"));
-  assert.equal(sourcePatches(s.buildings.find((b) => b.type === "food")!), null, "farms need no forest");
+  assert.equal(sourcePatches(s.buildings.find((b) => b.type === "farm") ?? { id: 0, type: "farm", level: 0, x: 0, y: 0 }), null, "farms need no forest");
 
   const after = advance({ ...s, resources: {} }, T0 + 100_000);
   assert.ok(Math.abs(after.resources.wood - 100) < 1e-9, "100 s of 1 wood/s");
@@ -251,6 +256,41 @@ test("nature: work buildings use up what's around them and stop when it's gone",
   const regrown = src.reduce((a, p) => a + p.regrow * 1000, 0);
   assert.ok(Math.abs(tick.resources.wood - regrown / 0.25) < 1e-9 && tick.resources.wood < 1);
   assert.ok(tick.resources.food > 0);
+});
+
+test("food: hunters, farms, fishers and ranches make kinds of food; hunters catch less where the forest is cut", () => {
+  const s = noGatherers(newIdleState(T0)); // hunters, woodcutter and a farm, 2 each
+  const hunter = s.buildings.find((b) => b.type === "hunter")!;
+  const forest = sourcePatches(hunter)!;
+  assert.ok(forest.length > 0 && forest.every((p) => p.resource === "wood"), "hunters look at the forest");
+  assert.deepEqual(foodKindsOf(s), { meat: 1, grain: 1 });
+  assert.equal(ratesOf(s).food, 2, "all of it is one food in storage");
+  // The jobless gather berries.
+  assert.ok(near(foodKindsOf(newIdleState(T0)).berries!, GATHER_RATE));
+
+  // Half the forest around them cut: half the meat. All of it: none, the farm goes on.
+  const half = { ...s, nature: Object.fromEntries(forest.map((p) => [p.id, p.capacity / 2])) };
+  assert.ok(near(foodKindsOf(half).meat!, 0.5));
+  assert.ok(near(sourceShareOf(half, hunter), 0.5));
+  const bare = { ...s, nature: Object.fromEntries(forest.map((p) => [p.id, p.capacity])) };
+  assert.deepEqual(foodKindsOf(bare), { grain: 1 });
+  assert.equal(sourceLeft(bare, hunter)!.left, 0);
+
+  // Hunting doesn't cut the forest: with a farm instead of the woodcutter it stays as it is.
+  const farmed = s.buildings.map((b) => (b.type === "wood" ? { ...b, type: "farm" } : b));
+  const after = advance({ ...s, resources: {}, buildings: farmed }, T0 + 100_000);
+  assert.ok(near(after.resources.food, 300));
+  for (const p of forest) assert.equal(after.nature[p.id], undefined);
+
+  // Ranches from the Bronze Age, fishers by the river.
+  assert.notEqual(buildTypeError(s, "ranch"), null);
+  assert.equal(buildTypeError(unlockEra(s, 1), "ranch"), null);
+  const spot = placeBuilding(s.buildings, "fishery")!;
+  assert.equal(placeError(s.buildings, s.roads, "fishery", spot.x, spot.y), null);
+  assert.equal(placeError(s.buildings, [], "fishery", CENTER.x + 1, CENTER.y + 1), "moet aan de rivier staan");
+
+  // All food buildings share the price growth per copy, so splitting them makes food no cheaper.
+  assert.equal(buildCost(s, "fishery")!.wood, Math.ceil(30 * BUILD_COST_MULT * COST_GROWTH ** 2));
 });
 
 test("boost stacks by 67 s, up to an hour ahead", () => {
@@ -598,7 +638,7 @@ test("idle game: open votes wait for resources, count once per player, survive a
     // Two tabs of one player are one voter.
     game.hello("t1", KEY, "Ann", T0);
     game.hello("t2", KEY, "Ann", T0);
-    game.propose("t1", "Ann", at(game.message("t1", 0, 0, 2, T0).state as IdleState, "food"), 2, T0);
+    game.propose("t1", "Ann", at(game.message("t1", 0, 0, 2, T0).state as IdleState, "farm"), 2, T0);
     assert.deepEqual(game.vote("t2", 3, true, 2, T0), [], "same player: still one yes");
     const mine = game.message("t2", 0, 0, 2, T0).proposals[0];
     assert.deepEqual([mine.yes, mine.myVote, mine.approved], [1, true, false]);
@@ -657,6 +697,23 @@ test("idle game: a v2 file keeps its town; trades and small buys are instant, bi
     game.propose("a", "Ann", { kind: "buy", item: "party" }, 2, T0 + VOTE_MS);
     assert.deepEqual(game.vote("b", 2, true, 2, T0 + VOTE_MS).map((e) => e.kind), ["bought"]);
     assert.ok(game.message("a", 0, 0, 2, T0 + VOTE_MS).state.boosts.some((b) => b.item === "party"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("idle game: the old food building becomes a farm, in the town and in open votes", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "idle-"));
+  try {
+    const file = path.join(dir, "idle.json");
+    const town = newIdleState(T0);
+    const spot = placeBuilding(town.buildings, "farm")!;
+    const proposal = { id: 1, action: { kind: "build", type: "food", ...spot }, by: "Ann", votes: { a: true }, deadline: T0 + VOTE_MS };
+    const old = { ...town, buildings: [...town.buildings, { id: 50, type: "food", level: 0, x: 1, y: 1 }], proposals: [proposal], nextProposalId: 2 };
+    writeFileSync(file, JSON.stringify(old));
+    const msg = createIdleGame(file, T0).message("a", 0, 0, 1, T0);
+    assert.equal(msg.state.buildings.find((b) => b.id === 50)?.type, "farm");
+    assert.deepEqual(msg.proposals[0].action, { kind: "build", type: "farm", ...spot });
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

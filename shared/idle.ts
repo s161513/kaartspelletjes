@@ -4,9 +4,11 @@
 // highest value ever, `peak`) unlocks the next era. Houses give villagers,
 // villagers staff work buildings, work buildings fill the storage. Villagers
 // without a job gather from the nature around the town, whatever the players
-// point them at. Nature runs out: gatherers and work buildings use up patches
-// of forest, rock and ore (the more valuable, the longer they last), which
-// slowly grow back. Building (on a tile someone
+// point them at. Food has kinds by where it comes from (grain, meat, fish,
+// berries) but is one resource in storage. Nature runs out: gatherers and
+// work buildings use up patches of forest, rock and ore (the more valuable,
+// the longer they last), which slowly grow back; hunters catch less where the
+// forest is cut down. Building (on a tile someone
 // clicked), laying or removing paths (drawn tile by tile, through nature and
 // over the river as bridges), tearing down a building (for a bit of its cost
 // back), upgrading (buildings or the whole street network) and big shop
@@ -62,6 +64,7 @@ import {
   slotsOf,
   worthOf,
   type Amounts,
+  type FoodKind,
   type NpcLook,
   type Outfit,
   type ResourceId,
@@ -198,13 +201,13 @@ function addBuilding<T extends IdleWorld>(s: T, type: string, level: number, spo
   return { state: { ...s, buildings: [...s.buildings, building], nextBuildingId: s.nextBuildingId + 1 }, building };
 }
 
-/** A fresh town: a campfire, two huts, hunters and a woodcutter. */
+/** A fresh town: a campfire, two huts, a hunters' camp and a woodcutter. */
 export function newIdleState(now: number): IdleState {
   let s: IdleState = {
     v: STATE_VERSION, era: 0, resources: { food: 50, wood: 60, stone: 40 }, buildings: [], nextBuildingId: 1,
     lastTick: now, boostUntil: 0, boosts: [], perks: {}, market: {}, roadLevel: 0, roads: [], nature: {}, gatherers: {}, proposals: [], nextProposalId: 1, players: {},
   };
-  for (const type of ["center", "house", "house", "food", "wood"]) s = addBuilding(s, type, 0, placeBuilding(s.buildings, type)!).state;
+  for (const type of ["center", "house", "house", "hunter", "wood"]) s = addBuilding(s, type, 0, placeBuilding(s.buildings, type)!).state;
   return { ...s, roads: classicStreets(s.buildings) };
 }
 
@@ -270,10 +273,12 @@ const leftIn = (p: Patch, used: Used): number => p.capacity - (used[p.id] ?? 0);
 /**
  * The patches a work building takes from, nearest first: its kind of nature
  * within WORK_RANGE. Null if it needs none (farms grow their own food).
+ * Hunters look at the forest: that's where the game lives.
  */
 export function sourcePatches(b: PlacedBuilding): Patch[] | null {
-  const res = buildingType(b.type)?.produces;
-  if (!res || b.type === "food") return null;
+  const t = buildingType(b.type);
+  const res = t?.source === undefined ? t?.produces : t.source;
+  if (!res) return null;
   const near = new Map<Patch, number>();
   for (let dy = -WORK_RANGE; dy <= WORK_RANGE; dy++) {
     for (let dx = -WORK_RANGE; dx <= WORK_RANGE; dx++) {
@@ -384,6 +389,7 @@ function regrow(used: Used, ms: number): Record<string, number> {
 /** Something that makes a resource: where it takes it from (null: nowhere) and how many clicks that costs per click's worth. */
 interface Output {
   res: ResourceId;
+  kind?: FoodKind;
   rate: number;
   src: Patch[] | null;
   drain: number;
@@ -398,18 +404,40 @@ function outputs(s: Pick<IdleWorld, "buildings" | "perks" | "era" | "gatherers">
   const out: Output[] = [];
   const left = (src: Patch[] | null) => !s.nature || !src || src.some((p) => leftIn(p, s.nature!) > 0.01);
   for (const b of s.buildings) {
-    const res = buildingType(b.type)?.produces;
+    const t = buildingType(b.type);
+    const res = t?.produces;
     if (!res) continue;
     const src = sourcePatches(b);
+    const rate = ((fullRateOf(b) * (workers[b.id] ?? 0)) / slotsOf(b.level)) * toolsOf(s, res);
+    if (t.sparesSource) {
+      // Hunters: as much as the forest around them still stands.
+      const share = s.nature ? sourceShare(s.nature, src) : 1;
+      if (share > 0.001) out.push({ res, kind: t.foodKind, rate: rate * share, src: null, drain: 0 });
+      continue;
+    }
     if (!left(src)) continue;
-    out.push({ res, rate: ((fullRateOf(b) * (workers[b.id] ?? 0)) / slotsOf(b.level)) * toolsOf(s, res), src, drain: WORK_DRAIN });
+    out.push({ res, kind: t.foodKind, rate, src, drain: WORK_DRAIN });
   }
   const { chosen, auto } = gatheringOf(s);
   for (const res of gatherable(s.era)) {
     const n = (chosen[res] ?? 0) + (auto[res] ?? 0);
     const src = gatherPatches(res);
-    if (n > 0 && left(src)) out.push({ res, rate: n * GATHER_RATE * clickAmount(s.era) * toolsOf(s, res), src, drain: 1 });
+    if (n > 0 && left(src)) out.push({ res, kind: res === "food" ? "berries" : undefined, rate: n * GATHER_RATE * clickAmount(s.era) * toolsOf(s, res), src, drain: 1 });
   }
+  return out;
+}
+
+/** Share of a building's source still there (1 with no source at all). */
+function sourceShare(used: Used, src: Patch[] | null): number {
+  if (!src) return 1;
+  const total = src.reduce((a, p) => a + p.capacity, 0);
+  return total ? src.reduce((a, p) => a + Math.max(0, leftIn(p, used)), 0) / total : 0;
+}
+
+/** Food per second by kind, without boosts (the lab's robots make no particular kind). */
+export function foodKindsOf(s: Pick<IdleWorld, "buildings" | "perks" | "era" | "gatherers"> & { nature?: Used }): Partial<Record<FoodKind, number>> {
+  const out: Partial<Record<FoodKind, number>> = {};
+  for (const { kind, rate } of outputs(s)) if (kind && rate > 0) out[kind] = (out[kind] ?? 0) + rate;
   return out;
 }
 
@@ -527,7 +555,8 @@ const discountOf = (s: Pick<IdleWorld, "perks">): number => 1 - 0.1 * perkOf(s, 
 /** Building a new one, always at the current era's level. */
 export function buildCost(s: Pick<IdleWorld, "buildings" | "era" | "perks">, typeId: string): Amounts | null {
   if (!buildingType(typeId)) return null;
-  const copies = s.buildings.filter((b) => b.type === typeId).length;
+  const group = buildingType(typeId)!.costGroup;
+  const copies = s.buildings.filter((b) => b.type === typeId || (group && buildingType(b.type)?.costGroup === group)).length;
   return scaled(levelCost(typeId, s.era), BUILD_COST_MULT * COST_GROWTH ** copies * discountOf(s));
 }
 

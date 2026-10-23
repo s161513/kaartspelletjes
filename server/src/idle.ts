@@ -149,7 +149,8 @@ function parseProposals(raw: unknown, now: number): IdleProposal[] {
  * Keep only known, sane fields. A v2 file gets empty shops; v2 and v3 files
  * (streets on a fixed grid) get those streets as laid paths, and lose their
  * open vote (30 s back then); anything older is replaced by a fresh town,
- * quietly: it was never in production.
+ * quietly: it was never in production. Renamed building types (RENAMED) get
+ * their new name, in the town and in open votes.
  */
 function parseIdle(raw: unknown, now: number): IdleState | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
@@ -165,7 +166,8 @@ function parseIdle(raw: unknown, now: number): IdleState | null {
     const seen = new Set<string>();
     const ids = new Set<number>();
     const buildings: PlacedBuilding[] = [];
-    for (const b of r.buildings as Record<string, unknown>[]) {
+    for (const raw of r.buildings as Record<string, unknown>[]) {
+      const b = raw && typeof raw.type === "string" ? { ...raw, type: typeName(raw.type) } : raw;
       if (!b || typeof b.type !== "string" || !buildingType(b.type)) continue;
       if (!Number.isInteger(b.id) || ids.has(b.id as number) || !tileInt(b.x) || !tileInt(b.y)) continue;
       if (!Number.isInteger(b.level) || (b.level as number) < 0 || (b.level as number) >= ERAS.length) continue;
@@ -175,7 +177,7 @@ function parseIdle(raw: unknown, now: number): IdleState | null {
       if (seen.has(tile)) continue;
       seen.add(tile);
       ids.add(b.id as number);
-      buildings.push({ id: b.id as number, type: b.type, level: b.level as number, x: b.x as number, y: b.y as number });
+      buildings.push({ id: b.id as number, type: b.type as string, level: b.level as number, x: b.x as number, y: b.y as number });
     }
     // Keep the fresh campfire only if the file somehow lost its center.
     if (!buildings.some((b) => b.type === "center")) buildings.unshift(s.buildings[0]);
@@ -211,9 +213,13 @@ function parseIdle(raw: unknown, now: number): IdleState | null {
   return s;
 }
 
+/** Building types that were renamed: the one food building became the farm (and hunters, fishers, ranches). */
+const RENAMED: Record<string, string> = { food: "farm" };
+const typeName = (type: string): string => RENAMED[type] ?? type;
+
 function parseAction(a: unknown): ProposalAction | null {
   const r = record(a);
-  if (r.kind === "build" && typeof r.type === "string" && tileInt(r.x) && tileInt(r.y)) return { kind: "build", type: r.type, x: r.x, y: r.y };
+  if (r.kind === "build" && typeof r.type === "string" && tileInt(r.x) && tileInt(r.y)) return { kind: "build", type: typeName(r.type), x: r.x, y: r.y };
   if (r.kind === "upgrade" && Number.isInteger(r.building)) return { kind: "upgrade", building: r.building as number };
   if (r.kind === "roads") return { kind: "roads" };
   if (r.kind === "buy" && typeof r.item === "string") return { kind: "buy", item: r.item };

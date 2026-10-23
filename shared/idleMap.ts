@@ -217,13 +217,14 @@ function buildable(x: number, y: number): boolean {
   return (t === "grass" || t === "sand") && !isRoadTile(x, y);
 }
 
-/** Nearest tile of a kind to the center, so work buildings start close to town. */
-function nearestTerrain(kind: Terrain): { x: number; y: number } {
+/** Nearest tile of a kind (or that passes `ok`) to the center, so work buildings start close to town. */
+function nearestTerrain(kind: Terrain | ((x: number, y: number) => boolean)): { x: number; y: number } {
+  const ok = typeof kind === "string" ? (x: number, y: number) => terrainAt(x, y) === kind : kind;
   let best = { x: CENTER.x, y: CENTER.y };
   let bestD = Infinity;
   for (let y = 0; y < MAP_SIZE; y++) {
     for (let x = 0; x < MAP_SIZE; x++) {
-      if (terrainAt(x, y) !== kind) continue;
+      if (!ok(x, y)) continue;
       const d = Math.hypot(x - CENTER.x, y - CENTER.y);
       if (d < bestD) {
         bestD = d;
@@ -239,7 +240,10 @@ let anchors: Record<string, { x: number; y: number }> | null = null;
 /** Where a type of building likes to stand. */
 export function anchorOf(typeId: string): { x: number; y: number } {
   anchors ??= {
-    food: { x: CENTER.x + 5, y: CENTER.y + 5 },
+    farm: { x: CENTER.x + 5, y: CENTER.y + 5 },
+    ranch: { x: CENTER.x - 5, y: CENTER.y + 5 },
+    hunter: nearestTerrain("forest"),
+    fishery: nearestTerrain(isRiver),
     wood: nearestTerrain("forest"),
     stone: nearestTerrain("rock"),
   };
@@ -256,7 +260,8 @@ const near = (x: number, y: number, r: number, ok: (x: number, y: number) => boo
 
 /** What a work building must stand next to, if anything, and how to say so. */
 function sourceOf(typeId: string): { ok: (x: number, y: number) => boolean; hint: string } | null {
-  if (typeId === "wood") return { ok: (x, y) => terrainAt(x, y) === "forest", hint: "moet vlak bij het bos staan" };
+  if (typeId === "wood" || typeId === "hunter") return { ok: (x, y) => terrainAt(x, y) === "forest", hint: "moet vlak bij het bos staan" };
+  if (typeId === "fishery") return { ok: isRiver, hint: "moet aan de rivier staan" };
   if (typeId === "stone") {
     return { ok: (x, y) => ["rock", "mountain"].includes(terrainAt(x, y)), hint: "moet vlak bij rotsen staan" };
   }

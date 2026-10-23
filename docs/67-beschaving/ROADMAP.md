@@ -37,6 +37,11 @@ die elk een eigen branch en PR krijgen.
    - Eén branch `framework/idle-update-<n>-<kort>` en één PR.
    - In de PR-beschrijving staat per punt wat er veranderd is.
    - Zet de status op *bezig*, en op *in review* zodra de PR open staat.
+   - Een PR gaat altijd naar `main`, ook als hij op een andere update
+     steunt die nog niet gemerged is. Een PR met een andere update-branch als
+     basis belandt na de merge niet op `main` (zo ging het met PR #28 en
+     #29). Steunt hij op een open PR, zet dat dan in de beschrijving; de
+     diff wordt vanzelf kleiner zodra die eerste PR gemerged is.
 4. **Commit per onderdeel, niet per feedbackregel.** Maak een paar logische
    commits per update, bijvoorbeeld regels + tests, dan UI, dan docs.
 5. **Na de merge** zet je de update op *gedaan*. Verplaats de feedback in
@@ -81,7 +86,7 @@ nog gepland staat. Een latere update kan steunen op een eerdere; dat staat er
 dan bij. Alle bronnen zijn feedback van 2026-10-22, tenzij anders vermeld.
 
 ### Update 3: Overzicht & bediening
-Status: in review (PR #28)
+Status: gedaan (PR #28, samen met update 4 naar main in PR #30)
 
 - [x] Een balkje per grondstof in de HUD dat laat zien hoe vol de opslag is.
       (bron: "een balk voor resources")
@@ -97,7 +102,7 @@ Status: in review (PR #28)
       die werkloos is, ma die is nie werkloos")
 
 ### Update 4: Dorpelingen doen het werk
-Status: in review (PR #29), gestapeld op PR #28.
+Status: gedaan (PR #29, samen met update 3 naar main in PR #30)
 
 - [x] Klikken op natuur levert geen grondstoffen meer op (`gather` en de
       move `{ type: "gather" }` in `shared/idle.ts`). Al het andere blijft
@@ -117,7 +122,7 @@ Status: in review (PR #29), gestapeld op PR #28.
       (bron: "duidelijkere jobs / jobs kiezen")
 
 ### Update 5: Dorpelingen op straat
-Status: gepland. Bouw na update 3.
+Status: gepland.
 
 - [ ] Dorpelingen lopen bij voorkeur over wegen en paden, en nooit dwars door
       gebouwen. Gebouwen gelden als niet beloopbaar in `path.ts`, en wegen
@@ -208,7 +213,7 @@ update 4 (zonder klikken verandert het tempo).
   met Richard.
 
 ### Update 2: Paden, bruggen, afbreken, stemmen
-Status: in review (PR #27)
+Status: gedaan (PR #27)
 
 - [x] Bouwen is duurder: ×1,5 en ×1,2 per exemplaar.
 - [x] Paden teken je zelf, ook door de natuur heen en als brug over de rivier.

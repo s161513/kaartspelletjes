@@ -61,6 +61,7 @@ import {
   roadCost,
   sourceLeft,
   sourcePatches,
+  sourceShareOf,
   terrainAt,
   tileIndex,
   tileOf,
@@ -270,6 +271,7 @@ test("food: hunters, farms, fishers and ranches make kinds of food; hunters catc
   // Half the forest around them cut: half the meat. All of it: none, the farm goes on.
   const half = { ...s, nature: Object.fromEntries(forest.map((p) => [p.id, p.capacity / 2])) };
   assert.ok(near(foodKindsOf(half).meat!, 0.5));
+  assert.ok(near(sourceShareOf(half, hunter), 0.5));
   const bare = { ...s, nature: Object.fromEntries(forest.map((p) => [p.id, p.capacity])) };
   assert.deepEqual(foodKindsOf(bare), { grain: 1 });
   assert.equal(sourceLeft(bare, hunter)!.left, 0);

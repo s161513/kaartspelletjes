@@ -27,6 +27,7 @@ import {
   drawBridge,
   drawBubble,
   drawBuilding,
+  drawAnimal,
   drawBush,
   drawDeposit,
   drawMountain,
@@ -39,6 +40,7 @@ import {
   groundColor,
 } from "./draw";
 import { Camera, TILE_H, TILE_W, toTileSpace, toWorld } from "./iso";
+import { Wildlife } from "./animals";
 import { setTown } from "./path";
 import { Population, type Gather, type VillagerInfo } from "./villagers";
 
@@ -118,6 +120,7 @@ export function createWorld(opts: WorldOptions): TownWorld {
   const ctx = canvas.getContext("2d")!;
   const cam = new Camera();
   const pop = new Population();
+  const wild = new Wildlife();
   const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
   let world: IdleWorld | null = null;
   let roads = new Set<string>();
@@ -542,6 +545,14 @@ export function createWorld(opts: WorldOptions): TownWorld {
         },
       });
     }
+    for (const a of wild.animals.values()) {
+      if (a.x < x0 - 1 || a.x > x1 || a.y < y0 - 1 || a.y > y1) continue;
+      const fx = a.x + 0.5 + a.ox;
+      const fy = a.y + 0.5 + a.oy;
+      const p = toWorld(fx, fy);
+      const look = wild.look(a, now);
+      items.push({ d: fx + fy, f: () => drawAnimal(ctx, p.x, p.y, look) });
+    }
     const bubbles: [number, number, string][] = [];
     const tags: [number, number, string, boolean][] = [];
     for (const v of pop.villagers.values()) {
@@ -643,6 +654,7 @@ export function createWorld(opts: WorldOptions): TownWorld {
     const dt = Math.min(0.1, (t - last) / 1000);
     last = t;
     pop.update(dt, Date.now());
+    wild.update(dt, Date.now());
     draw(t);
     raf = requestAnimationFrame(frame);
   };
@@ -675,8 +687,10 @@ export function createWorld(opts: WorldOptions): TownWorld {
     },
     setWorld(w) {
       let changed = !world || world.buildings !== w.buildings || world.gatherers !== w.gatherers;
+      let forests = !world;
       const streets = w.roads.join(",");
       if (streets !== roadsKey) {
+        forests = true;
         roadsKey = streets;
         roads = new Set(w.roads.map((i) => `${tileOf(i).x},${tileOf(i).y}`));
         // Work spots under a new path move elsewhere.
@@ -692,6 +706,7 @@ export function createWorld(opts: WorldOptions): TownWorld {
         .filter((k) => !k.endsWith(":0"))
         .join(",");
       if (key !== usedUpKey) {
+        forests = true;
         usedUpKey = key;
         usedUp = new Set();
         for (const [id, n] of Object.entries(w.nature)) {
@@ -700,6 +715,7 @@ export function createWorld(opts: WorldOptions): TownWorld {
         }
       }
       if (changed) pop.sync(w, Date.now());
+      if (forests) wild.sync(w, Date.now());
     },
     setPeople(people, me) {
       pop.setPeople(people, me, Date.now());

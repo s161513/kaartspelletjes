@@ -37,6 +37,8 @@ import {
   outfitError,
   outfitsFor,
   pathCost,
+  FOOD_KINDS,
+  foodKindsOf,
   pathError,
   placeError,
   ratesOf,
@@ -50,6 +52,7 @@ import {
   slotsAt,
   slotsOf,
   sourceLeft,
+  sourceShareOf,
   terrainAt,
   tileIndex,
   tileOf,
@@ -129,7 +132,9 @@ function effectText(world: IdleWorld, t: BuildingType): string {
   if (t.category === "shop") return `🛒 winkel: ${shopBlurb(t.id)}`;
   if (t.produces) {
     const rate = fullRateOf({ id: 0, type: t.id, level: era, x: 0, y: 0 });
-    return `${resourceDef(t.produces)?.emoji} +${fmt(rate)}/s met ${slotsOf(era)} werkers`;
+    const kind = t.foodKind ? ` (${foodKindText(t.foodKind)})` : "";
+    const less = t.sparesSource ? " · minder als het bos rondom gekapt is" : "";
+    return `${resourceDef(t.produces)?.emoji} +${fmt(rate)}/s${kind} met ${slotsOf(era)} werkers${less}`;
   }
   return "";
 }
@@ -160,6 +165,18 @@ const DECOR_BEHAVIOR: Record<DecorBehavior, string> = {
 };
 
 const SOURCE_NAMES: Record<string, string> = { wood: "🌲 Bos", stone: "🪨 Rotsen" };
+
+const foodKindText = (id: string): string => {
+  const k = FOOD_KINDS.find((f) => f.id === id);
+  return k ? `${k.emoji} ${k.name}` : id;
+};
+
+/** "🌾 graan 1/s · 🥩 vlees 2/s": the food the town makes per second, by kind. */
+function menuText(world: IdleWorld): string {
+  const kinds = foodKindsOf(world);
+  const parts = FOOD_KINDS.filter((k) => kinds[k.id]).map((k) => `${k.emoji} ${k.name} ${fmt(kinds[k.id]!)}/s`);
+  return parts.length ? parts.join(" · ") : "niets: bouw een jagerskamp, akker of visserij";
+}
 
 const timeLeft = (ms: number) => {
   const s = Math.max(0, Math.ceil(ms / 1000));
@@ -306,7 +323,10 @@ export function createPanels(deps: PanelDeps): Panels {
       text.textContent = `${resourceDef(id)!.emoji} ${fmt(have)}${rate ? ` +${fmt(rate)}/s` : ""}`;
       fill.style.width = `${Math.min(100, (have / cap) * 100)}%`;
       chip.classList.toggle("sx-hud-full", have >= cap);
-      chip.title = `${resourceDef(id)!.name}: ${fmt(have)} van max ${fmt(cap)}${have >= cap ? " — vol! bouw opslag" : ""}`;
+      chip.title =
+        `${resourceDef(id)!.name}: ${fmt(have)} van max ${fmt(cap)}${have >= cap ? " — vol! bouw opslag" : ""}` +
+        (id === "food" ? `
+${menuText(world)}` : "");
     }
     const wf = assignWorkers(world);
     popChip.textContent = `👥 ${wf.population} (${wf.population - wf.idle} werken)`;
@@ -833,9 +853,11 @@ export function createPanels(deps: PanelDeps): Panels {
       return { id, text, less, more, row };
     });
     const summary = h("div", "sx-note");
+    const menu = h("div", "sx-note");
     insActions.append(
       h("h4", "sx-h", "👥 Wie doet wat"),
       summary,
+      menu,
       ...rows.map((r) => r.row),
       h("p", "sx-note", "Met + zet je iemand zonder werk op die grondstof, met − laat je die weer zelf kiezen. Banen krijg je door werkgebouwen te bouwen."),
     );
@@ -846,10 +868,12 @@ export function createPanels(deps: PanelDeps): Panels {
       const { chosen, auto } = gatheringOf(w);
       const picked = Object.values(chosen).reduce((a, n) => a + n, 0);
       summary.textContent = `👷 ${wf.population - wf.idle} met een baan · 🧺 ${wf.idle} zonder baan, die verzamelen`;
+      menu.textContent = `🍽️ Op het menu: ${menuText(w)}`;
       for (const r of rows) {
         const c = chosen[r.id] ?? 0;
         const n = c + (auto[r.id] ?? 0);
-        r.text.textContent = `${resourceDef(r.id)!.emoji} ${resourceDef(r.id)!.name}: ${n}${c ? ` (${c} gekozen)` : ""}`;
+        const name = r.id === "food" ? `${resourceDef(r.id)!.name} (${foodKindText("berries")})` : resourceDef(r.id)!.name;
+        r.text.textContent = `${resourceDef(r.id)!.emoji} ${name}: ${n}${c ? ` (${c} gekozen)` : ""}`;
         r.less.disabled = !deps.connected() || c === 0;
         r.more.disabled = !deps.connected() || picked >= wf.idle;
       }
@@ -971,11 +995,20 @@ export function createPanels(deps: PanelDeps): Panels {
       const w = assignWorkers(world).workers[b.id] ?? 0;
       const slots = slotsAt(world, b);
       lines.push(`👷 ${w}/${slots} werkers`);
-      lines.push(`${resourceDef(t.produces)?.emoji} ${fmt((fullRateOf(b) * w) / slotsOf(b.level))}/s (zonder bonussen)${w < slots ? " — meer huizen = meer werkers" : ""}`);
+      const share = t.sparesSource ? sourceShareOf(world, b) : 1;
+      const kind = t.foodKind ? ` ${foodKindText(t.foodKind)}` : "";
+      lines.push(`${resourceDef(t.produces)?.emoji}${kind} ${fmt(((fullRateOf(b) * w) / slotsOf(b.level)) * share)}/s (zonder bonussen)${w < slots ? " — meer huizen = meer werkers" : ""}`);
       const src = sourceLeft(world, b);
-      if (src) {
+      const from = t.source === undefined ? t.produces : t.source;
+      if (src && t.sparesSource) {
+        lines.push(
+          share > 0.001
+            ? `${SOURCE_NAMES[from ?? ""] ?? "🌲 Bos"} in de buurt: nog ${Math.round(share * 100)}%, dus zoveel wild om op te jagen`
+            : "⚠️ Het bos rondom is gekapt: geen wild meer. Wacht tot het teruggroeit, of bouw er een bij een ander bos.",
+        );
+      } else if (src) {
         const pct = src.total ? Math.round((src.left / src.total) * 100) : 0;
-        lines.push(src.left > 0.01 ? `${SOURCE_NAMES[t.produces] ?? "⛏️ Ertsader"} in de buurt: nog ${pct}%` : "⚠️ Niets meer in de buurt: wacht tot het teruggroeit, of bouw er een bij een andere plek.");
+        lines.push(src.left > 0.01 ? `${SOURCE_NAMES[from ?? ""] ?? "⛏️ Ertsader"} in de buurt: nog ${pct}%` : "⚠️ Niets meer in de buurt: wacht tot het teruggroeit, of bouw er een bij een andere plek.");
       }
     }
     if (t.category === "storage") lines.push(`📦 +${fmt(STORAGE_CAP * scaleOf(b.level))} opslag`);

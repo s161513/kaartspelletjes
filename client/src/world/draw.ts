@@ -1,5 +1,5 @@
 // Everything drawn in the town: ground, streets, nature, buildings,
-// decorations and the villagers (players' own NPCs included). All shapes are simple isometric boxes and polygons in code; the
+// decorations, animals and the villagers (players' own NPCs included). All shapes are simple isometric boxes and polygons in code; the
 // look per era comes from ERAS[level].style (shared/idleContent.ts).
 
 import { ERAS, buildingType, depositAt, type PlacedBuilding, type ResourceId, type Terrain } from "@app/shared/idle";
@@ -409,7 +409,7 @@ function shapeOf(b: PlacedBuilding): Shape {
     return { w: 0.66, h: 16 + b.level, roof: r, roofH: roofH(r), float: 0 };
   }
   const r: RoofType = b.level === 0 ? "cone" : style.roofType;
-  return { w: b.type === "food" ? 0.4 : 0.6, h: 10 + b.level, roof: r, roofH: roofH(r), float: 0 };
+  return { w: b.type === "farm" || b.type === "ranch" ? 0.4 : 0.6, h: 10 + b.level, roof: r, roofH: roofH(r), float: 0 };
 }
 
 /** Screen-space box (world px) around a building, for clicks. */
@@ -484,6 +484,35 @@ function yard(ctx: Ctx, b: PlacedBuilding, cx: number, cy: number, t: number): v
       ellipse(ctx, fx - 2, fy - 2, 2, 2, "#1f2937");
       break;
     case "food":
+      if (b.type === "hunter") {
+        // A drying rack with a hide, and a pair of antlers.
+        ctx.strokeStyle = "#5b3a1a";
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(fx - 10, fy + 2);
+        ctx.lineTo(fx - 10, fy - 12);
+        ctx.moveTo(fx + 2, fy - 2);
+        ctx.lineTo(fx + 2, fy - 16);
+        ctx.moveTo(fx - 11, fy - 11);
+        ctx.lineTo(fx + 3, fy - 15);
+        ctx.stroke();
+        poly(ctx, [fx - 9, fy - 11, fx + 1, fy - 14, fx, fy - 5, fx - 8, fy - 3], "#a0693a");
+        antlers(ctx, fx + 9, fy - 2, 1);
+      } else if (b.type === "fishery") {
+        // Fish hanging to dry, and a little boat.
+        ctx.strokeStyle = "#5b3a1a";
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.moveTo(fx - 12, fy - 10);
+        ctx.lineTo(fx, fy - 14);
+        ctx.stroke();
+        for (let i = 0; i < 3; i++) ellipse(ctx, fx - 10 + i * 4, fy - 9 - i * 1.3 + Math.sin(t / 500 + i) * 0.5, 1.2, 2.6, "#cbd5e1");
+        poly(ctx, [fx + 2, fy + 2, fx + 16, fy - 3, fx + 13, fy + 1, fx + 5, fy + 4], "#7a4f2a");
+      } else if (b.type === "ranch") {
+        const walk = Math.sin(t / 2500 + b.id);
+        drawAnimal(ctx, fx - 9 + walk * 3, fy + 1, { kind: b.level >= 2 && b.id % 2 ? "sheep" : "cow", dir: walk > 0 ? 1 : -1, phase: t, walking: false });
+        drawAnimal(ctx, fx + 9 - walk * 2, fy - 3, { kind: "cow", dir: walk > 0 ? -1 : 1, phase: t + 900, walking: false });
+      }
       break;
     default:
       if (res) {
@@ -506,6 +535,92 @@ function fields(ctx: Ctx, cx: number, cy: number, level: number, t: number): voi
     ctx.beginPath();
     ctx.moveTo(cx - 20 + i * 5 + sway, cy - 10 + i * 2.5 + 3);
     ctx.lineTo(cx + 4 + i * 5 + sway, cy + 2 + i * 2.5 + 3);
+    ctx.stroke();
+  }
+}
+
+/** A fenced meadow over the tile, for the ranch's animals. */
+function pasture(ctx: Ctx, cx: number, cy: number): void {
+  const pts = [cx - HW * 0.95, cy, cx, cy + HH * 0.95, cx + HW * 0.95, cy, cx, cy - HH * 0.95];
+  poly(ctx, pts, "#7fb05a");
+  ctx.strokeStyle = "#8b5a2b";
+  ctx.lineWidth = 1.2;
+  for (const lift of [2, 4.5]) {
+    ctx.beginPath();
+    for (let i = 0; i <= 4; i++) {
+      const k = (i % 4) * 2;
+      if (i === 0) ctx.moveTo(pts[k], pts[k + 1] - lift);
+      else ctx.lineTo(pts[k], pts[k + 1] - lift);
+    }
+    ctx.stroke();
+  }
+}
+
+function antlers(ctx: Ctx, x: number, y: number, dir: number): void {
+  ctx.strokeStyle = "#e7d7b1";
+  ctx.lineWidth = 0.9;
+  ctx.beginPath();
+  for (const side of [-1, 1]) {
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + side * 2 + dir, y - 4);
+    ctx.lineTo(x + side * 3.5 + dir, y - 6);
+    ctx.moveTo(x + side * 1.4 + dir, y - 2.8);
+    ctx.lineTo(x + side * 3 + dir, y - 3);
+  }
+  ctx.stroke();
+}
+
+// ---------- animals ----------
+
+export interface AnimalLook {
+  kind: "deer" | "boar" | "cow" | "sheep";
+  /** Facing right (1) or left (-1). */
+  dir: 1 | -1;
+  /** Animation clock in ms. */
+  phase: number;
+  walking: boolean;
+}
+
+const ANIMAL_COLORS: Record<AnimalLook["kind"], { body: string; head: string }> = {
+  deer: { body: "#a0693a", head: "#8b5a2b" },
+  boar: { body: "#4b3b2f", head: "#3a2d24" },
+  cow: { body: "#f5f5f4", head: "#e7e5e4" },
+  sheep: { body: "#f1f5f9", head: "#1f2937" },
+};
+
+/** A small animal standing on (x, y): game in the forest, cattle on the ranch. */
+export function drawAnimal(ctx: Ctx, x: number, y: number, a: AnimalLook): void {
+  const c = ANIMAL_COLORS[a.kind];
+  const step = a.walking ? Math.sin(a.phase / 120) * 1.5 : 0;
+  // Grazing: the head goes down now and then.
+  const graze = !a.walking && Math.sin(a.phase / 1300) > 0.4 ? 2.5 : 0;
+  const tall = a.kind === "deer" ? 6 : a.kind === "boar" ? 3.5 : 4.5;
+  ellipse(ctx, x, y + 0.5, 5, 1.8, "rgba(0,0,0,0.22)");
+  ctx.strokeStyle = a.kind === "sheep" ? "#1f2937" : shade(c.body, -0.35);
+  ctx.lineWidth = 1.1;
+  ctx.beginPath();
+  for (const [lx, s] of [[-3, step], [-1.5, -step], [1.5, step], [3, -step]] as const) {
+    ctx.moveTo(x + lx, y - tall + 1);
+    ctx.lineTo(x + lx + s, y);
+  }
+  ctx.stroke();
+  const by = y - tall - 1;
+  ellipse(ctx, x, by, a.kind === "sheep" ? 4.8 : 4.5, a.kind === "sheep" ? 3.2 : 2.5, c.body);
+  if (a.kind === "cow") {
+    ellipse(ctx, x - 1.5, by - 0.5, 1.4, 1, "#1f2937");
+    ellipse(ctx, x + 2, by + 0.6, 1.1, 0.8, "#1f2937");
+  }
+  if (a.kind === "deer") ellipse(ctx, x - a.dir * 4.5, by - 0.8, 1, 1, "#fff");
+  const hx = x + a.dir * 4.8;
+  const hy = by - 1.5 + graze;
+  ellipse(ctx, hx, hy, 1.9, 1.6, c.head);
+  if (a.kind === "deer" && !graze) antlers(ctx, hx, hy - 1, a.dir * 0.5);
+  if (a.kind === "boar") {
+    ctx.strokeStyle = "#f5f5f4";
+    ctx.lineWidth = 0.7;
+    ctx.beginPath();
+    ctx.moveTo(hx + a.dir * 1.4, hy + 0.6);
+    ctx.lineTo(hx + a.dir * 2.4, hy - 0.6);
     ctx.stroke();
   }
 }
@@ -539,7 +654,8 @@ export function drawBuilding(ctx: Ctx, b: PlacedBuilding, t: number, selected: b
     drawCampfire(ctx, cx, cy, t);
     return;
   }
-  if (b.type === "food") fields(ctx, cx, cy, b.level, t);
+  if (b.type === "farm") fields(ctx, cx, cy, b.level, t);
+  if (b.type === "ranch") pasture(ctx, cx, cy);
 
   ellipse(ctx, cx, cy + 2, HW * s.w * 1.05, HH * s.w * 1.05, "rgba(0,0,0,0.2)");
   const by = cy - s.float;
@@ -740,7 +856,7 @@ export interface VillagerLook {
   phase: number;
   /** "sixseven": both hands up, palms flat, bouncing up and down in turn. */
   action: "none" | "work" | "dance" | "photo" | "pose" | "sit" | "sixseven";
-  tool: "axe" | "pick" | "hoe" | "none";
+  tool: "axe" | "pick" | "hoe" | "spear" | "rod" | "none";
   carry: ResourceId | null;
   jump: number;
   /** A player's own NPC: hat and pattern from the tailor (else the era's look). */
@@ -796,12 +912,33 @@ export function drawVillager(ctx: Ctx, x: number, y: number, v: VillagerLook): v
     ctx.strokeStyle = "#78350f";
     ctx.lineWidth = 1.2;
     ctx.beginPath();
+    // Bare hands: picking berries, tending the cattle.
+    if (v.tool === "none") return;
+    if (v.tool === "rod") {
+      // Casting a line: a long rod, the line hanging down.
+      const tx = hx + 9;
+      const ty = hy - 8 + Math.sin(v.phase / 600) * 1.5;
+      ctx.moveTo(hx, hy);
+      ctx.lineTo(tx, ty);
+      ctx.stroke();
+      ctx.strokeStyle = "rgba(255,255,255,0.7)";
+      ctx.lineWidth = 0.5;
+      ctx.beginPath();
+      ctx.moveTo(tx, ty);
+      ctx.lineTo(tx + 1, by);
+      ctx.stroke();
+      return;
+    }
+    const len = v.tool === "spear" ? 11 : 7;
     ctx.moveTo(hx, hy);
-    const tx = hx + Math.cos(a - 1.2) * 7;
-    const ty = hy + Math.sin(a - 1.2) * 7;
+    const tx = hx + Math.cos(a - 1.2) * len;
+    const ty = hy + Math.sin(a - 1.2) * len;
     ctx.lineTo(tx, ty);
     ctx.stroke();
-    if (v.tool !== "hoe") {
+    if (v.tool === "spear") {
+      const d = a - 1.2;
+      poly(ctx, [tx + Math.cos(d) * 3, ty + Math.sin(d) * 3, tx + Math.cos(d + 1.6) * 1.2, ty + Math.sin(d + 1.6) * 1.2, tx + Math.cos(d - 1.6) * 1.2, ty + Math.sin(d - 1.6) * 1.2], "#d1d5db");
+    } else if (v.tool !== "hoe") {
       ctx.fillStyle = "#9ca3af";
       ctx.fillRect(tx - 1.5, ty - 1.5, 3, 3);
     }

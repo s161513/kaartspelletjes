@@ -434,6 +434,9 @@ function sourceShare(used: Used, src: Patch[] | null): number {
   return total ? src.reduce((a, p) => a + Math.max(0, leftIn(p, used)), 0) / total : 0;
 }
 
+/** Share of what a work building works from that's still there: hunters catch this share. */
+export const sourceShareOf = (s: Pick<IdleWorld, "nature">, b: PlacedBuilding): number => sourceShare(s.nature, sourcePatches(b));
+
 /** Food per second by kind, without boosts (the lab's robots make no particular kind). */
 export function foodKindsOf(s: Pick<IdleWorld, "buildings" | "perks" | "era" | "gatherers"> & { nature?: Used }): Partial<Record<FoodKind, number>> {
   const out: Partial<Record<FoodKind, number>> = {};

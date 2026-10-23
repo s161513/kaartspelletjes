@@ -18,6 +18,8 @@ import {
   buildingType,
   gatherPatches,
   gatheringOf,
+  isLand,
+  isRiver,
   isRoad,
   isUsedUp,
   housingOf,
@@ -119,6 +121,9 @@ export interface Villager {
   /** Set for a player's own NPC. */
   player?: { name: string; hat: string; pattern: string; mine: boolean };
 }
+
+/** What a worker swings, by work building (the rest: an axe for wood, a pick for everything mined). */
+const TOOLS: Record<string, VillagerLook["tool"]> = { farm: "hoe", hunter: "spear", fishery: "rod", ranch: "none" };
 
 const pick = <T>(a: readonly T[]): T => a[Math.floor(Math.random() * a.length)];
 const hashStr = (s: string) => [...s].reduce((h, c) => (Math.imul(h, 31) + c.charCodeAt(0)) | 0, 7);
@@ -243,7 +248,7 @@ export class Population {
     for (const id of [...this.villagers.keys()]) if (id.startsWith("p:") && !keep.has(id)) this.villagers.delete(id);
   }
 
-  /** Where a worker of this building works: the forest, the rocks, the ore, or the building itself. */
+  /** Where a worker of this building works: the forest (woodcutters, hunters), the rocks, the ore, the riverbank, or the building itself. */
   private workSpot(b: PlacedBuilding): Point {
     let spot = this.spots.get(b.id);
     if (spot) return spot;
@@ -252,13 +257,15 @@ export class Population {
     spot = { x: b.x, y: b.y };
     const deposit = DEPOSITS.find((d) => d.resource === res);
     if (b.type.startsWith("mine_") && deposit) spot = { x: deposit.x, y: deposit.y };
-    else if (res === "wood" || res === "stone") {
-      const want = res === "wood" ? "forest" : "rock";
+    else if (res === "wood" || res === "stone" || b.type === "hunter" || b.type === "fishery") {
+      const want = (x: number, y: number) =>
+        b.type === "fishery" ? isLand(x, y) && [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => isRiver(x + dx, y + dy))
+        : terrainAt(x, y) === (res === "stone" ? "rock" : "forest");
       let best = Infinity;
       for (let dy = -10; dy <= 10; dy++) {
         for (let dx = -10; dx <= 10; dx++) {
           const d = Math.hypot(dx, dy);
-          if (d < best && terrainAt(b.x + dx, b.y + dy) === want && !isRoad(roads, b.x + dx, b.y + dy)) {
+          if (d < best && want(b.x + dx, b.y + dy) && !isRoad(roads, b.x + dx, b.y + dy)) {
             best = d;
             spot = { x: b.x + dx, y: b.y + dy };
           }
@@ -493,7 +500,7 @@ export class Population {
       // The 67 is in step for the whole town.
       phase: sixSeven ? now : now + hashStr(v.id),
       action: sixSeven ? "sixseven" : v.action,
-      tool: res === "wood" ? "axe" : res === "food" ? "hoe" : "pick",
+      tool: job ? TOOLS[job.type] ?? (res === "wood" ? "axe" : "pick") : res === "wood" ? "axe" : res === "food" ? "none" : "pick",
       carry: v.carry,
       jump: jumpLeft > 0 ? Math.sin((jumpLeft / 700) * Math.PI * 2) ** 2 * 6 : 0,
       hat: v.player?.hat,

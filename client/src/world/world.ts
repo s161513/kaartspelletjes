@@ -39,7 +39,7 @@ import {
   groundColor,
 } from "./draw";
 import { Camera, TILE_H, TILE_W, toTileSpace, toWorld } from "./iso";
-import { setRoads } from "./path";
+import { setTown } from "./path";
 import { Population, type Gather, type VillagerInfo } from "./villagers";
 
 const DRAG_THRESHOLD = 6;
@@ -661,13 +661,15 @@ export function createWorld(opts: WorldOptions): TownWorld {
       if (v) pop.setGather(v, g, Date.now());
     },
     setWorld(w) {
-      const changed = !world || world.buildings !== w.buildings || world.gatherers !== w.gatherers;
+      let changed = !world || world.buildings !== w.buildings || world.gatherers !== w.gatherers;
       const streets = w.roads.join(",");
       if (streets !== roadsKey) {
         roadsKey = streets;
         roads = new Set(w.roads.map((i) => `${tileOf(i).x},${tileOf(i).y}`));
-        setRoads(w.roads);
+        // Work spots under a new path move elsewhere.
+        changed = true;
       }
+      if (changed) setTown(w.buildings, w.roads);
       world = w;
       roadLevel = w.roadLevel;
       // Which tiles are used up only changes when a patch crosses a tile's worth.

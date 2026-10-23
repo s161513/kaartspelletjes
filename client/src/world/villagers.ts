@@ -29,7 +29,7 @@ import {
 } from "@app/shared/idle";
 import { rand2, type VillagerLook } from "./draw";
 import type { Point } from "./iso";
-import { findPath, nearestWalkable } from "./path";
+import { findPath, nearestOpen, nearestWalkable } from "./path";
 
 export const MAX_VILLAGERS = 200;
 
@@ -216,7 +216,7 @@ export class Population {
       keep.add(id);
       let v = this.villagers.get(id);
       if (!v) {
-        const start = nearestWalkable(CENTER.x + Math.round((Math.random() - 0.5) * 4), CENTER.y + Math.round((Math.random() - 0.5) * 4));
+        const start = nearestOpen(CENTER.x + Math.round((Math.random() - 0.5) * 4), CENTER.y + Math.round((Math.random() - 0.5) * 4));
         v = {
           id, name: p.name, home: -1, job: null, gather: null, level: 0, clothes: "", skin: "",
           x: start.x, y: start.y, ox: (Math.random() - 0.5) * 0.4, oy: (Math.random() - 0.5) * 0.4,
@@ -239,6 +239,7 @@ export class Population {
     let spot = this.spots.get(b.id);
     if (spot) return spot;
     const res = buildingType(b.type)?.produces;
+    const roads = this.world?.roads ?? [];
     spot = { x: b.x, y: b.y };
     const deposit = DEPOSITS.find((d) => d.resource === res);
     if (b.type.startsWith("mine_") && deposit) spot = { x: deposit.x, y: deposit.y };
@@ -248,7 +249,7 @@ export class Population {
       for (let dy = -10; dy <= 10; dy++) {
         for (let dx = -10; dx <= 10; dx++) {
           const d = Math.hypot(dx, dy);
-          if (d < best && terrainAt(b.x + dx, b.y + dy) === want) {
+          if (d < best && terrainAt(b.x + dx, b.y + dy) === want && !isRoad(roads, b.x + dx, b.y + dy)) {
             best = d;
             spot = { x: b.x + dx, y: b.y + dy };
           }
@@ -300,15 +301,15 @@ export class Population {
       const behavior = buildingType(d.type)!.decor!.behavior;
       const a = Math.random() * Math.PI * 2;
       v.task = { kind: "go", then: behavior, duration: 6000 + Math.random() * 6000 };
-      this.walkTo(v, { x: Math.round(d.x + Math.cos(a) * 1.4), y: Math.round(d.y + Math.sin(a) * 1.4) });
+      this.walkTo(v, nearestOpen(Math.round(d.x + Math.cos(a) * 1.4), Math.round(d.y + Math.sin(a) * 1.4)));
     } else if (roll < 0.6) {
       const a = Math.random() * Math.PI * 2;
       v.task = { kind: "go", then: "sit", duration: 6000 + Math.random() * 5000 };
-      this.walkTo(v, { x: Math.round(CENTER.x + Math.cos(a) * 1.5), y: Math.round(CENTER.y + Math.sin(a) * 1.5) });
+      this.walkTo(v, nearestOpen(Math.round(CENTER.x + Math.cos(a) * 1.5), Math.round(CENTER.y + Math.sin(a) * 1.5)));
     } else if (roll < 0.9 || !home) {
       const base = home ?? CENTER;
       v.task = { kind: "go", then: "none", duration: 1500 + Math.random() * 3000 };
-      this.walkTo(v, { x: base.x + Math.round((Math.random() - 0.5) * 12), y: base.y + Math.round((Math.random() - 0.5) * 12) });
+      this.walkTo(v, nearestOpen(base.x + Math.round((Math.random() - 0.5) * 12), base.y + Math.round((Math.random() - 0.5) * 12)));
     } else {
       v.task = { kind: "go", then: "home", duration: 6000 + Math.random() * 8000 };
       this.walkTo(v, home);

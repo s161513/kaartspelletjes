@@ -130,7 +130,8 @@ Status: gedaan (PR #31)
       en nie gwn door de huizen glitchen")
 - [x] Minder willekeurige NPC's. Toon een deel van de inwoners, of laat de
       spelers duidelijker opvallen. Gedaan: allebei, zo'n 40 inwoners op de
-      kaart (`SHOWN_VILLAGERS`), spelers groter en met een gloed. (bron:
+      kaart, spelers groter en met een gloed. In update 6 verder omlaag
+      naar één per speler online. (bron:
       "teveel random npc's")
 - [x] Een extra zin voor dorpelingen: "Who's gonna carry the logs and the
       boats?" (bron: "extra line")
@@ -157,6 +158,11 @@ bos gekapt is; veehouderij pas vanaf de Bronstijd.
       zonder baan verzamelt. Het is één 🍖 in de opslag, maar `foodKindsOf`
       geeft per soort wat het dorp maakt, voor update 7. (bron: "variatie in
       voedsel")
+- [x] Minder dieren en minder dorpelingen op de kaart. Gedaan: één dier per
+      8 bomen en hoogstens één per bos (was per 4, hoogstens 3). Van de
+      inwoners loopt er nog één per speler online rond (`NPCS_PER_PLAYER`),
+      naast de spelers zelf. (bron: Richard, 2026-10-23, "minder dieren, de
+      bossen staan echt vol", "per speler 1 extra npc")
 
 ### Update 7: Geluk & wonen
 Status: gepland. Steunt op update 6 (soorten voedsel, `foodKindsOf`).

@@ -9,8 +9,8 @@ import type { Point } from "./iso";
 /** Forests with a tile this close to the center have game. */
 const RANGE = 24;
 /** One animal per this many standing trees, at most MAX_PER_PATCH per forest. */
-const TREES_EACH = 4;
-const MAX_PER_PATCH = 3;
+const TREES_EACH = 8;
+const MAX_PER_PATCH = 1;
 const SPEED = 0.6; // tiles per second
 
 export interface Animal {

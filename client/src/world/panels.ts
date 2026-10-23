@@ -73,7 +73,7 @@ import {
   type Terrain,
 } from "@app/shared/idle";
 import { session } from "../session";
-import { SHOWN_VILLAGERS, type Gather, type VillagerInfo } from "./villagers";
+import { NPCS_PER_PLAYER, type Gather, type VillagerInfo } from "./villagers";
 
 const TICK_MS = 300;
 
@@ -332,7 +332,7 @@ ${menuText(world)}` : "");
     popChip.textContent = `👥 ${wf.population} (${wf.population - wf.idle} werken)`;
     popChip.title =
       `${wf.population} inwoners, ${wf.idle} zonder werk · opslag max ${fmt(cap)} per grondstof` +
-      (wf.population > SHOWN_VILLAGERS ? ` · op de kaart loopt een deel rond, zo'n ${SHOWN_VILLAGERS}` : "");
+      ` · op de kaart lopen er ${NPCS_PER_PLAYER} per speler online rond`;
 
     const boosts: string[] = [];
     if (world.boostUntil > now) boosts.push(`⚡ ×${BOOST_MULT} ${timeLeft(world.boostUntil - now)}`);

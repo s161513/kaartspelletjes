@@ -19,6 +19,9 @@ thema (zie [ROADMAP.md](ROADMAP.md)):
 
 ## Verwerkt
 
+- 2026-10-23, Richard: "Zorg dat er wat minder dieren zijn, de bossen staan
+  echt vol. Ook zijn er te veel NPC's ik zou per speler 1 extra npc
+  toevoegen": Update 6 (PR #32)
 - 2026-10-23, Richard: voedsel blijft één voorraad met een soort per bron,
   vier voedselgebouwen, jagerskamp vangt minder bij gekapt bos, veehouderij
   vanaf de Bronstijd: Update 6

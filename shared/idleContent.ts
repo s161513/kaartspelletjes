@@ -347,7 +347,7 @@ export const SPECIAL_BASE_RATE = 0.5;
 export const BASE_CAP = 200;
 export const STORAGE_CAP = 400;
 export const CENTER_CAP = 200;
-/** One click in the world gives this ×4^era. */
+/** One "click's worth" of a resource is this ×4^era (gatherers and the lab's robots count in clicks). */
 export const CLICK_BASE = 1;
 
 /** Each level of a perk costs this much more than the one before. */
@@ -385,6 +385,10 @@ export const DEPOSIT_REGROW_MS = 4 * 60 * 60_000;
 export const WORK_RANGE = 6;
 /** …and count as this many clicks per click's worth they make (they work carefully). */
 export const WORK_DRAIN = 0.25;
+/** Villagers without a job gather from nature within this many tiles of the town center… */
+export const GATHER_RANGE = 15;
+/** …each this many clicks' worth per second (a job pays far better), using up a click per click. */
+export const GATHER_RATE = 0.1;
 
 export const housingOf = (level: number): number => 3 + level;
 export const slotsOf = (level: number): number => 2 + Math.floor(level / 3);

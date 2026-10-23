@@ -14,14 +14,13 @@ import {
   advance,
   applyAction,
   applyBoost,
+  assignGatherer,
   buildingType,
   buyItem,
   buyOutfit,
   canPave,
   classicStreets,
-  clickAmount,
   defaultLook,
-  gather,
   itemError,
   lookError,
   newIdleState,
@@ -61,8 +60,8 @@ const KEY_RE = /^[A-Za-z0-9-]{16,64}$/;
 export interface IdleGame {
   /** The state for one connection (its own vote included), produced up to `now`. */
   message(clientId: string, count: number, peak: number, online: number, now: number): IdleStateMsg;
-  /** A click on nature at a tile; the event is for everyone else, null if there was nothing there. */
-  gather(x: unknown, y: unknown, now: number): IdleEvent | null;
+  /** Put one villager without a job on a resource (null: let them choose), off `from` if the players put them there. */
+  assign(from: unknown, to: unknown, now: number): { error?: string; events: IdleEvent[] };
   /** A +1 on the counter. */
   boost(now: number): void;
   /** Returns true if this unlocked a new era. */
@@ -192,6 +191,9 @@ function parseIdle(raw: unknown, now: number): IdleState | null {
     const e = shopItem(id)?.effect;
     if (e?.kind === "perk" && Number.isInteger(n) && (n as number) > 0) s.perks[id] = Math.min(n as number, e.max);
   }
+  for (const [id, n] of Object.entries(record(r.gatherers))) {
+    if (resourceDef(id) && Number.isInteger(n) && (n as number) > 0) s.gatherers[id] = n as number;
+  }
   for (const [id, n] of Object.entries(record(r.market))) {
     if (resourceDef(id) && finite(n) && n > 0) s.market[id] = Math.min(n, 100);
   }
@@ -310,13 +312,14 @@ export function createIdleGame(file: string, now = Date.now()): IdleGame {
       };
     },
 
-    gather(x, y, now) {
-      if (!tileInt(x) || !tileInt(y)) return null;
-      const done = gather(advance(state, now), x, y);
-      if (!done) return null;
-      state = done.state;
+    assign(from, to, now) {
+      const res = (v: unknown) => v === null || (typeof v === "string" && !!resourceDef(v));
+      if (!res(from) || !res(to)) return { error: "onbekende grondstof", events: [] };
+      const done = assignGatherer(advance(state, now), from as string | null, to as string | null);
+      if (typeof done === "string") return { error: done, events: [] };
+      state = done;
       saver.schedule();
-      return { kind: "click", resource: done.resource, amount: clickAmount(state.era), x, y };
+      return { events: [] };
     },
 
     boost(now) {

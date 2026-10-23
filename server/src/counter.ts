@@ -162,16 +162,8 @@ export function createCounterServer(opts: CounterServerOptions = {}): WebSocketS
           saver.schedule();
           broadcast(-1);
           return;
-        case "gather": {
-          // The clicker already counted it locally; the others see where it happened.
-          const event = idle.gather(msg.x, msg.y, now);
-          if (!event) return;
-          const text = JSON.stringify({ type: "idleEvent", event });
-          for (const client of wss.clients) {
-            if (client !== ws && client.readyState === WebSocket.OPEN) client.send(text);
-          }
-          return;
-        }
+        case "assign":
+          return reply(idle.assign(msg.from, msg.to, now));
         case "propose":
           return reply(idle.propose(clientId, msg.name, msg.action, online, now));
         case "trade":

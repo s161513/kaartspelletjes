@@ -564,6 +564,27 @@ body.sx-era-10 { --sx-bg: #12002b; --sx-bg2: #2a0050; }
   margin: 2px 0;
 }
 
+.sx-gather-btns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.sx-gather-btns .sx-act[aria-pressed="true"] {
+  background: var(--sx-yellow);
+}
+
+.sx-gather-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sx-gather-text {
+  flex: 1;
+  font-variant-numeric: tabular-nums;
+}
+
 .sx-ins-actions {
   display: flex;
   flex-direction: column;

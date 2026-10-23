@@ -23,6 +23,8 @@ import {
   capOf,
   decorTypes,
   fullRateOf,
+  gatherable,
+  gatheringOf,
   housingOf,
   isRiver,
   isRoad,
@@ -68,7 +70,7 @@ import {
   type Terrain,
 } from "@app/shared/idle";
 import { session } from "../session";
-import type { VillagerInfo } from "./villagers";
+import type { Gather, VillagerInfo } from "./villagers";
 
 const TICK_MS = 300;
 
@@ -223,6 +225,8 @@ export interface PanelDeps {
   selectVillager(id: string | null): void;
   /** What a villager is up to, or null if they're gone. */
   villager(id: string): VillagerInfo | null;
+  /** Show a villager's new task right away (the server confirms it). */
+  setGather(id: string, g: Gather | null): void;
   setPlacing(ok: ((x: number, y: number) => boolean) | null): void;
   mark(tile: { x: number; y: number } | null): void;
   setGhost(action: ProposalAction | null): void;
@@ -761,23 +765,93 @@ export function createPanels(deps: PanelDeps): Panels {
     renderInspector();
   }
 
+  /** Put the villager in the panel on a resource (null: let them choose). */
+  function chooseGather(to: string | null): void {
+    const id = villagerId;
+    const cur = id === null ? null : deps.villager(id)?.gather;
+    if (id === null || !cur || !deps.connected()) return;
+    if (to === null ? !cur.chosen : cur.chosen && cur.resource === to) return;
+    deps.setGather(id, { resource: to ?? cur.resource, chosen: to !== null });
+    deps.send({ type: "assign", from: cur.chosen ? cur.resource : null, to });
+  }
+
+  let gatherBtns: { id: string | null; btn: HTMLButtonElement }[] = [];
+
   function renderVillager(v: VillagerInfo): void {
-    const sig = `v:${villagerId}`;
+    const world = deps.world();
+    const options = v.gather && world ? gatherable(world.era) : [];
+    const sig = `v:${villagerId}:${options.join(",")}`;
     if (sig !== inspectSig) {
       inspectSig = sig;
       insTitle.textContent = `🧍 ${v.name}`;
       insActions.replaceChildren();
       insOffers = [];
       insLive = null;
+      gatherBtns = [];
+      if (options.length) {
+        const row = h("div", "sx-gather-btns");
+        for (const id of [...options, null]) {
+          const label = id ? `${resourceDef(id)!.emoji} ${resourceDef(id)!.name}` : "🎲 zelf laten kiezen";
+          const btn = button("sx-act", label, () => chooseGather(id));
+          gatherBtns.push({ id, btn });
+          row.append(btn);
+        }
+        insActions.append(h("h4", "sx-h", "🧺 Wat gaat die verzamelen?"), row, h("p", "sx-note", "Wie geen werk heeft, verzamelt uit de natuur rond het dorp. Een baan levert veel meer op."));
+      }
     }
     const lines = v.player
       ? [`🎮 ${v.player}`, v.doing]
       : [
-          v.job ? `👷 werkt bij: ${v.job}` : "😴 werkloos: bouw een werkgebouw met plek vrij",
+          v.job
+            ? `👷 werkt bij: ${v.job}`
+            : v.gather
+              ? `🧺 geen baan, verzamelt ${resourceDef(v.gather.resource)?.emoji ?? ""} ${resourceDef(v.gather.resource)?.name ?? ""} (${v.gather.chosen ? "gekozen" : "kiest zelf"})`
+              : "😴 werkloos: bouw een werkgebouw met plek vrij",
           `🏠 woont in: ${v.home ?? "—"}`,
           `⏱️ nu: ${v.doing}`,
         ];
     insInfo.replaceChildren(...lines.map((l) => h("div", "", l)));
+    for (const { id, btn } of gatherBtns) {
+      const on = id === null ? !v.gather?.chosen : !!v.gather?.chosen && v.gather.resource === id;
+      btn.setAttribute("aria-pressed", String(on));
+      btn.disabled = !deps.connected();
+    }
+  }
+
+  /** The campfire: who works, who gathers what, and choosing that for the whole town. */
+  function workPanel(world: IdleWorld): () => void {
+    const rows = gatherable(world.era).map((id) => {
+      const text = h("span", "sx-gather-text");
+      const less = button("sx-act", "−", () => deps.send({ type: "assign", from: id, to: null }));
+      const more = button("sx-act", "+", () => deps.send({ type: "assign", from: null, to: id }));
+      less.setAttribute("aria-label", `een ${resourceDef(id)!.name}-verzamelaar minder`);
+      more.setAttribute("aria-label", `een ${resourceDef(id)!.name}-verzamelaar meer`);
+      const row = h("div", "sx-gather-row");
+      row.append(text, less, more);
+      return { id, text, less, more, row };
+    });
+    const summary = h("div", "sx-note");
+    insActions.append(
+      h("h4", "sx-h", "👥 Wie doet wat"),
+      summary,
+      ...rows.map((r) => r.row),
+      h("p", "sx-note", "Met + zet je iemand zonder werk op die grondstof, met − laat je die weer zelf kiezen. Banen krijg je door werkgebouwen te bouwen."),
+    );
+    return () => {
+      const w = deps.world();
+      if (!w) return;
+      const wf = assignWorkers(w);
+      const { chosen, auto } = gatheringOf(w);
+      const picked = Object.values(chosen).reduce((a, n) => a + n, 0);
+      summary.textContent = `👷 ${wf.population - wf.idle} met een baan · 🧺 ${wf.idle} zonder baan, die verzamelen`;
+      for (const r of rows) {
+        const c = chosen[r.id] ?? 0;
+        const n = c + (auto[r.id] ?? 0);
+        r.text.textContent = `${resourceDef(r.id)!.emoji} ${resourceDef(r.id)!.name}: ${n}${c ? ` (${c} gekozen)` : ""}`;
+        r.less.disabled = !deps.connected() || c === 0;
+        r.more.disabled = !deps.connected() || picked >= wf.idle;
+      }
+    };
   }
 
   function renderInspector(): void {
@@ -801,6 +875,7 @@ export function createPanels(deps: PanelDeps): Panels {
       insOffers = [];
       insLive = null;
       if (b.type === "shop_market") insLive = marketPanel(world);
+      if (t.category === "center") insLive = workPanel(world);
       if (b.type === "shop_tailor") {
         insActions.append(
           h("h4", "sx-h", "🧍 Jouw NPC"),

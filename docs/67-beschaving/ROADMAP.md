@@ -97,24 +97,23 @@ Status: in review (PR #28)
       die werkloos is, ma die is nie werkloos")
 
 ### Update 4: Dorpelingen doen het werk
-Status: gepland. Steunt op update 3 (het overzicht als je op een dorpeling
-klikt).
+Status: in review (PR #29), gestapeld op PR #28.
 
-- [ ] Klikken op natuur levert geen grondstoffen meer op (`gather` en de
+- [x] Klikken op natuur levert geen grondstoffen meer op (`gather` en de
       move `{ type: "gather" }` in `shared/idle.ts`). Al het andere blijft
       klikbaar: een tegel kiezen om te bouwen, paden, stemmen, markt en
       winkels. (bron: speler, "maak de recourses nietmeer clickable maar dat
       de mannetjes het werk doen")
-- [ ] Dorpelingen zonder baan verzamelen zelf langzaam uit de natuur in de
+- [x] Dorpelingen zonder baan verzamelen zelf langzaam uit de natuur in de
       buurt, en gebruiken die op zoals klikken nu doet. Zo valt het begin, nog
       zonder werkgebouw, niet stil. (bron: idem, "meer idle")
-- [ ] Klik op een werkloze dorpeling en kies wat die gaat verzamelen (hout,
+- [x] Klik op een werkloze dorpeling en kies wat die gaat verzamelen (hout,
       steen, voedsel, …). Dat is gedeelde staat op de server, bijvoorbeeld
       het aantal werklozen per grondstof, en niet per browser: de NPC's zijn
       nu alleen iets van de browser. (bron: Richard, "wel de mannetjes kan
       klikken zodat je kan kiezen wat ze gaan doen als ze bv nog geen job
       hebben")
-- [ ] Duidelijker welke banen er zijn, en kunnen kiezen wie waar werkt.
+- [x] Duidelijker welke banen er zijn, en kunnen kiezen wie waar werkt.
       (bron: "duidelijkere jobs / jobs kiezen")
 
 ### Update 5: Dorpelingen op straat
@@ -233,8 +232,8 @@ Geen bugs die spelers blokkeren, maar wel goed om te weten. Een punt kan in
 een update worden opgenomen als het past.
 
 - **Natuur onder een pad:** de natuurplek houdt haar volle voorraad. Werkgebouwen
-  in de buurt kunnen er dus nog uit "putten". Klikken op die tegel doet wel
-  niets meer.
+  en verzamelaars in de buurt kunnen er dus nog uit "putten". In het dorp lopen
+  verzamelaars er wel omheen.
 - **Dorpelingen en paden:** ze lopen soms naar een bos- of rotstegel waar
   inmiddels een pad over ligt. Dat is alleen een visueel foutje en staat in
   update 5.

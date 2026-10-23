@@ -122,17 +122,19 @@ Status: gedaan (PR #29, samen met update 3 naar main in PR #30)
       (bron: "duidelijkere jobs / jobs kiezen")
 
 ### Update 5: Dorpelingen op straat
-Status: gepland.
+Status: in review (PR #31), steunt op PR #30.
 
-- [ ] Dorpelingen lopen bij voorkeur over wegen en paden, en nooit dwars door
+- [x] Dorpelingen lopen bij voorkeur over wegen en paden, en nooit dwars door
       gebouwen. Gebouwen gelden als niet beloopbaar in `path.ts`, en wegen
       zijn goedkoper om over te lopen. (bron: "laat de npcs de roads gebruiken
       en nie gwn door de huizen glitchen")
-- [ ] Minder willekeurige NPC's. Toon een deel van de inwoners, of laat de
-      spelers duidelijker opvallen. (bron: "teveel random npc's")
-- [ ] Een extra zin voor dorpelingen: "Who's gonna carry the logs and the
+- [x] Minder willekeurige NPC's. Toon een deel van de inwoners, of laat de
+      spelers duidelijker opvallen. Gedaan: allebei, zo'n 40 inwoners op de
+      kaart (`SHOWN_VILLAGERS`), spelers groter en met een gloed. (bron:
+      "teveel random npc's")
+- [x] Een extra zin voor dorpelingen: "Who's gonna carry the logs and the
       boats?" (bron: "extra line")
-- [ ] Dorpelingen lopen niet meer naar natuur waar een pad over ligt. (bron:
+- [x] Dorpelingen lopen niet meer naar natuur waar een pad over ligt. (bron:
       bekende beperking)
 
 ### Update 6: Eten & dieren
@@ -239,9 +241,9 @@ een update worden opgenomen als het past.
 - **Natuur onder een pad:** de natuurplek houdt haar volle voorraad. Werkgebouwen
   en verzamelaars in de buurt kunnen er dus nog uit "putten". In het dorp lopen
   verzamelaars er wel omheen.
-- **Dorpelingen en paden:** ze lopen soms naar een bos- of rotstegel waar
-  inmiddels een pad over ligt. Dat is alleen een visueel foutje en staat in
-  update 5.
+- **Dorpelingen onderweg:** wie al aan het lopen is als er een gebouw of pad
+  bijkomt, loopt die ronde nog de oude route. Pas de volgende keer kiest die
+  een nieuwe.
 - **Straten upgraden:** dit kost een vast bedrag per tijdperk, hoe groot het
   wegennet ook is.
 - **Stemmen voor de hello:** een stem van een verbinding die nog geen `hello`

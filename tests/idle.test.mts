@@ -11,6 +11,7 @@ import {
   CENTER,
   DEPOSITS,
   ERAS,
+  GATHER_RATE,
   MAP_SIZE,
   MAX_BOOST_MS,
   MAX_OFFLINE_MS,
@@ -25,13 +26,16 @@ import {
   anchorOf,
   applyAction,
   applyBoost,
+  assignGatherer,
   assignWorkers,
   buildCost,
   buyItem,
   capOf,
   classicStreets,
   eraFor,
-  gather,
+  gatherable,
+  gatherPatches,
+  gatheringOf,
   isLand,
   isRiver,
   isRoad,
@@ -80,6 +84,9 @@ const rich = (s: IdleState, n = 1e9): IdleState => ({
 /** Build on the tile the starting-town placer would pick (always a valid spot). */
 const at = (s: IdleState, type: string) => ({ kind: "build" as const, type, ...placeBuilding(s.buildings, type)! });
 const build = (s: IdleState, type: string) => applyAction(s, at(s, type)).state;
+/** A second farm takes the two villagers without a job, so nobody gathers. */
+const noGatherers = (s: IdleState): IdleState => ({ ...s, buildings: [...s.buildings, { id: 99, type: "food", level: 0, x: 1, y: 1 }] });
+const near = (a: number, b: number) => Math.abs(a - b) < 1e-9;
 
 // ---------- map ----------
 
@@ -133,7 +140,11 @@ test("workers: round robin over work buildings, leftovers idle, production follo
   assert.equal(w.population, 6);
   assert.equal(w.idle, 2);
   assert.deepEqual(Object.values(w.workers), [2, 2]);
-  assert.deepEqual(ratesOf(s), { food: 1, wood: 1 });
+  // The two without a job gather: one food, one wood.
+  const rates = ratesOf(s);
+  assert.deepEqual(Object.keys(rates), ["food", "wood"]);
+  assert.ok(near(rates.food, 1 + GATHER_RATE) && near(rates.wood, 1 + GATHER_RATE));
+  assert.deepEqual(ratesOf(noGatherers(s)).wood, 1);
 
   // One hut: 3 villagers over 2 jobs → 2 + 1.
   const fewer = { ...s, buildings: s.buildings.filter((b) => b.id !== 2) };
@@ -143,9 +154,9 @@ test("workers: round robin over work buildings, leftovers idle, production follo
 });
 
 test("advance: produces over time, boost doubles, offline is capped, storage limit holds", () => {
-  const s = { ...newIdleState(T0), resources: {} };
-  assert.equal(advance(s, T0 + 10_000).resources.food, 10);
-  assert.equal(advance({ ...s, boostUntil: T0 + 5_000 }, T0 + 10_000).resources.food, 15);
+  const s = { ...noGatherers(newIdleState(T0)), resources: {} };
+  assert.equal(advance(s, T0 + 10_000).resources.food, 20);
+  assert.equal(advance({ ...s, boostUntil: T0 + 5_000 }, T0 + 10_000).resources.food, 30);
   const cap = capOf(s);
   assert.equal(advance(s, T0 + MAX_OFFLINE_MS * 3).resources.food, cap);
   assert.equal(cap, 400); // base 200 + campfire 200
@@ -154,20 +165,40 @@ test("advance: produces over time, boost doubles, offline is capped, storage lim
   assert.deepEqual(s.resources, {}, "pure");
 });
 
-test("gather: by tile, unlocked resources only, scaled by era, capped", () => {
-  const s = newIdleState(T0);
-  const tree = findTile((x, y) => terrainAt(x, y) === "forest");
-  const vein = DEPOSITS.find((d) => d.resource === "bronze")!;
-  const done = gather(s, tree.x, tree.y)!;
-  assert.equal(done.resource, "wood");
-  assert.equal(done.state.resources.wood, 61);
-  assert.equal(done.state.nature[patchAt(tree.x, tree.y)!.id], 1, "one click used");
-  assert.equal(gather(s, CENTER.x, CENTER.y), null, "nothing on grass");
-  assert.equal(gather(s, vein.x, vein.y), null, "not unlocked");
-  assert.equal(gather(unlockEra(s, 1), vein.x, vein.y)!.state.resources.bronze, 4);
-  const full = gather({ ...s, resources: { wood: 400 } }, tree.x, tree.y)!;
-  assert.equal(full.state.resources.wood, 400);
-  assert.deepEqual(full.state.nature, {}, "a full storage doesn't waste nature");
+test("gatherers: the jobless gather near the town, spread over the basics unless the players choose", () => {
+  const s = newIdleState(T0); // 2 without a job
+  assert.deepEqual(gatherable(0), ["food", "wood", "stone"]);
+  assert.ok(!gatherable(1).includes("bronze") || gatherPatches("bronze").length > 0, "only what grows near the town");
+  for (const p of gatherPatches("wood")) assert.equal(p.resource, "wood");
+  assert.deepEqual(gatheringOf(s), { chosen: {}, auto: { food: 1, wood: 1 } });
+
+  // Put one on stone: the other one is still left to themselves.
+  const one = assignGatherer(s, null, "stone") as IdleState;
+  assert.deepEqual(one.gatherers, { stone: 1 });
+  assert.deepEqual(gatheringOf(one), { chosen: { stone: 1 }, auto: { food: 1 } });
+  const two = assignGatherer(one, null, "stone") as IdleState;
+  assert.deepEqual(gatheringOf(two), { chosen: { stone: 2 }, auto: {} });
+  assert.equal(assignGatherer(two, null, "wood"), "iedereen zonder werk heeft al een taak");
+  // Move one from stone to wood, and let one choose again.
+  const moved = assignGatherer(two, "stone", "wood") as IdleState;
+  assert.deepEqual(moved.gatherers, { stone: 1, wood: 1 });
+  assert.deepEqual((assignGatherer(moved, "wood", null) as IdleState).gatherers, { stone: 1 });
+  assert.equal(assignGatherer(s, "wood", null), "die verzamelt dat niet");
+  assert.equal(assignGatherer(s, null, "bronze"), "dat groeit hier niet");
+  assert.equal(assignGatherer(s, null, "nope"), "dat groeit hier niet");
+
+  // Choices only count as far as there are people without a job.
+  assert.deepEqual(gatheringOf(noGatherers(two)), { chosen: {}, auto: {} });
+  // Production: a click's worth per GATHER_RATE per second each, taken from nature near the town.
+  const empty = { ...two, resources: {} };
+  const after = advance(empty, T0 + 10_000);
+  assert.ok(near(after.resources.stone, 2 * GATHER_RATE * 10));
+  const used = gatherPatches("stone").reduce((a, p) => a + (after.nature[p.id] ?? 0), 0);
+  assert.ok(near(used, 2 * GATHER_RATE * 10), "a click used per click's worth");
+  // All stone near the town gone: nothing more from it.
+  const bare = { ...empty, nature: Object.fromEntries(gatherPatches("stone").map((p) => [p.id, p.capacity])) };
+  assert.equal(ratesOf(bare).stone, undefined);
+  assert.deepEqual(s.gatherers, {}, "pure");
 });
 
 test("nature: patches are fixed groups, valuable ones last longer, clicks use them up edge first", () => {
@@ -185,26 +216,22 @@ test("nature: patches are fixed groups, valuable ones last longer, clicks use th
   const perTile = (res: string) => Math.max(...all.filter((p) => p.resource === res).map((p) => p.capacity / p.tiles.length));
   assert.ok(perTile("food") < perTile("wood") && perTile("wood") < perTile("stone") && perTile("stone") < perTile("bronze"));
 
-  // Click a forest patch empty: tiles go one by one, then nothing is left to click.
-  const forest = all.find((p) => p.resource === "wood" && p.tiles.length >= 4)!;
-  let s = { ...newIdleState(T0), resources: {} };
+  // Use a forest patch (far from the town) up: tiles go one by one, edge first, then nothing is left.
+  const forest = all.find((p) => p.resource === "wood" && p.tiles.length >= 4 && !gatherPatches("wood").includes(p))!;
   const center = forest.tiles[forest.tiles.length - 1];
-  for (let i = 0; i < forest.capacity; i++) {
-    const done = gather({ ...s, resources: {} }, center.x, center.y);
-    assert.ok(done, `click ${i}`);
-    s = done.state;
-    if (i === Math.floor(forest.capacity / 2)) assert.ok(isUsedUp(forest.tiles[0].x, forest.tiles[0].y, s.nature), "the edge goes first");
-  }
-  assert.equal(gather(s, center.x, center.y), null, "used up");
-  assert.equal(natureAt(center.x, center.y, 0, s.nature), null);
+  const edge = forest.tiles[0];
+  const half = { [forest.id]: Math.ceil(forest.capacity / 2) };
+  assert.ok(isUsedUp(edge.x, edge.y, half) && !isUsedUp(center.x, center.y, half), "the edge goes first");
+  const s = { ...newIdleState(T0), resources: {}, nature: { [forest.id]: forest.capacity } };
+  assert.equal(natureAt(center.x, center.y, 0, s.nature), null, "used up");
   // It all grows back (wood: half an hour).
   const later = advance(s, T0 + 31 * 60_000);
   assert.equal(later.nature[forest.id], undefined);
-  assert.ok(gather(later, center.x, center.y));
+  assert.equal(natureAt(center.x, center.y, 0, later.nature), "wood");
 });
 
 test("nature: work buildings use up what's around them and stop when it's gone", () => {
-  const s = newIdleState(T0);
+  const s = noGatherers(newIdleState(T0));
   const cutter = s.buildings.find((b) => b.type === "wood")!;
   const src = sourcePatches(cutter)!;
   assert.ok(src.length > 0 && src.every((p) => p.resource === "wood"));
@@ -399,8 +426,7 @@ test("streets: a new town starts on a grid, more is laid and removed by vote, up
   // Through nature: the tile is cleared, nothing to gather there anymore; not through mountains or the sea.
   const woods = findTile((x, y) => terrainAt(x, y) === "forest" && free(x, y));
   const cleared = applyAction(s, { kind: "paths", tiles: [tileIndex(woods.x, woods.y)] }).state;
-  assert.equal(gather(s, woods.x, woods.y)?.resource, "wood");
-  assert.equal(gather(cleared, woods.x, woods.y), null);
+  assert.ok(isRoad(cleared.roads, woods.x, woods.y));
   const peak = findTile((x, y) => terrainAt(x, y) === "mountain");
   assert.equal(pathError(s.buildings, s.roads, peak.x, peak.y), "hier kan geen pad");
   assert.equal(pathError(s.buildings, s.roads, 0, 40), "hier kan geen pad", "the sea");
@@ -525,10 +551,11 @@ test("idle game: propose + vote builds and places, state survives a reload, v1 f
     assert.ok(msg.state.buildings.some((b) => b.id === bought.building.id));
     assert.deepEqual(msg.proposals, []);
 
-    const vein = DEPOSITS.find((d) => d.resource === "bronze")!;
-    assert.equal(game.gather(vein.x, vein.y, T0), null, "not unlocked");
-    const tree = findTile((x, y) => terrainAt(x, y) === "forest");
-    assert.deepEqual(game.gather(tree.x, tree.y, T0), { kind: "click", resource: "wood", amount: 1, ...tree });
+    // Villagers without a job: put on a resource right away, no vote.
+    assert.deepEqual(game.assign(null, "stone", later), { events: [] });
+    assert.deepEqual(game.message("a", 0, 0, 3, later).state.gatherers, { stone: 1 });
+    assert.equal(game.assign(null, "bronze", later).error, "dat groeit hier niet");
+    assert.equal(game.assign("x", 5, later).error, "onbekende grondstof");
 
     game.flush();
     const saved = JSON.parse(readFileSync(file, "utf8"));
@@ -536,6 +563,7 @@ test("idle game: propose + vote builds and places, state survives a reload, v1 f
     assert.deepEqual(saved.roads, msg.state.roads);
     const reloaded = createIdleGame(file, T0 + 1000);
     assert.equal(reloaded.message("a", 0, 0, 1, T0 + 1000).state.buildings.length, msg.state.buildings.length);
+    assert.deepEqual(reloaded.message("a", 0, 0, 1, T0 + 1000).state.gatherers, { stone: 1 }, "choices are saved");
 
     // A v1 file (never released) quietly becomes a fresh town, no backup.
     writeFileSync(file, JSON.stringify({ resources: { flint: 5 }, buildings: { cave: 1 }, inventions: [] }));
@@ -562,9 +590,10 @@ test("idle game: open votes wait for resources, count once per player, survive a
     assert.deepEqual(game.vote("b", 1, true, 2, T0).map((e) => e.kind), ["bought"]);
     assert.deepEqual(game.vote("b", 2, true, 2, T0), []);
     assert.equal(game.message("a", 0, 0, 2, T0).proposals[0].approved, true);
-    const rock = findTile((x, y) => terrainAt(x, y) === "rock");
-    for (let i = 0; i < 20; i++) game.gather(rock.x, rock.y, T0);
-    assert.deepEqual(game.tick(2, T0).map((e) => e.kind), ["bought"], "built once there's enough");
+    // Two villagers without a job gather stone for it.
+    game.assign(null, "stone", T0);
+    game.assign(null, "stone", T0);
+    assert.deepEqual(game.tick(2, T0 + 110_000).map((e) => e.kind), ["bought"], "built once there's enough");
 
     // Two tabs of one player are one voter.
     game.hello("t1", KEY, "Ann", T0);
@@ -732,7 +761,7 @@ class Peer {
 const event = (kind: string) => (m: any) => m.type === "idleEvent" && m.event.kind === kind;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-test("counter socket: 67 unlocks an era, clicks reach the others, vote builds, upgrade works", async () => {
+test("counter socket: 67 unlocks an era, gatherers reach the others, vote builds, upgrade works", async () => {
   const dir = mkdtempSync(path.join(tmpdir(), "counter-"));
   const file = path.join(dir, "counter.json");
   writeFileSync(file, JSON.stringify({ count: 60 })); // format from before `peak`
@@ -765,10 +794,9 @@ test("counter socket: 67 unlocks an era, clicks reach the others, vote builds, u
     assert.equal(seen.people[0].name, "Ann");
     assert.equal(seen.me, null);
 
-    // A click by a is shown to b, not echoed to a.
-    const tree = findTile((x, y) => terrainAt(x, y) === "forest");
-    a.send({ type: "gather", ...tree });
-    assert.deepEqual((await b.wait(event("click"))).event, { kind: "click", resource: "wood", amount: 1, ...tree });
+    // a puts a villager without a job on stone; everyone's town shows it.
+    a.send({ type: "assign", from: null, to: "stone" });
+    await b.wait<IdleStateMsg>((m) => m.type === "idle" && m.state.gatherers.stone === 1);
 
     // Propose a house; b votes yes; it appears with a position.
     a.send({ type: "propose", action: at(rich, "house"), name: "Ann" });

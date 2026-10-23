@@ -21,9 +21,9 @@ thema (zie [ROADMAP.md](ROADMAP.md)):
 
 - 2026-10-22, speler: "maak de recourses nietmeer clickable maar dat de
   mannetjes het werk doen (meer idle). wij kunnen nog steeds de rest klikken
-  en uitvoeren": Update 4
+  en uitvoeren": Update 4 (PR #29)
 - 2026-10-22, Richard: "wel de mannetjes kan klikken zodat je kan kiezen wat
-  ze gaan doen als ze bv nog geen job hebben": Update 4
+  ze gaan doen als ze bv nog geen job hebben": Update 4 (PR #29)
 - 2026-10-22, Richard: updates op volgorde van belangstelling, nummers
   opnieuw toegekend: zie ROADMAP.md
 - 2026-10-22, speler: "paden bouwen": Update 2 (PR #27)
@@ -44,12 +44,12 @@ thema (zie [ROADMAP.md](ROADMAP.md)):
 - 2026-10-22: "moeilijker resources": Update 11
 - 2026-10-22: "de dorpsfeest resources moeten scalen met population": Update 11
 - 2026-10-22: "een balk voor resources om makkelijk te zien hoe vol iets is":
-  Update 3
-- 2026-10-22: "scrollen op mousepad werkt veel te traag": Update 3
+  Update 3 (PR #28)
+- 2026-10-22: "scrollen op mousepad werkt veel te traag": Update 3 (PR #28)
 - 2026-10-22: "als je op iemand klikt een duidelijk overzicht van job status":
-  Update 3
+  Update 3 (PR #28)
 - 2026-10-22: "iemand zegt dat die werkloos is, ma die is nie werkloos" (bug):
-  Update 3
+  Update 3 (PR #28)
 - 2026-10-22: "laat de npcs de roads gebruiken en nie gwn door de huizen
   glitchen": Update 5
 - 2026-10-22: "teveel random npc's": Update 5
@@ -62,7 +62,7 @@ thema (zie [ROADMAP.md](ROADMAP.md)):
 - 2026-10-22: "Happiness level": Update 7
 - 2026-10-22: "elke persoon heeft een huis nodig of die worden ongelukkig":
   Update 7
-- 2026-10-22: "duidelijkere jobs / jobs kiezen": Update 4
+- 2026-10-22: "duidelijkere jobs / jobs kiezen": Update 4 (PR #29)
 - 2026-10-22: "Population overzicht plek zoals een council house": Update 7
 - 2026-10-22: "Mines": Update 8
 - 2026-10-22: "coal": Update 8

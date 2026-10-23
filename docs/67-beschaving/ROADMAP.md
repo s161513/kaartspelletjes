@@ -37,6 +37,11 @@ die elk een eigen branch en PR krijgen.
    - Eén branch `framework/idle-update-<n>-<kort>` en één PR.
    - In de PR-beschrijving staat per punt wat er veranderd is.
    - Zet de status op *bezig*, en op *in review* zodra de PR open staat.
+   - Een PR gaat altijd naar `main`, ook als hij op een andere update
+     steunt die nog niet gemerged is. Een PR met een andere update-branch als
+     basis belandt na de merge niet op `main` (zo ging het met PR #28 en
+     #29). Steunt hij op een open PR, zet dat dan in de beschrijving; de
+     diff wordt vanzelf kleiner zodra die eerste PR gemerged is.
 4. **Commit per onderdeel, niet per feedbackregel.** Maak een paar logische
    commits per update, bijvoorbeeld regels + tests, dan UI, dan docs.
 5. **Na de merge** zet je de update op *gedaan*. Verplaats de feedback in
@@ -81,54 +86,55 @@ nog gepland staat. Een latere update kan steunen op een eerdere; dat staat er
 dan bij. Alle bronnen zijn feedback van 2026-10-22, tenzij anders vermeld.
 
 ### Update 3: Overzicht & bediening
-Status: gepland. Als eerste bouwen: klein, en spelers merken het meteen.
+Status: gedaan (PR #28, samen met update 4 naar main in PR #30)
 
-- [ ] Een balkje per grondstof in de HUD dat laat zien hoe vol de opslag is.
+- [x] Een balkje per grondstof in de HUD dat laat zien hoe vol de opslag is.
       (bron: "een balk voor resources")
-- [ ] Zoomen met het touchpad is veel te traag. Behandel touchpad-scrollen
+- [x] Zoomen met het touchpad is veel te traag. Behandel touchpad-scrollen
       (`wheel` met kleine `deltaY`, of pinch met `ctrlKey`) apart van een
       muiswieltje. (bron: "scrollen op mousepad werkt veel te traag")
-- [ ] Klik op een dorpeling voor een duidelijk overzicht: werk of werkloos,
+- [x] Klik op een dorpeling voor een duidelijk overzicht: werk of werkloos,
       waar die woont en wat die doet. (bron: "als je op iemand klikt een
       duidelijk overzicht van job status")
-- [ ] Bug: een dorpeling zegt dat die werkloos is terwijl die wel werkt. De
+- [x] Bug: een dorpeling zegt dat die werkloos is terwijl die wel werkt. De
       browser bepaalt zelf wie welk werk heeft (`client/src/world/villagers.ts`),
       los van `assignWorkers`; laat dat overeenkomen. (bron: "iemand zegt dat
       die werkloos is, ma die is nie werkloos")
 
 ### Update 4: Dorpelingen doen het werk
-Status: gepland. Steunt op update 3 (het overzicht als je op een dorpeling
-klikt).
+Status: gedaan (PR #29, samen met update 3 naar main in PR #30)
 
-- [ ] Klikken op natuur levert geen grondstoffen meer op (`gather` en de
+- [x] Klikken op natuur levert geen grondstoffen meer op (`gather` en de
       move `{ type: "gather" }` in `shared/idle.ts`). Al het andere blijft
       klikbaar: een tegel kiezen om te bouwen, paden, stemmen, markt en
       winkels. (bron: speler, "maak de recourses nietmeer clickable maar dat
       de mannetjes het werk doen")
-- [ ] Dorpelingen zonder baan verzamelen zelf langzaam uit de natuur in de
+- [x] Dorpelingen zonder baan verzamelen zelf langzaam uit de natuur in de
       buurt, en gebruiken die op zoals klikken nu doet. Zo valt het begin, nog
       zonder werkgebouw, niet stil. (bron: idem, "meer idle")
-- [ ] Klik op een werkloze dorpeling en kies wat die gaat verzamelen (hout,
+- [x] Klik op een werkloze dorpeling en kies wat die gaat verzamelen (hout,
       steen, voedsel, …). Dat is gedeelde staat op de server, bijvoorbeeld
       het aantal werklozen per grondstof, en niet per browser: de NPC's zijn
       nu alleen iets van de browser. (bron: Richard, "wel de mannetjes kan
       klikken zodat je kan kiezen wat ze gaan doen als ze bv nog geen job
       hebben")
-- [ ] Duidelijker welke banen er zijn, en kunnen kiezen wie waar werkt.
+- [x] Duidelijker welke banen er zijn, en kunnen kiezen wie waar werkt.
       (bron: "duidelijkere jobs / jobs kiezen")
 
 ### Update 5: Dorpelingen op straat
-Status: gepland. Bouw na update 3.
+Status: in review (PR #31), steunt op PR #30.
 
-- [ ] Dorpelingen lopen bij voorkeur over wegen en paden, en nooit dwars door
+- [x] Dorpelingen lopen bij voorkeur over wegen en paden, en nooit dwars door
       gebouwen. Gebouwen gelden als niet beloopbaar in `path.ts`, en wegen
       zijn goedkoper om over te lopen. (bron: "laat de npcs de roads gebruiken
       en nie gwn door de huizen glitchen")
-- [ ] Minder willekeurige NPC's. Toon een deel van de inwoners, of laat de
-      spelers duidelijker opvallen. (bron: "teveel random npc's")
-- [ ] Een extra zin voor dorpelingen: "Who's gonna carry the logs and the
+- [x] Minder willekeurige NPC's. Toon een deel van de inwoners, of laat de
+      spelers duidelijker opvallen. Gedaan: allebei, zo'n 40 inwoners op de
+      kaart (`SHOWN_VILLAGERS`), spelers groter en met een gloed. (bron:
+      "teveel random npc's")
+- [x] Een extra zin voor dorpelingen: "Who's gonna carry the logs and the
       boats?" (bron: "extra line")
-- [ ] Dorpelingen lopen niet meer naar natuur waar een pad over ligt. (bron:
+- [x] Dorpelingen lopen niet meer naar natuur waar een pad over ligt. (bron:
       bekende beperking)
 
 ### Update 6: Eten & dieren
@@ -209,7 +215,7 @@ update 4 (zonder klikken verandert het tempo).
   met Richard.
 
 ### Update 2: Paden, bruggen, afbreken, stemmen
-Status: in review (PR #27)
+Status: gedaan (PR #27)
 
 - [x] Bouwen is duurder: ×1,5 en ×1,2 per exemplaar.
 - [x] Paden teken je zelf, ook door de natuur heen en als brug over de rivier.
@@ -233,11 +239,11 @@ Geen bugs die spelers blokkeren, maar wel goed om te weten. Een punt kan in
 een update worden opgenomen als het past.
 
 - **Natuur onder een pad:** de natuurplek houdt haar volle voorraad. Werkgebouwen
-  in de buurt kunnen er dus nog uit "putten". Klikken op die tegel doet wel
-  niets meer.
-- **Dorpelingen en paden:** ze lopen soms naar een bos- of rotstegel waar
-  inmiddels een pad over ligt. Dat is alleen een visueel foutje en staat in
-  update 5.
+  en verzamelaars in de buurt kunnen er dus nog uit "putten". In het dorp lopen
+  verzamelaars er wel omheen.
+- **Dorpelingen onderweg:** wie al aan het lopen is als er een gebouw of pad
+  bijkomt, loopt die ronde nog de oude route. Pas de volgende keer kiest die
+  een nieuwe.
 - **Straten upgraden:** dit kost een vast bedrag per tijdperk, hoe groot het
   wegennet ook is.
 - **Stemmen voor de hello:** een stem van een verbinding die nog geen `hello`

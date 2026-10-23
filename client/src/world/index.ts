@@ -4,7 +4,6 @@
 
 import {
   advance,
-  gather,
   type IdleClientMsg,
   type IdleEvent,
   type IdleStateMsg,
@@ -32,24 +31,10 @@ export function createTown(send: (msg: IdleClientMsg) => void): Town {
   const serverNow = () => (latest ? latest.now + (Date.now() - receivedAt) : Date.now());
   const current = (): IdleWorld | null => (latest ? advance(latest.state, serverNow()) : null);
 
-  /** A click on nature, here or by someone else: count it right away; the server's next sync corrects any drift. */
-  const gatherLocally = (x: number, y: number) => {
-    if (!latest) return;
-    const done = gather(latest.state, x, y);
-    if (!done) return;
-    latest = { ...latest, state: done.state };
-    world.setWorld(latest.state);
-  };
-  const gatherHere = (x: number, y: number) => {
-    if (!latest || !connected) return;
-    gatherLocally(x, y);
-    send({ type: "gather", x, y });
-  };
-
   const world = createWorld({
     canvas: document.getElementById("sx-world") as HTMLCanvasElement,
-    onGather: (_resource, x, y) => gatherHere(x, y),
     onSelect: (b) => panels.inspect(b),
+    onVillager: (id) => panels.inspectVillager(id),
     onTile: (x, y, px, py) => panels.tile(x, y, px, py),
     onPaint: (x, y, first) => panels.paint(x, y, first),
   });
@@ -61,6 +46,9 @@ export function createTown(send: (msg: IdleClientMsg) => void): Town {
     serverNow,
     connected: () => connected,
     select: (id) => world.select(id),
+    selectVillager: (id) => world.selectVillager(id),
+    villager: (id) => world.villager(id),
+    setGather: (id, g) => world.setGather(id, g),
     setPlacing: (ok) => world.setPlacing(ok),
     mark: (tile) => world.mark(tile),
     setGhost: (action) => world.setGhost(action),
@@ -84,10 +72,7 @@ export function createTown(send: (msg: IdleClientMsg) => void): Town {
       avatar.refresh();
     },
     event(ev) {
-      if (ev.kind === "click") {
-        world.showGather(ev.resource, ev.amount, ev.x, ev.y);
-        gatherLocally(ev.x, ev.y);
-      } else if (ev.kind === "bought" && ev.building) {
+      if (ev.kind === "bought" && ev.building) {
         world.built(ev.building);
       } else if (ev.kind === "era") {
         world.celebrate();

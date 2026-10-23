@@ -1,7 +1,10 @@
 // The villagers: cosmetic, simulated in each browser, but derived from the
-// shared town (assignWorkers), so everyone sees the same number of people
-// with the same jobs. Workers walk to their spot, work, and carry the loot to
-// storage; idle villagers hang out by the fire, the decorations or home.
+// shared town (assignWorkers, gatheringOf), so everyone sees the same number
+// of people with the same jobs. Workers and gatherers walk to their spot,
+// work, and carry the loot to storage; whoever has nothing to do hangs out by
+// the fire, the decorations or home.
+// Only some of the townsfolk are on the map (SHOWN_VILLAGERS), so a big town
+// doesn't drown in people; the jobs are shared out over everyone first.
 // Everyone online also has their own NPC (id "p:<player>"), dressed as they
 // chose, wandering around town with a name tag.
 
@@ -13,7 +16,12 @@ import {
   assignWorkers,
   buildingName,
   buildingType,
+  gatherPatches,
+  gatheringOf,
+  isRoad,
+  isUsedUp,
   housingOf,
+  resourceDef,
   SKIN_TONES,
   terrainAt,
   type IdlePerson,
@@ -23,9 +31,28 @@ import {
 } from "@app/shared/idle";
 import { rand2, type VillagerLook } from "./draw";
 import type { Point } from "./iso";
-import { findPath, nearestWalkable } from "./path";
+import { findPath, nearestOpen, nearestWalkable } from "./path";
 
-export const MAX_VILLAGERS = 200;
+/** About this many townsfolk walk around, picked from all of them. */
+export const SHOWN_VILLAGERS = 40;
+
+/** What the villager panel shows. */
+export interface VillagerInfo {
+  name: string;
+  /** "speler" or "dat ben jij!" for a player's NPC. */
+  player: string | null;
+  home: string | null;
+  /** Work building, or null: out of work. */
+  job: string | null;
+  /** Without a job: what they gather, and whether the players chose it. */
+  gather: Gather | null;
+  doing: string;
+}
+
+export interface Gather {
+  resource: ResourceId;
+  chosen: boolean;
+}
 const SPEED = 1.3; // tiles per second
 const MAX_BUBBLES = 6;
 /** How long everyone does the 67 after a +1 on the counter. */
@@ -40,6 +67,11 @@ const SKINS = ["#f1c27d", "#e0ac69", "#c68642", "#8d5524", "#ffdbac", "#a1665e"]
 
 const CHAT = {
   work: ["hard werken 💪", "nog 67 te gaan", "no cap, dit is zwaar", "wanneer is het pauze", "grind never stops", "sigma grindset"],
+  /** Workers on their way to work or to storage. */
+  walk: [
+    "op weg naar m'n werk", "zwaar spul fr", "bijna bij de opslag", "nog één ritje", "sjouwen sjouwen",
+    "Who's gonna carry the logs and the boats?",
+  ],
   idle: ["six seven!", "skibidi", "67?!", "fr fr", "ik ben werkloos lol", "wie bouwt er een huis voor mij", "aura +67", "chillen"],
   dance: ["💃 67 67 67", "vibe check ✅", "dit is fire"],
   photo: ["📸 67!", "story-waardig", "cheese 🧀"],
@@ -63,6 +95,8 @@ export interface Villager {
   name: string;
   home: number;
   job: number | null;
+  /** Without a job: what they gather, if anything grows near the town. */
+  gather: Gather | null;
   level: number;
   clothes: string;
   skin: string;
@@ -95,7 +129,7 @@ export class Population {
   private byId = new Map<number, PlacedBuilding>();
   private spots = new Map<number, Point>();
 
-  /** Match the people to the current town: one per bed, jobs from assignWorkers. */
+  /** Match the people to the current town: one per bed, jobs from assignWorkers, a share of them on the map. */
   sync(world: IdleWorld, now: number): void {
     this.world = world;
     this.byId = new Map(world.buildings.map((b) => [b.id, b]));
@@ -103,7 +137,9 @@ export class Population {
     const houses = world.buildings.filter((b) => buildingType(b.type)?.category === "house");
     const people: { id: string; home: PlacedBuilding }[] = [];
     for (const h of houses) for (let i = 0; i < housingOf(h.level); i++) people.push({ id: `${h.id}-${i}`, home: h });
-    people.length = Math.min(people.length, MAX_VILLAGERS);
+    // Who's on the map is fixed per person, so the same ones stay as the town grows.
+    const share = SHOWN_VILLAGERS / Math.max(SHOWN_VILLAGERS, people.length);
+    const shown = (id: string) => rand2(hashStr(id), 7) < share;
 
     // The same round robin as assignWorkers, as a list of job ids.
     const { workers } = assignWorkers(world);
@@ -121,17 +157,46 @@ export class Population {
       }
     }
 
+    // Whoever has no job gathers; keep people on what they did if that still has room.
+    const { chosen, auto } = gatheringOf(world);
+    const room = new Map<string, number>();
+    for (const [res, n] of Object.entries(chosen)) room.set(`${res}:1`, n);
+    for (const [res, n] of Object.entries(auto)) room.set(`${res}:0`, n);
+    const take = (g: Gather): boolean => {
+      const key = `${g.resource}:${g.chosen ? 1 : 0}`;
+      const n = room.get(key) ?? 0;
+      if (n > 0) room.set(key, n - 1);
+      return n > 0;
+    };
+    const jobless = people.slice(order.length).map((p) => p.id);
+    const gathers = new Map<string, Gather>();
+    for (const id of jobless) {
+      const g = this.villagers.get(id)?.gather;
+      if (g && take(g)) gathers.set(id, g);
+    }
+    for (const id of jobless) {
+      if (gathers.has(id)) continue;
+      const free = [...room].find(([, n]) => n > 0)?.[0];
+      if (!free) break;
+      const [resource, c] = free.split(":");
+      const g = { resource, chosen: c === "1" };
+      take(g);
+      gathers.set(id, g);
+    }
+
     const keep = new Set<string>();
     people.forEach((p, i) => {
+      if (!shown(p.id)) return;
       keep.add(p.id);
       const job = order[i] ?? null;
+      const gather = gathers.get(p.id) ?? null;
       let v = this.villagers.get(p.id);
       if (!v) {
         const seed = hashStr(p.id);
         const r = (k: number) => rand2(seed, k);
         const start = nearestWalkable(p.home.x, p.home.y);
         v = {
-          id: p.id, name: NAMES[Math.floor(r(1) * NAMES.length)], home: p.home.id, job, level: p.home.level,
+          id: p.id, name: NAMES[Math.floor(r(1) * NAMES.length)], home: p.home.id, job, gather, level: p.home.level,
           clothes: "", skin: SKINS[Math.floor(r(2) * SKINS.length)],
           x: start.x, y: start.y, ox: (r(3) - 0.5) * 0.5, oy: (r(4) - 0.5) * 0.5,
           path: [], pathI: 0, task: { kind: "stay", until: now + r(5) * 3000, action: "none" },
@@ -139,11 +204,12 @@ export class Population {
           nextChat: now + 5000 + r(6) * 30_000,
         };
         this.villagers.set(p.id, v);
-      } else if (v.job !== job) {
+      } else if (v.job !== job || v.gather?.resource !== gather?.resource) {
         v.job = job;
+        v.gather = gather;
         v.carry = null;
         v.task = { kind: "stay", until: now, action: "none" };
-      }
+      } else v.gather = gather;
       v.level = p.home.level;
       const clothes = ERAS[v.level].style.clothes;
       v.clothes = clothes[Math.abs(hashStr(v.id)) % clothes.length];
@@ -159,9 +225,9 @@ export class Population {
       keep.add(id);
       let v = this.villagers.get(id);
       if (!v) {
-        const start = nearestWalkable(CENTER.x + Math.round((Math.random() - 0.5) * 4), CENTER.y + Math.round((Math.random() - 0.5) * 4));
+        const start = nearestOpen(CENTER.x + Math.round((Math.random() - 0.5) * 4), CENTER.y + Math.round((Math.random() - 0.5) * 4));
         v = {
-          id, name: p.name, home: -1, job: null, level: 0, clothes: "", skin: "",
+          id, name: p.name, home: -1, job: null, gather: null, level: 0, clothes: "", skin: "",
           x: start.x, y: start.y, ox: (Math.random() - 0.5) * 0.4, oy: (Math.random() - 0.5) * 0.4,
           path: [], pathI: 0, task: { kind: "stay", until: now + 1000, action: "none" },
           action: "none", carry: null, hidden: false, bubble: { text: "👋 hoi!", until: now + 2500 }, jumpUntil: now + 800, sixSevenUntil: 0,
@@ -182,6 +248,7 @@ export class Population {
     let spot = this.spots.get(b.id);
     if (spot) return spot;
     const res = buildingType(b.type)?.produces;
+    const roads = this.world?.roads ?? [];
     spot = { x: b.x, y: b.y };
     const deposit = DEPOSITS.find((d) => d.resource === res);
     if (b.type.startsWith("mine_") && deposit) spot = { x: deposit.x, y: deposit.y };
@@ -191,7 +258,7 @@ export class Population {
       for (let dy = -10; dy <= 10; dy++) {
         for (let dx = -10; dx <= 10; dx++) {
           const d = Math.hypot(dx, dy);
-          if (d < best && terrainAt(b.x + dx, b.y + dy) === want) {
+          if (d < best && terrainAt(b.x + dx, b.y + dy) === want && !isRoad(roads, b.x + dx, b.y + dy)) {
             best = d;
             spot = { x: b.x + dx, y: b.y + dy };
           }
@@ -200,6 +267,17 @@ export class Population {
     }
     this.spots.set(b.id, spot);
     return spot;
+  }
+
+  /** Where a gatherer goes: a tile of the nearest patch of their resource that isn't used up (spread out a bit). */
+  private gatherSpot(v: Villager, res: ResourceId): Point | null {
+    const used = this.world?.nature ?? {};
+    const roads = this.world?.roads ?? [];
+    for (const p of gatherPatches(res)) {
+      const tiles = p.tiles.filter((t) => !isUsedUp(t.x, t.y, used) && !isRoad(roads, t.x, t.y));
+      if (tiles.length) return tiles[Math.abs(hashStr(v.id)) % tiles.length];
+    }
+    return null;
   }
 
   /** Nearest storage or the center, where loot goes. */
@@ -232,15 +310,15 @@ export class Population {
       const behavior = buildingType(d.type)!.decor!.behavior;
       const a = Math.random() * Math.PI * 2;
       v.task = { kind: "go", then: behavior, duration: 6000 + Math.random() * 6000 };
-      this.walkTo(v, { x: Math.round(d.x + Math.cos(a) * 1.4), y: Math.round(d.y + Math.sin(a) * 1.4) });
+      this.walkTo(v, nearestOpen(Math.round(d.x + Math.cos(a) * 1.4), Math.round(d.y + Math.sin(a) * 1.4)));
     } else if (roll < 0.6) {
       const a = Math.random() * Math.PI * 2;
       v.task = { kind: "go", then: "sit", duration: 6000 + Math.random() * 5000 };
-      this.walkTo(v, { x: Math.round(CENTER.x + Math.cos(a) * 1.5), y: Math.round(CENTER.y + Math.sin(a) * 1.5) });
+      this.walkTo(v, nearestOpen(Math.round(CENTER.x + Math.cos(a) * 1.5), Math.round(CENTER.y + Math.sin(a) * 1.5)));
     } else if (roll < 0.9 || !home) {
       const base = home ?? CENTER;
       v.task = { kind: "go", then: "none", duration: 1500 + Math.random() * 3000 };
-      this.walkTo(v, { x: base.x + Math.round((Math.random() - 0.5) * 12), y: base.y + Math.round((Math.random() - 0.5) * 12) });
+      this.walkTo(v, nearestOpen(base.x + Math.round((Math.random() - 0.5) * 12), base.y + Math.round((Math.random() - 0.5) * 12)));
     } else {
       v.task = { kind: "go", then: "home", duration: 6000 + Math.random() * 8000 };
       this.walkTo(v, home);
@@ -252,21 +330,24 @@ export class Population {
     const job = v.job === null ? undefined : this.byId.get(v.job);
     v.hidden = false;
     v.action = "none";
-    if (!job) return this.chooseIdle(v, now);
+    const res = job ? buildingType(job.type)?.produces ?? null : v.gather?.resource ?? null;
     const t = v.task.kind;
+    // Gatherers pick their spot each round: nature runs out.
+    const spot = job ? this.workSpot(job) : res && t !== "work" && t !== "toStore" ? this.gatherSpot(v, res) : null;
+    if (!job && !(res && (spot || t === "work" || t === "toStore"))) return this.chooseIdle(v, now);
     if (t === "toWork") {
       v.task = { kind: "work", until: now + 3500 + Math.random() * 2500 };
       v.action = "work";
     } else if (t === "work") {
-      v.carry = buildingType(job.type)?.produces ?? null;
+      v.carry = res;
       v.task = { kind: "toStore" };
-      this.walkTo(v, this.storeNear(this.workSpot(job)));
+      this.walkTo(v, this.storeNear(v));
     } else if (t === "toStore") {
       v.task = { kind: "drop", until: now + 700 };
     } else {
       v.carry = null;
       v.task = { kind: "toWork" };
-      this.walkTo(v, this.workSpot(job));
+      this.walkTo(v, spot!);
     }
   }
 
@@ -317,7 +398,12 @@ export class Population {
       if (now > v.nextChat && !v.hidden) {
         v.nextChat = now + 15_000 + Math.random() * 40_000;
         if (bubbles < MAX_BUBBLES) {
-          const pool = v.task.kind === "work" ? CHAT.work : v.action !== "none" && v.action !== "work" ? CHAT[v.action] : CHAT.idle;
+          // Only the jobless say they're out of work.
+          const pool =
+            v.task.kind === "work" ? CHAT.work
+            : v.job !== null || v.gather ? CHAT.walk
+            : v.action !== "none" && v.action !== "work" ? CHAT[v.action]
+            : CHAT.idle;
           v.bubble = { text: pick(pool), until: now + 3000 };
           bubbles++;
         }
@@ -341,14 +427,62 @@ export class Population {
   /** Clicked: say who you are and what you do. */
   introduce(v: Villager, now: number): void {
     const job = v.job === null ? undefined : this.byId.get(v.job);
-    const what = v.player ? (v.player.mine ? "dat ben jij!" : "speler") : job ? buildingName(job.type, job.level).toLowerCase() : "werkloos, chillt";
+    const what = v.player ? (v.player.mine ? "dat ben jij!" : "speler") : job ? buildingName(job.type, job.level).toLowerCase()
+      : v.gather ? `verzamelt ${resourceDef(v.gather.resource)?.name ?? ""}`
+      : "werkloos, chillt";
     v.bubble = { text: `${v.name} · ${what}`, until: now + 3500 };
+  }
+
+  /** Someone picked what this villager gathers: show it right away, the town's next sync keeps them on it. */
+  setGather(v: Villager, g: Gather | null, now: number): void {
+    if (v.job !== null || v.gather?.resource === g?.resource) {
+      v.gather = g;
+      return;
+    }
+    v.gather = g;
+    v.carry = null;
+    v.task = { kind: "stay", until: now, action: "none" };
+  }
+
+  /** For the panel when someone clicks this villager. */
+  describe(v: Villager, now: number): VillagerInfo {
+    const job = v.job === null ? undefined : this.byId.get(v.job);
+    const home = this.byId.get(v.home);
+    const res = job ? buildingType(job.type)?.produces : v.gather?.resource;
+    const emoji = (r: ResourceId | null | undefined) => (r ? resourceDef(r)?.emoji ?? "" : "");
+    const task = v.task;
+    let doing: string;
+    if (now < v.sixSevenUntil) doing = "🤲 doet de 67";
+    else if (v.hidden || task.kind === "inside") doing = "🏠 is thuis";
+    else if (task.kind === "toWork") doing = job ? "🚶 loopt naar het werk" : `🚶 gaat ${emoji(res)} verzamelen`;
+    else if (task.kind === "work") doing = job ? `${emoji(res)} is aan het werk` : `${emoji(res)} is aan het verzamelen`;
+    else if (task.kind === "toStore") doing = `📦 brengt ${emoji(v.carry)} naar de opslag`;
+    else if (task.kind === "drop") doing = "📦 levert af bij de opslag";
+    else {
+      const what = task.kind === "go" ? task.then : task.action;
+      const going = task.kind === "go";
+      doing =
+        what === "home" ? "🏠 gaat naar huis"
+        : what === "sit" ? (going ? "🔥 gaat bij het kampvuur zitten" : "🔥 zit bij het kampvuur")
+        : what === "dance" ? (going ? "💃 gaat dansen" : "💃 danst")
+        : what === "photo" ? (going ? "📸 gaat foto's maken" : "📸 maakt foto's")
+        : what === "pose" ? (going ? "🗿 gaat poseren" : "🗿 poseert")
+        : going ? "🚶 loopt wat rond" : "😎 chillt";
+    }
+    return {
+      name: v.name,
+      player: v.player ? (v.player.mine ? "dat ben jij!" : "speler") : null,
+      home: home ? `${buildingType(home.type)?.emoji ?? ""} ${buildingName(home.type, home.level)}` : null,
+      job: job ? `${buildingType(job.type)?.emoji ?? ""} ${buildingName(job.type, job.level)}` : null,
+      gather: job || v.player ? null : v.gather,
+      doing,
+    };
   }
 
   look(v: Villager, now: number): VillagerLook {
     const walking = v.task.kind === "toWork" || v.task.kind === "toStore" || v.task.kind === "go";
     const job = v.job === null ? undefined : this.byId.get(v.job);
-    const res = job ? buildingType(job.type)?.produces : undefined;
+    const res = job ? buildingType(job.type)?.produces : v.gather?.resource;
     const jumpLeft = v.jumpUntil - now;
     const sixSeven = now < v.sixSevenUntil;
     return {

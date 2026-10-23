@@ -1,7 +1,7 @@
 // The town as a full-screen isometric canvas under the counter bar: terrain,
 // nature, buildings and villagers, depth-sorted every frame. Drag to look
-// around, wheel or pinch to zoom, click nature to gather, click a building to
-// inspect it, click free land to build, click a villager to say hi. While
+// around, wheel or pinch to zoom, click a building to inspect it, click free
+// land to build, click a villager to see (and choose) what they do. While
 // drawing paths, dragging paints tiles instead (pan with the right mouse
 // button or two fingers).
 
@@ -11,7 +11,6 @@ import {
   MAP_SIZE,
   goneTiles,
   patches,
-  clickAmount as clickAmountFor,
   natureAt,
   resourceDef,
   terrainAt,
@@ -40,10 +39,12 @@ import {
   groundColor,
 } from "./draw";
 import { Camera, TILE_H, TILE_W, toTileSpace, toWorld } from "./iso";
-import { setRoads } from "./path";
-import { Population } from "./villagers";
+import { setTown } from "./path";
+import { Population, type Gather, type VillagerInfo } from "./villagers";
 
 const DRAG_THRESHOLD = 6;
+/** Players' NPCs are drawn this much bigger than the townsfolk. */
+const PLAYER_SCALE = 1.3;
 const MAX_PARTICLES = 400;
 /** Below this zoom the landscape comes from a pre-drawn picture instead of being drawn every frame. */
 const FAR_ZOOM = 0.75;
@@ -54,9 +55,9 @@ const LAND_TOP = -80;
 
 export interface WorldOptions {
   canvas: HTMLCanvasElement;
-  /** Nature was clicked; the world already showed the effect. */
-  onGather(resource: ResourceId, x: number, y: number): void;
   onSelect(building: PlacedBuilding | null): void;
+  /** A villager (or a player's NPC) was clicked. */
+  onVillager(id: string): void;
   /** Land (no building, no nature) was clicked, or any tile while placing; screen point for a popup. */
   onTile(x: number, y: number, px: number, py: number): void;
   /** Drawing paths: the pointer touched this tile; `first` at the start of a stroke. */
@@ -67,12 +68,16 @@ export interface TownWorld {
   setWorld(world: IdleWorld): void;
   /** Players online, each as their own NPC; `me` gets a yellow name tag. */
   setPeople(people: IdlePerson[], me: string | null): void;
-  /** "+n" where someone (else) gathered. */
-  showGather(resource: ResourceId, amount: number, x: number, y: number): void;
   built(b: PlacedBuilding): void;
   cheer(): void;
   celebrate(): void;
   select(id: number | null): void;
+  /** Ring a villager, or none. */
+  selectVillager(id: string | null): void;
+  /** What a villager is up to, or null if they're gone. */
+  villager(id: string): VillagerInfo | null;
+  /** Someone chose what this villager gathers (shown before the server confirms). */
+  setGather(id: string, g: Gather | null): void;
   focus(b: PlacedBuilding): void;
   /** Move the view to a tile. */
   lookAt(x: number, y: number): void;
@@ -124,13 +129,13 @@ export function createWorld(opts: WorldOptions): TownWorld {
   let usedUp = new Set<string>();
   let usedUpKey = "";
   let selected: number | null = null;
+  let selectedVillager: string | null = null;
   let placing: ((x: number, y: number) => boolean) | null = null;
   let hover: { x: number; y: number } | null = null;
   let marked: { x: number; y: number } | null = null;
   let ghost: ProposalAction | null = null;
   let painting: ((x: number, y: number) => boolean) | null = null;
   let draft: { tiles: Iterable<number>; erase: boolean } | null = null;
-  let clickAmount = 1;
   const floats: Float[] = [];
   const particles: Particle[] = [];
 
@@ -164,11 +169,10 @@ export function createWorld(opts: WorldOptions): TownWorld {
     if (floats.length > 40) floats.shift();
   }
 
-  function showGather(resource: ResourceId, amount: number, x: number, y: number): void {
+  /** Nature was clicked: the villagers gather it, say so. */
+  function showNature(resource: ResourceId, x: number, y: number): void {
     const p = toWorld(x + 0.5, y + 0.5);
-    const def = resourceDef(resource);
-    floatText(p.x, p.y - 20, `+${amount} ${def?.emoji ?? ""}`, RESOURCE_COLORS[resource] ?? "#fff");
-    burst(p.x, p.y - 10, RESOURCE_COLORS[resource] ?? "#fff", 8, 90, 700);
+    floatText(p.x, p.y - 20, `${resourceDef(resource)?.emoji ?? ""} dorpelingen zonder werk verzamelen dit`, RESOURCE_COLORS[resource] ?? "#fff");
   }
 
   // ---------- input ----------
@@ -225,7 +229,7 @@ export function createWorld(opts: WorldOptions): TownWorld {
     const prev = pointers.get(e.pointerId);
     if (!prev) {
       hover = tileAt(p.x, p.y);
-      canvas.style.cursor = placing || painting ? "crosshair" : hit(p.x, p.y) ? "pointer" : "grab";
+      canvas.style.cursor = placing || painting ? "crosshair" : (hit(p.x, p.y)?.kind ?? "nature") !== "nature" ? "pointer" : "grab";
       return;
     }
     pointers.set(e.pointerId, p);
@@ -278,7 +282,10 @@ export function createWorld(opts: WorldOptions): TownWorld {
     (e) => {
       e.preventDefault();
       const p = local(e);
-      cam.zoomAt(Math.exp(-e.deltaY * 0.0015), p.x, p.y);
+      const dy = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? canvas.clientHeight : 1);
+      // A mouse wheel turns in big steps; a touchpad (and pinching, which comes as ctrl+wheel) sends many small ones.
+      const speed = e.ctrlKey ? 0.012 : e.deltaMode === 0 && Math.abs(dy) < 50 ? 0.006 : 0.0015;
+      cam.zoomAt(Math.exp(Math.max(-0.5, Math.min(0.5, -dy * speed))), p.x, p.y);
     },
     { passive: false },
   );
@@ -341,12 +348,12 @@ export function createWorld(opts: WorldOptions): TownWorld {
     if (h.kind === "villager") {
       const v = pop.villagers.get(h.id);
       if (v) pop.introduce(v, Date.now());
+      opts.onVillager(h.id);
     } else if (h.kind === "building") {
       select(h.b.id);
       opts.onSelect(h.b);
     } else {
-      showGather(h.resource, clickAmount, h.x, h.y);
-      opts.onGather(h.resource, h.x, h.y);
+      showNature(h.resource, h.x, h.y);
     }
   }
 
@@ -543,7 +550,31 @@ export function createWorld(opts: WorldOptions): TownWorld {
       const fy = v.y + 0.5 + v.oy;
       const p = toWorld(fx, fy);
       const look = pop.look(v, now);
-      items.push({ d: fx + fy + 0.02, f: () => drawVillager(ctx, p.x, p.y, look) });
+      const ringed = v.id === selectedVillager;
+      items.push({
+        d: fx + fy + 0.02,
+        f: () => {
+          if (ringed) {
+            ctx.beginPath();
+            ctx.ellipse(p.x, p.y + 1, 8, 4, 0, 0, Math.PI * 2);
+            ctx.strokeStyle = "#ffe82e";
+            ctx.lineWidth = 2 / cam.zoom;
+            ctx.stroke();
+          }
+          if (v.player) {
+            // Players stand out from the townsfolk: a glow on the ground and a bit taller.
+            ctx.beginPath();
+            ctx.ellipse(p.x, p.y + 1, 7, 3.5, 0, 0, Math.PI * 2);
+            ctx.fillStyle = v.player.mine ? "rgba(255,232,46,0.45)" : "rgba(34,240,255,0.4)";
+            ctx.fill();
+            ctx.save();
+            ctx.translate(p.x, p.y);
+            ctx.scale(PLAYER_SCALE, PLAYER_SCALE);
+            drawVillager(ctx, 0, 0, look);
+            ctx.restore();
+          } else drawVillager(ctx, p.x, p.y, look);
+        },
+      });
       if (v.bubble) bubbles.push([p.x, p.y, v.bubble.text]);
       if (v.player) tags.push([p.x, p.y, v.player.name, v.player.mine]);
     }
@@ -628,15 +659,30 @@ export function createWorld(opts: WorldOptions): TownWorld {
     selected = id;
   }
 
+  function selectVillager(id: string | null): void {
+    selectedVillager = id;
+  }
+
   return {
+    selectVillager,
+    villager(id) {
+      const v = pop.villagers.get(id);
+      return v ? pop.describe(v, Date.now()) : null;
+    },
+    setGather(id, g) {
+      const v = pop.villagers.get(id);
+      if (v) pop.setGather(v, g, Date.now());
+    },
     setWorld(w) {
-      const changed = !world || world.buildings !== w.buildings;
+      let changed = !world || world.buildings !== w.buildings || world.gatherers !== w.gatherers;
       const streets = w.roads.join(",");
       if (streets !== roadsKey) {
         roadsKey = streets;
         roads = new Set(w.roads.map((i) => `${tileOf(i).x},${tileOf(i).y}`));
-        setRoads(w.roads);
+        // Work spots under a new path move elsewhere.
+        changed = true;
       }
+      if (changed) setTown(w.buildings, w.roads);
       world = w;
       roadLevel = w.roadLevel;
       // Which tiles are used up only changes when a patch crosses a tile's worth.
@@ -653,13 +699,11 @@ export function createWorld(opts: WorldOptions): TownWorld {
           for (const t of p.tiles.slice(0, goneTiles(p, n))) usedUp.add(`${t.x},${t.y}`);
         }
       }
-      clickAmount = clickAmountFor(w.era);
       if (changed) pop.sync(w, Date.now());
     },
     setPeople(people, me) {
       pop.setPeople(people, me, Date.now());
     },
-    showGather,
     built(b) {
       const p = toWorld(b.x + 0.5, b.y + 0.5);
       burst(p.x, p.y - 10, "#d6c8a8", 24, 70, 1100);

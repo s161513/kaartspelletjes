@@ -2,10 +2,11 @@
 //
 // One town for everyone, kept by the server. Every 67 on the counter (by its
 // highest value ever, `peak`) unlocks the next era. Houses give villagers,
-// villagers staff work buildings, work buildings fill the storage. Everyone
-// can help by clicking nature in the world. Nature runs out: clicks and work
-// buildings use up patches of forest, rock and ore (the more valuable, the
-// longer they last), which slowly grow back. Building (on a tile someone
+// villagers staff work buildings, work buildings fill the storage. Villagers
+// without a job gather from the nature around the town, whatever the players
+// point them at. Nature runs out: gatherers and work buildings use up patches
+// of forest, rock and ore (the more valuable, the longer they last), which
+// slowly grow back. Building (on a tile someone
 // clicked), laying or removing paths (drawn tile by tile, through nature and
 // over the river as bridges), tearing down a building (for a bit of its cost
 // back), upgrading (buildings or the whole street network) and big shop
@@ -27,6 +28,8 @@ import {
   CENTER_CAP,
   CLICK_BASE,
   COST_GROWTH,
+  GATHER_RANGE,
+  GATHER_RATE,
   ERAS,
   MARKET_FEE,
   MARKET_HALF_LIFE_MS,
@@ -65,6 +68,7 @@ import {
   type ShopItem,
 } from "./idleContent.js";
 import {
+  CENTER,
   classicStreets,
   isRiver,
   natureAt,
@@ -137,6 +141,8 @@ export interface IdleWorld {
   roads: number[];
   /** Patch id → clicks used up, as of `lastTick` (missing = full). */
   nature: Record<string, number>;
+  /** Villagers without a job the players put on a resource; the others spread over the basics. */
+  gatherers: Amounts;
 }
 
 export type ProposalAction =
@@ -196,7 +202,7 @@ function addBuilding<T extends IdleWorld>(s: T, type: string, level: number, spo
 export function newIdleState(now: number): IdleState {
   let s: IdleState = {
     v: STATE_VERSION, era: 0, resources: { food: 50, wood: 60, stone: 40 }, buildings: [], nextBuildingId: 1,
-    lastTick: now, boostUntil: 0, boosts: [], perks: {}, market: {}, roadLevel: 0, roads: [], nature: {}, proposals: [], nextProposalId: 1, players: {},
+    lastTick: now, boostUntil: 0, boosts: [], perks: {}, market: {}, roadLevel: 0, roads: [], nature: {}, gatherers: {}, proposals: [], nextProposalId: 1, players: {},
   };
   for (const type of ["center", "house", "house", "food", "wood"]) s = addBuilding(s, type, 0, placeBuilding(s.buildings, type)!).state;
   return { ...s, roads: classicStreets(s.buildings) };
@@ -286,6 +292,82 @@ export function sourceLeft(s: Pick<IdleWorld, "nature">, b: PlacedBuilding): { l
   return { left: src.reduce((a, p) => a + Math.max(0, leftIn(p, s.nature)), 0), total: src.reduce((a, p) => a + p.capacity, 0) };
 }
 
+// ---------- villagers without a job gather ----------
+
+const gatherCache = new Map<ResourceId, Patch[]>();
+
+/** The patches of a resource gatherers take from, nearest the town center first. */
+export function gatherPatches(res: ResourceId): Patch[] {
+  let list = gatherCache.get(res);
+  if (!list) {
+    const dist = (p: Patch) => Math.min(...p.tiles.map((t) => Math.max(Math.abs(t.x - CENTER.x), Math.abs(t.y - CENTER.y))));
+    list = patches()
+      .filter((p) => p.resource === res && dist(p) <= GATHER_RANGE)
+      .map((p) => [p, dist(p)] as const)
+      .sort((a, b) => a[1] - b[1])
+      .map(([p]) => p);
+    gatherCache.set(res, list);
+  }
+  return list;
+}
+
+/** What villagers without a job can gather: unlocked, and growing near the town. */
+export const gatherable = (era: number): ResourceId[] => unlockedResources(era).filter((id) => gatherPatches(id).length > 0);
+
+export interface Gathering {
+  /** Put there by the players. */
+  chosen: Amounts;
+  /** Left to themselves: spread over the basic resources. */
+  auto: Amounts;
+}
+
+/**
+ * Who of the villagers without a job gathers what. The players' choices
+ * count as far as there are people (in resource order); everyone else is
+ * spread evenly over food, wood and stone.
+ */
+export function gatheringOf(s: Pick<IdleWorld, "buildings" | "perks" | "era" | "gatherers">): Gathering {
+  const options = gatherable(s.era);
+  let left = assignWorkers(s).idle;
+  const chosen: Amounts = {};
+  for (const id of options) {
+    const n = Math.min(left, Math.max(0, Math.floor(s.gatherers[id] ?? 0)));
+    if (n > 0) chosen[id] = n;
+    left -= n;
+  }
+  const auto: Amounts = {};
+  const basics = options.filter((id) => id in BASE_RATE);
+  for (let i = 0; left > 0 && basics.length; i++, left--) {
+    const id = basics[i % basics.length];
+    auto[id] = (auto[id] ?? 0) + 1;
+  }
+  return { chosen, auto };
+}
+
+/**
+ * Put one villager without a job on `to` (null: leave it to them), taking
+ * them off `from` if the players had put them there. An error text if that
+ * can't be done.
+ */
+export function assignGatherer<T extends IdleWorld>(s: T, from: ResourceId | null, to: ResourceId | null): T | string {
+  const options = gatherable(s.era);
+  if ((from !== null && !options.includes(from)) || (to !== null && !options.includes(to))) return "dat groeit hier niet";
+  if (from === to) return s;
+  // Start from what actually counts, so choices for people who since got a job don't linger.
+  const g: Amounts = { ...gatheringOf(s).chosen };
+  if (from !== null) {
+    if (!g[from]) return "die verzamelt dat niet";
+    g[from]--;
+    if (!g[from]) delete g[from];
+  }
+  if (to !== null) {
+    const total = Object.values(g).reduce((a, n) => a + n, 0);
+    if (total >= assignWorkers(s).idle) return "iedereen zonder werk heeft al een taak";
+    g[to] = (g[to] ?? 0) + 1;
+  }
+  return { ...s, gatherers: g };
+}
+
 /** Patches grow back over `ms`. */
 function regrow(used: Used, ms: number): Record<string, number> {
   const out: Record<string, number> = {};
@@ -299,16 +381,34 @@ function regrow(used: Used, ms: number): Record<string, number> {
 
 // ---------- production ----------
 
-/** What each work building makes per second without boosts; nothing if its nature is used up. */
-function outputs(s: Pick<IdleWorld, "buildings" | "perks"> & { nature?: Used }): { b: PlacedBuilding; res: ResourceId; rate: number }[] {
+/** Something that makes a resource: where it takes it from (null: nowhere) and how many clicks that costs per click's worth. */
+interface Output {
+  res: ResourceId;
+  rate: number;
+  src: Patch[] | null;
+  drain: number;
+}
+
+/**
+ * What each work building and the gatherers make per second without boosts;
+ * nothing if their nature is used up (only checked when `nature` is given).
+ */
+function outputs(s: Pick<IdleWorld, "buildings" | "perks" | "era" | "gatherers"> & { nature?: Used }): Output[] {
   const { workers } = assignWorkers(s);
-  const out: { b: PlacedBuilding; res: ResourceId; rate: number }[] = [];
+  const out: Output[] = [];
+  const left = (src: Patch[] | null) => !s.nature || !src || src.some((p) => leftIn(p, s.nature!) > 0.01);
   for (const b of s.buildings) {
     const res = buildingType(b.type)?.produces;
     if (!res) continue;
-    const src = s.nature ? sourcePatches(b) : null;
-    if (src && !src.some((p) => leftIn(p, s.nature!) > 0.01)) continue;
-    out.push({ b, res, rate: ((fullRateOf(b) * (workers[b.id] ?? 0)) / slotsOf(b.level)) * toolsOf(s, res) });
+    const src = sourcePatches(b);
+    if (!left(src)) continue;
+    out.push({ res, rate: ((fullRateOf(b) * (workers[b.id] ?? 0)) / slotsOf(b.level)) * toolsOf(s, res), src, drain: WORK_DRAIN });
+  }
+  const { chosen, auto } = gatheringOf(s);
+  for (const res of gatherable(s.era)) {
+    const n = (chosen[res] ?? 0) + (auto[res] ?? 0);
+    const src = gatherPatches(res);
+    if (n > 0 && left(src)) out.push({ res, rate: n * GATHER_RATE * clickAmount(s.era) * toolsOf(s, res), src, drain: 1 });
   }
   return out;
 }
@@ -318,7 +418,7 @@ const autoRate = (s: Pick<IdleWorld, "perks" | "era">, res: ResourceId): number 
   0.5 * perkOf(s, "auto") * clickAmount(s.era) * toolsOf(s, res);
 
 /** Production per second without boosts. */
-export function ratesOf(s: Pick<IdleWorld, "buildings" | "perks" | "era"> & { nature?: Used }): Amounts {
+export function ratesOf(s: Pick<IdleWorld, "buildings" | "perks" | "era" | "gatherers"> & { nature?: Used }): Amounts {
   const rates: Amounts = {};
   for (const { res, rate } of outputs(s)) rates[res] = (rates[res] ?? 0) + rate;
   if (perkOf(s, "auto")) for (const id of unlockedResources(s.era)) rates[id] = (rates[id] ?? 0) + autoRate(s, id);
@@ -352,8 +452,8 @@ export function multiplierAt(s: IdleWorld, res: ResourceId, now: number): number
 
 /**
  * Produce everything from `lastTick` up to `now` (capped at MAX_OFFLINE_MS and
- * the storage limit). Work buildings use up the nature around them, and stop
- * making more than is left; nature grows back meanwhile.
+ * the storage limit). Work buildings and gatherers use up the nature around
+ * them, and stop making more than is left; nature grows back meanwhile.
  */
 export function advance<T extends IdleWorld>(s: T, now: number): T {
   const elapsed = Math.min(Math.max(0, now - s.lastTick), MAX_OFFLINE_MS);
@@ -369,13 +469,12 @@ export function advance<T extends IdleWorld>(s: T, now: number): T {
     if (got > 0) next.resources[res] = have + got;
     return got;
   };
-  for (const { b, res, rate } of outputs({ ...s, nature: used })) {
+  for (const { res, rate, src, drain } of outputs({ ...s, nature: used })) {
     let amount = Math.min(rate * seconds(res), cap - (next.resources[res] ?? 0));
     if (amount <= 0) continue;
-    const src = sourcePatches(b);
     if (src) {
       // Take what this needs from the nearest patches; make only as much as there was.
-      const need = (amount / click) * WORK_DRAIN;
+      const need = (amount / click) * drain;
       let took = 0;
       for (const p of src) {
         const take = Math.min(Math.max(0, leftIn(p, used)), need - took);
@@ -403,29 +502,6 @@ export function applyBoost<T extends IdleWorld>(s: T, now: number): T {
 }
 
 export const clickAmount = (era: number): number => CLICK_BASE * scaleOf(era);
-
-/**
- * Someone clicked nature in the world: one click's worth, taken from that
- * patch. Null if there's nothing (left) to gather there.
- */
-export function gather<T extends IdleWorld>(s: T, x: number, y: number): { state: T; resource: ResourceId } | null {
-  // A path cleared this tile's nature.
-  const resource = s.roads.includes(tileIndex(x, y)) ? null : natureAt(x, y, s.era, s.nature);
-  if (!resource) return null;
-  const cap = capOf(s);
-  const have = s.resources[resource] ?? 0;
-  // A full storage takes nothing, so nature isn't wasted either.
-  if (have >= cap) return { state: s, resource };
-  const p = patchAt(x, y)!;
-  return {
-    state: {
-      ...s,
-      resources: { ...s.resources, [resource]: Math.min(cap, have + clickAmount(s.era)) },
-      nature: { ...s.nature, [p.id]: Math.min(p.capacity, (s.nature[p.id] ?? 0) + 1) },
-    },
-    resource,
-  };
-}
 
 // ---------- building and upgrading ----------
 
@@ -842,8 +918,6 @@ export type IdleEvent =
   | { kind: "rejected"; label: string; by: string; reason: string }
   /** A trade or a small shop item, no vote needed. */
   | { kind: "deal"; label: string; by: string }
-  /** Someone else clicked nature: show it where it happened. */
-  | { kind: "click"; resource: ResourceId; amount: number; x: number; y: number }
   /** Only to the one connection whose request failed. */
   | { kind: "error"; message: string };
 
@@ -859,8 +933,8 @@ export type IdleClientMsg =
   | { type: "look"; name: string; look: NpcLook }
   /** Buy an outfit at the tailor, for yourself. */
   | { type: "outfit"; item: string }
-  /** A click on nature at this tile. */
-  | { type: "gather"; x: number; y: number }
+  /** Put one villager without a job on `to` (null: let them choose), off `from` if they were put there. */
+  | { type: "assign"; from: ResourceId | null; to: ResourceId | null }
   | { type: "propose"; action: ProposalAction; name?: string }
   | { type: "vote"; id: number; yes: boolean }
   | { type: "trade"; from: ResourceId; to: ResourceId; amount: number; name?: string }

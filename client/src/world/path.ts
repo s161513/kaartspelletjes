@@ -1,15 +1,21 @@
-// A* over the tile grid so villagers walk around water and mountains (and over
-// the bridges). Paths are cached until the town builds or removes a bridge.
+// A* over the tile grid so villagers walk around water, mountains and
+// buildings (and over the bridges), and prefer the streets: a step on a road
+// costs half a step on the grass. Paths are cached until the town changes.
 
 import { MAP_SIZE, isWalkable, terrainAt } from "@app/shared/idle";
 import type { Point } from "./iso";
 
 const MAX_CACHE = 600;
+/** What a step on a road or bridge costs, against 1 elsewhere. */
+const ROAD_COST = 0.5;
 const cache = new Map<string, Point[] | null>();
 
 let walkable: Uint8Array | null = null;
-/** Paths over the river (bridges the town built), as tile numbers. */
-let bridges: readonly number[] = [];
+/** The town's streets and bridges, as tile numbers. */
+let roads: readonly number[] = [];
+/** Tiles with a building: only the start or the end of a walk. */
+let blocked = new Set<number>();
+let onRoad = new Set<number>();
 
 function canWalk(x: number, y: number): boolean {
   if (x < 0 || y < 0 || x >= MAP_SIZE || y >= MAP_SIZE) return false;
@@ -17,27 +23,42 @@ function canWalk(x: number, y: number): boolean {
     walkable = Uint8Array.from({ length: MAP_SIZE * MAP_SIZE }, (_, i) =>
       isWalkable(terrainAt(i % MAP_SIZE, Math.floor(i / MAP_SIZE))) ? 1 : 0,
     );
-    for (const i of bridges) walkable[i] = 1;
+    for (const i of roads) walkable[i] = 1;
   }
   return walkable[y * MAP_SIZE + x] === 1;
 }
 
-/** The town's streets changed: bridges make the river crossable there. */
-export function setRoads(roads: readonly number[]): void {
-  const next = roads.filter((i) => terrainAt(i % MAP_SIZE, Math.floor(i / MAP_SIZE)) === "water");
-  if (next.length === bridges.length && next.every((i, k) => i === bridges[k])) return;
-  bridges = next;
+/** Walkable and no building in the way. */
+const isOpen = (x: number, y: number): boolean => canWalk(x, y) && !blocked.has(y * MAP_SIZE + x);
+
+/** The town changed: streets are quicker, bridges cross the river, buildings are in the way. */
+export function setTown(buildings: readonly Point[], streets: readonly number[]): void {
+  const next = new Set(buildings.map((b) => b.y * MAP_SIZE + b.x));
+  const same = next.size === blocked.size && [...next].every((i) => blocked.has(i));
+  if (same && streets.length === roads.length && streets.every((i, k) => i === roads[k])) return;
+  blocked = next;
+  roads = [...streets];
+  onRoad = new Set(streets);
   walkable = null;
   cache.clear();
 }
 
 /** The nearest walkable tile (deposits next to water, villagers spawned oddly). */
 export function nearestWalkable(x: number, y: number): Point {
-  if (canWalk(x, y)) return { x, y };
+  return nearest(x, y, canWalk);
+}
+
+/** The nearest tile to stand on that isn't a building: for hanging out somewhere. */
+export function nearestOpen(x: number, y: number): Point {
+  return nearest(x, y, isOpen);
+}
+
+function nearest(x: number, y: number, ok: (x: number, y: number) => boolean): Point {
+  if (ok(x, y)) return { x, y };
   for (let r = 1; r < 6; r++) {
     for (let dy = -r; dy <= r; dy++) {
       for (let dx = -r; dx <= r; dx++) {
-        if (canWalk(x + dx, y + dy)) return { x: x + dx, y: y + dy };
+        if (ok(x + dx, y + dy)) return { x: x + dx, y: y + dy };
       }
     }
   }
@@ -62,7 +83,8 @@ export function findPath(from: Point, to: Point): Point[] | null {
   const closed = new Uint8Array(N);
   const start = a.y * MAP_SIZE + a.x;
   const goal = b.y * MAP_SIZE + b.x;
-  const h = (i: number) => Math.hypot((i % MAP_SIZE) - b.x, Math.floor(i / MAP_SIZE) - b.y);
+  // Never more than the cheapest way there, all over roads.
+  const h = (i: number) => Math.hypot((i % MAP_SIZE) - b.x, Math.floor(i / MAP_SIZE) - b.y) * ROAD_COST;
   // Small binary heap of [f, index].
   const heap: [number, number][] = [[h(start), start]];
   const push = (item: [number, number]) => {
@@ -109,11 +131,12 @@ export function findPath(from: Point, to: Point): Point[] | null {
     for (const [dx, dy, cost] of DIRS) {
       const nx = cx + dx;
       const ny = cy + dy;
-      if (!canWalk(nx, ny)) continue;
-      // No cutting corners past water or rock walls.
-      if (dx && dy && (!canWalk(cx + dx, cy) || !canWalk(cx, cy + dy))) continue;
       const n = ny * MAP_SIZE + nx;
-      const ng = g[cur] + cost;
+      // Into a building only if that's where you're going.
+      if (!canWalk(nx, ny) || (n !== goal && blocked.has(n))) continue;
+      // No cutting corners past water, rock walls or buildings.
+      if (dx && dy && (!isOpen(cx + dx, cy) || !isOpen(cx, cy + dy))) continue;
+      const ng = g[cur] + cost * (onRoad.has(n) ? ROAD_COST : 1);
       if (ng < g[n]) {
         g[n] = ng;
         came[n] = cur;

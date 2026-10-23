@@ -3,6 +3,8 @@
 // of people with the same jobs. Workers and gatherers walk to their spot,
 // work, and carry the loot to storage; whoever has nothing to do hangs out by
 // the fire, the decorations or home.
+// Only some of the townsfolk are on the map (SHOWN_VILLAGERS), so a big town
+// doesn't drown in people; the jobs are shared out over everyone first.
 // Everyone online also has their own NPC (id "p:<player>"), dressed as they
 // chose, wandering around town with a name tag.
 
@@ -31,7 +33,8 @@ import { rand2, type VillagerLook } from "./draw";
 import type { Point } from "./iso";
 import { findPath, nearestOpen, nearestWalkable } from "./path";
 
-export const MAX_VILLAGERS = 200;
+/** About this many townsfolk walk around, picked from all of them. */
+export const SHOWN_VILLAGERS = 40;
 
 /** What the villager panel shows. */
 export interface VillagerInfo {
@@ -65,7 +68,10 @@ const SKINS = ["#f1c27d", "#e0ac69", "#c68642", "#8d5524", "#ffdbac", "#a1665e"]
 const CHAT = {
   work: ["hard werken 💪", "nog 67 te gaan", "no cap, dit is zwaar", "wanneer is het pauze", "grind never stops", "sigma grindset"],
   /** Workers on their way to work or to storage. */
-  walk: ["op weg naar m'n werk", "zwaar spul fr", "bijna bij de opslag", "nog één ritje", "sjouwen sjouwen"],
+  walk: [
+    "op weg naar m'n werk", "zwaar spul fr", "bijna bij de opslag", "nog één ritje", "sjouwen sjouwen",
+    "Who's gonna carry the logs and the boats?",
+  ],
   idle: ["six seven!", "skibidi", "67?!", "fr fr", "ik ben werkloos lol", "wie bouwt er een huis voor mij", "aura +67", "chillen"],
   dance: ["💃 67 67 67", "vibe check ✅", "dit is fire"],
   photo: ["📸 67!", "story-waardig", "cheese 🧀"],
@@ -123,7 +129,7 @@ export class Population {
   private byId = new Map<number, PlacedBuilding>();
   private spots = new Map<number, Point>();
 
-  /** Match the people to the current town: one per bed, jobs from assignWorkers. */
+  /** Match the people to the current town: one per bed, jobs from assignWorkers, a share of them on the map. */
   sync(world: IdleWorld, now: number): void {
     this.world = world;
     this.byId = new Map(world.buildings.map((b) => [b.id, b]));
@@ -131,7 +137,9 @@ export class Population {
     const houses = world.buildings.filter((b) => buildingType(b.type)?.category === "house");
     const people: { id: string; home: PlacedBuilding }[] = [];
     for (const h of houses) for (let i = 0; i < housingOf(h.level); i++) people.push({ id: `${h.id}-${i}`, home: h });
-    people.length = Math.min(people.length, MAX_VILLAGERS);
+    // Who's on the map is fixed per person, so the same ones stay as the town grows.
+    const share = SHOWN_VILLAGERS / Math.max(SHOWN_VILLAGERS, people.length);
+    const shown = (id: string) => rand2(hashStr(id), 7) < share;
 
     // The same round robin as assignWorkers, as a list of job ids.
     const { workers } = assignWorkers(world);
@@ -178,6 +186,7 @@ export class Population {
 
     const keep = new Set<string>();
     people.forEach((p, i) => {
+      if (!shown(p.id)) return;
       keep.add(p.id);
       const job = order[i] ?? null;
       const gather = gathers.get(p.id) ?? null;

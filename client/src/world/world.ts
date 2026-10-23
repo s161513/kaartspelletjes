@@ -43,6 +43,8 @@ import { setTown } from "./path";
 import { Population, type Gather, type VillagerInfo } from "./villagers";
 
 const DRAG_THRESHOLD = 6;
+/** Players' NPCs are drawn this much bigger than the townsfolk. */
+const PLAYER_SCALE = 1.3;
 const MAX_PARTICLES = 400;
 /** Below this zoom the landscape comes from a pre-drawn picture instead of being drawn every frame. */
 const FAR_ZOOM = 0.75;
@@ -559,7 +561,18 @@ export function createWorld(opts: WorldOptions): TownWorld {
             ctx.lineWidth = 2 / cam.zoom;
             ctx.stroke();
           }
-          drawVillager(ctx, p.x, p.y, look);
+          if (v.player) {
+            // Players stand out from the townsfolk: a glow on the ground and a bit taller.
+            ctx.beginPath();
+            ctx.ellipse(p.x, p.y + 1, 7, 3.5, 0, 0, Math.PI * 2);
+            ctx.fillStyle = v.player.mine ? "rgba(255,232,46,0.45)" : "rgba(34,240,255,0.4)";
+            ctx.fill();
+            ctx.save();
+            ctx.translate(p.x, p.y);
+            ctx.scale(PLAYER_SCALE, PLAYER_SCALE);
+            drawVillager(ctx, 0, 0, look);
+            ctx.restore();
+          } else drawVillager(ctx, p.x, p.y, look);
         },
       });
       if (v.bubble) bubbles.push([p.x, p.y, v.bubble.text]);

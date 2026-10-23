@@ -70,7 +70,7 @@ import {
   type Terrain,
 } from "@app/shared/idle";
 import { session } from "../session";
-import type { Gather, VillagerInfo } from "./villagers";
+import { SHOWN_VILLAGERS, type Gather, type VillagerInfo } from "./villagers";
 
 const TICK_MS = 300;
 
@@ -310,7 +310,9 @@ export function createPanels(deps: PanelDeps): Panels {
     }
     const wf = assignWorkers(world);
     popChip.textContent = `👥 ${wf.population} (${wf.population - wf.idle} werken)`;
-    popChip.title = `${wf.population} inwoners, ${wf.idle} zonder werk · opslag max ${fmt(cap)} per grondstof`;
+    popChip.title =
+      `${wf.population} inwoners, ${wf.idle} zonder werk · opslag max ${fmt(cap)} per grondstof` +
+      (wf.population > SHOWN_VILLAGERS ? ` · op de kaart loopt een deel rond, zo'n ${SHOWN_VILLAGERS}` : "");
 
     const boosts: string[] = [];
     if (world.boostUntil > now) boosts.push(`⚡ ×${BOOST_MULT} ${timeLeft(world.boostUntil - now)}`);

@@ -209,9 +209,11 @@ geeft alleen nog extra's.
 - [ ] Een wereldwonder per tijdperk (Stonehenge, piramide, colosseum, …),
       gebouwd via stemmingen in een paar fases. Kan pas als de doelen
       gehaald zijn. Is het af, dan begint het volgende tijdperk. (bron: idem)
-- [ ] Tempo: zo'n twee weken per tijdperk. Er wordt tot eind december
-      gespeeld (les). Eerst nagaan bij Richard: is dat twee weken per
-      tijdperk, of het hele spel in die tijd? (bron: Richard, "een week of 2")
+- [ ] Tempo: er is geen vaste tijd per tijdperk. Het hangt er gewoon van
+      af hoe snel het dorp de doelen haalt en het wonder bouwt. Maak die wel
+      flink, zodat een tijdperk eerder dagen dan uren duurt (richtlijn: "een
+      week of 2"). Er wordt gespeeld tot eind december. (bron: Richard,
+      2026-10-24)
 - [ ] De counter geeft extra's, gekoppeld aan de hoogste stand zodat op en
       neer klikken niets oplevert. Elke +1 blijft ×2 productie voor 67 s.
       Elke nieuwe 67 geeft een supply drop: een krat met grondstoffen die

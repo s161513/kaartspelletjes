@@ -22,6 +22,8 @@ thema (zie [ROADMAP.md](ROADMAP.md)):
 - 2026-10-24, Richard: het tijdperk moet afhangen van hoe goed de stad het
   doet, niet van de 67 counter (gaat te traag); doelen per tijdperk plus een
   wereldwonder; een tijdperk mag zo'n twee weken duren: Update 8
+- 2026-10-24, Richard: hoe snel de tijdperken gaan, hangt gewoon af van hoe
+  snel de doelen gehaald zijn en het wereldwonder gebouwd is: Update 8
 - 2026-10-24, Richard: de counter mag dienen voor willekeurige extra's (supply
   drop, boosts), en hij wil ze allemaal: Update 8
 - 2026-10-24, Richard: het dorp resetten na deze updates, zonder dat iemand bij

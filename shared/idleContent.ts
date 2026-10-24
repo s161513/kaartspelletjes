@@ -423,6 +423,24 @@ export const GATHER_RANGE = 15;
 /** …each this many clicks' worth per second (a job pays far better), using up a click per click. */
 export const GATHER_RATE = 0.1;
 
+// ---------- happiness ----------
+
+/** Happiness (0–100) starts here: a town with a bed for everyone and two kinds of food is content. */
+export const HAPPY_BASE = 50;
+/** Points by how many kinds of food the town makes (index: 0–4 kinds). */
+export const VARIETY_POINTS: readonly number[] = [-20, -20, 0, 10, 20];
+/** Points off when everyone sleeps outside (a share of it for a share of the town). */
+export const HOMELESS_POINTS = 60;
+/** Each decoration, up to MAX_DECOR_POINTS for all of them together. */
+export const DECOR_POINTS = 4;
+export const MAX_DECOR_POINTS = 20;
+/** A tavern in town, and a big party from it while it lasts. */
+export const TAVERN_POINTS = 10;
+export const PARTY_POINTS = 15;
+/** Villagers moving in or out, per minute, until the town has as many as it draws. */
+export const MOVE_PER_MIN = 1;
+
+/** Beds in a house. */
 export const housingOf = (level: number): number => 3 + level;
 export const slotsOf = (level: number): number => 2 + Math.floor(level / 3);
 export const scaleOf = (level: number): number => LEVEL_SCALE ** level;

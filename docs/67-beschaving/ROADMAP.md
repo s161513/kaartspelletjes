@@ -139,7 +139,7 @@ Status: gedaan (PR #31)
       bekende beperking)
 
 ### Update 6: Eten & dieren
-Status: in review (PR #32)
+Status: gedaan (PR #32)
 
 Afgesproken met Richard (2026-10-23): voedsel blijft één voorraad, met een
 soort per bron; vier voedselgebouwen; een jagerskamp vangt minder waar het
@@ -165,36 +165,85 @@ bos gekapt is; veehouderij pas vanaf de Bronstijd.
       bossen staan echt vol", "per speler 1 extra npc")
 
 ### Update 7: Geluk & wonen
-Status: gepland. Steunt op update 6 (soorten voedsel, `foodKindsOf`).
+Status: in review (PR #33). Steunt op update 6 (soorten voedsel, `foodKindsOf`).
 
-- [ ] Een geluksniveau voor het dorp. Ongelukkige inwoners werken minder
-      hard. (bron: "Happiness level")
-- [ ] Iedere inwoner heeft een plek in een huis nodig. Wie geen huis heeft,
+Afgesproken met Richard (2026-10-24): inwoners komen af op een gelukkig
+dorp, ook als er geen bed is, en ze vertrekken uit een ongelukkig dorp.
+Geluk maakt werkers en verzamelaars ×0,5 tot ×1,2 zo hard. Decoraties en de
+taverne (en een feest) geven geluk. Inwoners eten geen voedsel op; alleen de
+variatie telt.
+
+- [x] Een geluksniveau voor het dorp. Ongelukkige inwoners werken minder
+      hard. Gedaan: `happinessOf` geeft 0–100%, met 50 als basis. Decoraties
+      geven +4 per stuk (samen hoogstens +20), de taverne +10 en een
+      dorpsfeest +15. (bron: "Happiness level")
+- [x] Iedere inwoner heeft een plek in een huis nodig. Wie geen huis heeft,
       wordt ongelukkig, in plaats van dat een huis gewoon bevolking oplevert.
-      (bron: "elke persoon heeft een huis nodig of die worden ongelukkig")
-- [ ] Te weinig variatie in voedsel maakt mensen boos. (bron: "variatie in
+      Gedaan: een huis geeft bedden. `population` groeit of krimpt met 1 per
+      minuut naar `populationTarget`: van de helft van de bedden (ongelukkig)
+      tot een kwart meer dan er bedden zijn (gelukkig). Wie buiten slaapt,
+      kost zoveel procent van 60 punten als het deel van het dorp dat buiten
+      slaapt. (bron: "elke persoon heeft een huis nodig of die worden
+      ongelukkig")
+- [x] Te weinig variatie in voedsel maakt mensen boos. Gedaan: 1 soort is −20,
+      2 soorten 0, 3 soorten +10 en 4 soorten +20. (bron: "variatie in
       voedsel of mensen worden boos")
-- [ ] Een bevolkingsoverzicht op een vaste plek, bijvoorbeeld in een raadhuis.
-      (bron: "Population overzicht plek zoals een council house")
+- [x] Een bevolkingsoverzicht op een vaste plek, bijvoorbeeld in een raadhuis.
+      Gedaan: het centrum heeft een blok 📊 Bevolking, en de HUD toont
+      bedden, wie buiten slaapt en het geluk. (bron: "Population overzicht
+      plek zoals een council house")
 
-### Update 8: Mijnen & smeden
+### Update 8: Tijdperken door het dorp
+Status: gepland. Steunt op update 7 (bevolking en geluk). Hierin zit ook
+de reset van het dorp.
+
+Afgesproken met Richard (2026-10-24): het tijdperk hangt niet meer aan de
+67 counter, want dat gaat te traag. Het dorp verdient het zelf, met doelen
+per tijdperk (voorstel A) en een wereldwonder (voorstel C). De counter
+geeft alleen nog extra's.
+
+- [ ] Doelen per tijdperk, bijvoorbeeld een aantal inwoners, een minimaal
+      geluk, soorten voedsel en bepaalde gebouwen. Ze staan in het
+      centrumpaneel. (bron: Richard, "tijdperk berekend door hoe goed de stad
+      het doet")
+- [ ] Een wereldwonder per tijdperk (Stonehenge, piramide, colosseum, …),
+      gebouwd via stemmingen in een paar fases. Kan pas als de doelen
+      gehaald zijn. Is het af, dan begint het volgende tijdperk. (bron: idem)
+- [ ] Tempo: er is geen vaste tijd per tijdperk. Het hangt er gewoon van
+      af hoe snel het dorp de doelen haalt en het wonder bouwt. Maak die wel
+      flink, zodat een tijdperk eerder dagen dan uren duurt (richtlijn: "een
+      week of 2"). Er wordt gespeeld tot eind december. (bron: Richard,
+      2026-10-24)
+- [ ] De counter geeft extra's, gekoppeld aan de hoogste stand zodat op en
+      neer klikken niets oplevert. Elke +1 blijft ×2 productie voor 67 s.
+      Elke nieuwe 67 geeft een supply drop: een krat met grondstoffen die
+      iemand openklikt. Af en toe is er een willekeurige gebeurtenis bij een
+      +1: een gouden uur, nieuwkomers, een feest (+geluk) of een rondtrekkende
+      koopman. (bron: Richard, "de counter mag dienen als random extra's")
+- [ ] Reset van het dorp: alles begint opnieuw in de Steentijd. Spelers
+      houden hun naam en uiterlijk. Gekochte kleding verdwijnt, en wie die
+      droeg, krijgt de gratis variant. Dit gaat via een nieuwe
+      `STATE_VERSION` zonder overzetten, zodat niemand bij de server-bestanden
+      hoeft. (bron: Richard, "de game resetten na deze updates")
+
+### Update 9: Mijnen & smeden
 Status: gepland.
 
 - [ ] Mijnen als echte bouwplek voor steen en erts, en meer mijnen dan alleen
       bij de ertsaders. (bron: "Mines")
 - [ ] Kolen eerder of belangrijker maken: nu komen ze pas in de Industriële
       revolutie. (bron: "coal")
-- [ ] Een wapensmid en een harnassmid, nodig voor update 9. (bron: "weapon
+- [ ] Een wapensmid en een harnassmid, nodig voor update 10. (bron: "weapon
       smith", "armor smith")
 
-### Update 9: Vijanden & muren
-Status: gepland. Steunt op update 8.
+### Update 10: Vijanden & muren
+Status: gepland. Steunt op update 9.
 
 - [ ] Vijanden die het dorp af en toe aanvallen. (bron: "enemies")
 - [ ] Muren en verdediging, die je bouwt via de gewone stemmingen. (bron:
       "Walls")
 
-### Update 10: Uiterlijk
+### Update 11: Uiterlijk
 Status: gepland.
 
 - [ ] Uitzoeken welke skills uit
@@ -206,7 +255,7 @@ Status: gepland.
 - [ ] De tijdperken moeten echt historisch aanvoelen. (bron: "Tijdperk voelt
       nu niet als prehistory")
 
-### Update 11: Balans
+### Update 12: Balans
 Status: gepland. Bouw deze pas als er een paar dagen gespeeld is, en na
 update 4 (zonder klikken verandert het tempo).
 
@@ -268,7 +317,10 @@ een update worden opgenomen als het past.
 - **Voedselgebouwen delen hun prijsstijging:** het zoveelste voedselgebouw
   kost evenveel, welk soort het ook is (`costGroup`). Zo maakt het opsplitsen
   voedsel niet goedkoper. Voor de rest is alles even sterk als de oude
-  boerderij; de balans komt in update 11.
+  boerderij; de balans komt in update 12.
+- **Geluk en bevolking bij een lange afwezigheid:** `advance` rekent een
+  hele periode met het geluk en het aantal inwoners van het begin ervan. De
+  server rekent vaak door, dus dit speelt alleen na lang niemand online.
 - **Berichtgrootte:** `MAX_PATH_TILES` (150) en de `maxPayload` van de
   counter-socket (2048 bytes) horen bij elkaar. Verhoog je het ene, controleer
   dan het andere. Daar is een test voor.

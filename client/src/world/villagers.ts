@@ -2,7 +2,8 @@
 // shared town (assignWorkers, gatheringOf), so everyone sees the same number
 // of people with the same jobs. Workers and gatherers walk to their spot,
 // work, and carry the loot to storage; whoever has nothing to do hangs out by
-// the fire, the decorations or home.
+// the fire, the decorations or home. There's one villager per person in town
+// (`population`): they fill the beds in build order, the rest sleep outside.
 // Only some of the townsfolk are on the map, NPCS_PER_PLAYER for everyone
 // online, so the town doesn't drown in people; the jobs are shared out over
 // everyone first.
@@ -137,14 +138,16 @@ export class Population {
   /** Players online, set by setPeople; decides how many townsfolk are on the map. */
   private online = 1;
 
-  /** Match the people to the current town: one per bed, jobs from assignWorkers, a few of them on the map. */
+  /** Match the people to the current town: beds first, jobs from assignWorkers, a few of them on the map. */
   sync(world: IdleWorld, now: number): void {
     this.world = world;
     this.byId = new Map(world.buildings.map((b) => [b.id, b]));
     this.spots.clear();
     const houses = world.buildings.filter((b) => buildingType(b.type)?.category === "house");
-    const people: { id: string; home: PlacedBuilding }[] = [];
-    for (const h of houses) for (let i = 0; i < housingOf(h.level); i++) people.push({ id: `${h.id}-${i}`, home: h });
+    const { population, workers } = assignWorkers(world);
+    const people: { id: string; home: PlacedBuilding | null }[] = [];
+    for (const h of houses) for (let i = 0; i < housingOf(h.level) && people.length < population; i++) people.push({ id: `${h.id}-${i}`, home: h });
+    for (let i = 0; people.length < population; i++) people.push({ id: `out-${i}`, home: null });
     // Who's on the map goes by a fixed draw per person, so mostly the same ones stay as the town grows.
     const draw = (id: string) => rand2(hashStr(id), 7);
     const onMap = new Set(
@@ -152,7 +155,6 @@ export class Population {
     );
 
     // The same round robin as assignWorkers, as a list of job ids.
-    const { workers } = assignWorkers(world);
     const jobs = world.buildings.filter((b) => workers[b.id] !== undefined);
     const order: number[] = [];
     const given: Record<number, number> = {};
@@ -204,9 +206,9 @@ export class Population {
       if (!v) {
         const seed = hashStr(p.id);
         const r = (k: number) => rand2(seed, k);
-        const start = nearestWalkable(p.home.x, p.home.y);
+        const start = nearestWalkable(p.home?.x ?? CENTER.x, p.home?.y ?? CENTER.y);
         v = {
-          id: p.id, name: NAMES[Math.floor(r(1) * NAMES.length)], home: p.home.id, job, gather, level: p.home.level,
+          id: p.id, name: NAMES[Math.floor(r(1) * NAMES.length)], home: p.home?.id ?? -1, job, gather, level: p.home?.level ?? 0,
           clothes: "", skin: SKINS[Math.floor(r(2) * SKINS.length)],
           x: start.x, y: start.y, ox: (r(3) - 0.5) * 0.5, oy: (r(4) - 0.5) * 0.5,
           path: [], pathI: 0, task: { kind: "stay", until: now + r(5) * 3000, action: "none" },
@@ -220,7 +222,8 @@ export class Population {
         v.carry = null;
         v.task = { kind: "stay", until: now, action: "none" };
       } else v.gather = gather;
-      v.level = p.home.level;
+      v.home = p.home?.id ?? -1;
+      v.level = p.home?.level ?? 0;
       const clothes = ERAS[v.level].style.clothes;
       v.clothes = clothes[Math.abs(hashStr(v.id)) % clothes.length];
     });

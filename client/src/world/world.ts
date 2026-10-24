@@ -686,7 +686,8 @@ export function createWorld(opts: WorldOptions): TownWorld {
       if (v) pop.setGather(v, g, Date.now());
     },
     setWorld(w) {
-      let changed = !world || world.buildings !== w.buildings || world.gatherers !== w.gatherers;
+      let changed =
+        !world || world.buildings !== w.buildings || world.gatherers !== w.gatherers || Math.floor(world.population) !== Math.floor(w.population);
       let forests = !world;
       const streets = w.roads.join(",");
       if (streets !== roadsKey) {

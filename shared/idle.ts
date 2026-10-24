@@ -1,8 +1,11 @@
 // "67 Beschaving": the shared idle game behind the 67 counter page.
 //
 // One town for everyone, kept by the server. Every 67 on the counter (by its
-// highest value ever, `peak`) unlocks the next era. Houses give villagers,
-// villagers staff work buildings, work buildings fill the storage. Villagers
+// highest value ever, `peak`) unlocks the next era. Villagers move in while
+// the town is happy and leave when it isn't; each needs a bed in a house or
+// sleeps outside, which makes everyone less happy (so does eating the same
+// thing every day; decorations and the tavern help). Villagers staff work
+// buildings, work buildings fill the storage, and unhappy ones work less. Villagers
 // without a job gather from the nature around the town, whatever the players
 // point them at. Food has kinds by where it comes from (grain, meat, fish,
 // berries) but is one resource in storage. Nature runs out: gatherers and
@@ -30,6 +33,14 @@ import {
   CENTER_CAP,
   CLICK_BASE,
   COST_GROWTH,
+  DECOR_POINTS,
+  HAPPY_BASE,
+  HOMELESS_POINTS,
+  MAX_DECOR_POINTS,
+  MOVE_PER_MIN,
+  PARTY_POINTS,
+  TAVERN_POINTS,
+  VARIETY_POINTS,
   GATHER_RANGE,
   GATHER_RATE,
   ERAS,
@@ -99,7 +110,7 @@ export const MAX_OFFLINE_MS = 7 * 24 * 60 * 60_000;
 export const VOTE_MS = 24 * 60 * 60_000;
 /** Open proposals at once, at most. */
 export const MAX_PROPOSALS = 20;
-export const STATE_VERSION = 4;
+export const STATE_VERSION = 5;
 export const MAX_NAME_LENGTH = 20;
 
 // ---------- state ----------
@@ -146,6 +157,8 @@ export interface IdleWorld {
   nature: Record<string, number>;
   /** Villagers without a job the players put on a resource; the others spread over the basics. */
   gatherers: Amounts;
+  /** Villagers living in town, as of `lastTick` (fractional while someone is moving in or out). */
+  population: number;
 }
 
 export type ProposalAction =
@@ -205,10 +218,10 @@ function addBuilding<T extends IdleWorld>(s: T, type: string, level: number, spo
 export function newIdleState(now: number): IdleState {
   let s: IdleState = {
     v: STATE_VERSION, era: 0, resources: { food: 50, wood: 60, stone: 40 }, buildings: [], nextBuildingId: 1,
-    lastTick: now, boostUntil: 0, boosts: [], perks: {}, market: {}, roadLevel: 0, roads: [], nature: {}, gatherers: {}, proposals: [], nextProposalId: 1, players: {},
+    lastTick: now, boostUntil: 0, boosts: [], perks: {}, market: {}, roadLevel: 0, roads: [], nature: {}, gatherers: {}, population: 0, proposals: [], nextProposalId: 1, players: {},
   };
   for (const type of ["center", "house", "house", "hunter", "wood"]) s = addBuilding(s, type, 0, placeBuilding(s.buildings, type)!).state;
-  return { ...s, roads: classicStreets(s.buildings) };
+  return { ...s, roads: classicStreets(s.buildings), population: bedsOf(s) };
 }
 
 /** Unlock eras up to `era` (never back). */
@@ -222,6 +235,9 @@ export const unlockedResources = (era: number): ResourceId[] => RESOURCES.filter
 
 export interface Workforce {
   population: number;
+  beds: number;
+  /** Villagers without a bed: they sleep outside (and still work). */
+  homeless: number;
   /** Work building id → villagers working there. */
   workers: Record<number, number>;
   idle: number;
@@ -230,13 +246,23 @@ export interface Workforce {
 /** Workers one work building can take: its level's slots plus the university's perk. */
 export const slotsAt = (s: Pick<IdleWorld, "perks">, b: PlacedBuilding): number => slotsOf(b.level) + perkOf(s, "workplace");
 
+/** Beds in all houses together. */
+export function bedsOf(s: Pick<IdleWorld, "buildings">): number {
+  let beds = 0;
+  for (const b of s.buildings) if (buildingType(b.type)?.category === "house") beds += housingOf(b.level);
+  return beds;
+}
+
+/** Whole villagers in town (someone halfway moving in doesn't work yet). */
+const peopleOf = (s: Pick<IdleWorld, "population">): number => Math.max(0, Math.floor(s.population + 1e-9));
+
 /**
  * Fill work buildings one villager at a time, round robin in build order, so
  * everyone gets staff before anyone is full. Leftovers are idle.
  */
-export function assignWorkers(s: Pick<IdleWorld, "buildings" | "perks">): Workforce {
-  let population = 0;
-  for (const b of s.buildings) if (buildingType(b.type)?.category === "house") population += housingOf(b.level);
+export function assignWorkers(s: Pick<IdleWorld, "buildings" | "perks" | "population">): Workforce {
+  const population = peopleOf(s);
+  const beds = bedsOf(s);
   const jobs = s.buildings.filter((b) => buildingType(b.type)?.category === "work");
   const workers: Record<number, number> = Object.fromEntries(jobs.map((b) => [b.id, 0]));
   let left = population;
@@ -251,7 +277,7 @@ export function assignWorkers(s: Pick<IdleWorld, "buildings" | "perks">): Workfo
       }
     }
   }
-  return { population, workers, idle: left };
+  return { population, beds, homeless: Math.max(0, population - beds), workers, idle: left };
 }
 
 /** Output of one work building with its level's slots filled (each extra worker adds the same). */
@@ -331,7 +357,7 @@ export interface Gathering {
  * count as far as there are people (in resource order); everyone else is
  * spread evenly over food, wood and stone.
  */
-export function gatheringOf(s: Pick<IdleWorld, "buildings" | "perks" | "era" | "gatherers">): Gathering {
+export function gatheringOf(s: Pick<IdleWorld, "buildings" | "perks" | "era" | "gatherers" | "population">): Gathering {
   const options = gatherable(s.era);
   let left = assignWorkers(s).idle;
   const chosen: Amounts = {};
@@ -399,7 +425,7 @@ interface Output {
  * What each work building and the gatherers make per second without boosts;
  * nothing if their nature is used up (only checked when `nature` is given).
  */
-function outputs(s: Pick<IdleWorld, "buildings" | "perks" | "era" | "gatherers"> & { nature?: Used }): Output[] {
+function outputs(s: Pick<IdleWorld, "buildings" | "perks" | "era" | "gatherers" | "population"> & { nature?: Used }): Output[] {
   const { workers } = assignWorkers(s);
   const out: Output[] = [];
   const left = (src: Patch[] | null) => !s.nature || !src || src.some((p) => leftIn(p, s.nature!) > 0.01);
@@ -438,20 +464,77 @@ function sourceShare(used: Used, src: Patch[] | null): number {
 export const sourceShareOf = (s: Pick<IdleWorld, "nature">, b: PlacedBuilding): number => sourceShare(s.nature, sourcePatches(b));
 
 /** Food per second by kind, without boosts (the lab's robots make no particular kind). */
-export function foodKindsOf(s: Pick<IdleWorld, "buildings" | "perks" | "era" | "gatherers"> & { nature?: Used }): Partial<Record<FoodKind, number>> {
+export function foodKindsOf(s: Pick<IdleWorld, "buildings" | "perks" | "era" | "gatherers" | "population"> & { nature?: Used }): Partial<Record<FoodKind, number>> {
   const out: Partial<Record<FoodKind, number>> = {};
   for (const { kind, rate } of outputs(s)) if (kind && rate > 0) out[kind] = (out[kind] ?? 0) + rate;
   return out;
+}
+
+// ---------- happiness ----------
+
+type Town = Pick<IdleWorld, "buildings" | "perks" | "era" | "gatherers" | "population" | "boosts"> & { nature?: Used };
+
+/** One thing that makes the town happier or unhappier, for the overview. */
+export interface HappinessPart {
+  emoji: string;
+  label: string;
+  points: number;
+}
+
+export interface Happiness {
+  /** 0–100; 50 is content. */
+  level: number;
+  /** What it's made of (the base not included). */
+  parts: HappinessPart[];
+  /** Work speed of workers and gatherers: ×0.5 (0) to ×1 (50) to ×1.2 (100). */
+  mult: number;
+}
+
+const clampHappy = (n: number) => Math.max(0, Math.min(100, n));
+
+/** Everything but beds: what draws people to the town (or makes them leave). */
+function moodParts(s: Town, now: number): HappinessPart[] {
+  const kinds = Object.keys(foodKindsOf(s)).length;
+  const parts: HappinessPart[] = [
+    { emoji: "🍽️", label: kinds === 1 ? "1 soort voedsel" : `${kinds} soorten voedsel`, points: VARIETY_POINTS[Math.min(kinds, VARIETY_POINTS.length - 1)] },
+  ];
+  const decor = s.buildings.filter((b) => buildingType(b.type)?.category === "decor").length;
+  if (decor) parts.push({ emoji: "🗿", label: decor === 1 ? "1 decoratie" : `${decor} decoraties`, points: Math.min(MAX_DECOR_POINTS, decor * DECOR_POINTS) });
+  if (hasBuilding(s, "shop_tavern")) parts.push({ emoji: "🍺", label: buildingName("shop_tavern", s.era), points: TAVERN_POINTS });
+  if (s.boosts.some((b) => b.item === "party" && b.until > now)) parts.push({ emoji: "🎉", label: "dorpsfeest", points: PARTY_POINTS });
+  return parts;
+}
+
+const sumParts = (parts: readonly HappinessPart[]) => clampHappy(HAPPY_BASE + parts.reduce((a, p) => a + p.points, 0));
+
+/** How happy the town is at `now`: food variety, beds, decorations, the tavern. */
+export function happinessOf(s: Town, now: number): Happiness {
+  const parts = moodParts(s, now);
+  const { population, homeless } = assignWorkers(s);
+  if (homeless > 0) parts.push({ emoji: "⛺", label: `${homeless} zonder bed`, points: -Math.round((HOMELESS_POINTS * homeless) / population) });
+  const level = sumParts(parts);
+  return { level, parts, mult: level < 50 ? 0.5 + level / 100 : 1 + (0.2 * (level - 50)) / 50 };
+}
+
+/**
+ * How many villagers the town draws: its beds while content (50), down to
+ * half of them when miserable, up to a quarter more than there are beds when
+ * very happy (the newcomers sleep outside, which makes everyone less happy).
+ */
+export function populationTarget(s: Town, now: number): number {
+  const mood = sumParts(moodParts(s, now));
+  return bedsOf(s) * (mood < 50 ? 0.5 + mood / 100 : 1 + (mood - 50) / 200);
 }
 
 /** The lab's robots: gathering every unlocked resource, from nowhere in particular. */
 const autoRate = (s: Pick<IdleWorld, "perks" | "era">, res: ResourceId): number =>
   0.5 * perkOf(s, "auto") * clickAmount(s.era) * toolsOf(s, res);
 
-/** Production per second without boosts. */
-export function ratesOf(s: Pick<IdleWorld, "buildings" | "perks" | "era" | "gatherers"> & { nature?: Used }): Amounts {
+/** Production per second without boosts, as happy as the town is at `lastTick`. */
+export function ratesOf(s: Town & Pick<IdleWorld, "lastTick">): Amounts {
   const rates: Amounts = {};
-  for (const { res, rate } of outputs(s)) rates[res] = (rates[res] ?? 0) + rate;
+  const { mult } = happinessOf(s, s.lastTick);
+  for (const { res, rate } of outputs(s)) rates[res] = (rates[res] ?? 0) + rate * mult;
   if (perkOf(s, "auto")) for (const id of unlockedResources(s.era)) rates[id] = (rates[id] ?? 0) + autoRate(s, id);
   return rates;
 }
@@ -485,6 +568,9 @@ export function multiplierAt(s: IdleWorld, res: ResourceId, now: number): number
  * Produce everything from `lastTick` up to `now` (capped at MAX_OFFLINE_MS and
  * the storage limit). Work buildings and gatherers use up the nature around
  * them, and stop making more than is left; nature grows back meanwhile.
+ * Villagers move in or out towards what the town draws. Happiness and the
+ * number of people are taken as they were at `lastTick` for the whole stretch
+ * (the server advances often; only a long absence makes that rough).
  */
 export function advance<T extends IdleWorld>(s: T, now: number): T {
   const elapsed = Math.min(Math.max(0, now - s.lastTick), MAX_OFFLINE_MS);
@@ -500,8 +586,13 @@ export function advance<T extends IdleWorld>(s: T, now: number): T {
     if (got > 0) next.resources[res] = have + got;
     return got;
   };
-  for (const { res, rate, src, drain } of outputs({ ...s, nature: used })) {
-    let amount = Math.min(rate * seconds(res), cap - (next.resources[res] ?? 0));
+  const town = { ...s, nature: used };
+  const { mult } = happinessOf(town, s.lastTick);
+  const target = populationTarget(town, s.lastTick);
+  const move = (MOVE_PER_MIN * elapsed) / 60_000;
+  next.population = s.population < target ? Math.min(target, s.population + move) : Math.max(target, s.population - move);
+  for (const { res, rate, src, drain } of outputs(town)) {
+    let amount = Math.min(rate * mult * seconds(res), cap - (next.resources[res] ?? 0));
     if (amount <= 0) continue;
     if (src) {
       // Take what this needs from the nearest patches; make only as much as there was.

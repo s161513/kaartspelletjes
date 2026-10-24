@@ -1,4 +1,5 @@
 // The DOM around the town: a compact HUD (resources, villagers, happiness, boosts), the
+// town center's overview (the era's goals and world wonder, the population), the
 // open votes on the right, the popup on a clicked tile (build there, or upgrade the
 // streets), the building inspector (which is the shop window for shops, and
 // where buildings are torn down), the "choose a spot" banner for decorations
@@ -10,6 +11,7 @@ import {
   DECOR_POINTS,
   ERAS,
   MAX_DECOR_POINTS,
+  WONDER_PHASES,
   MAX_PATH_TILES,
   MAX_PROPOSALS,
   RESOURCES,
@@ -24,7 +26,10 @@ import {
   buildingType,
   canAfford,
   capOf,
+  currentWonder,
   decorTypes,
+  durationText,
+  eraGoals,
   fullRateOf,
   gatherable,
   gatheringOf,
@@ -36,6 +41,7 @@ import {
   itemError,
   itemLevel,
   itemsOf,
+  luckyEvent,
   multiplierAt,
   outfitCost,
   outfitError,
@@ -65,6 +71,9 @@ import {
   tradeRate,
   unlockedResources,
   upgradeCost,
+  wonderCost,
+  wonderType,
+  wonderWait,
   type Amounts,
   type BuildingType,
   type DecorBehavior,
@@ -211,11 +220,7 @@ function trendText(world: IdleWorld, now: number): string {
 
 const outside = (n: number) => (n === 1 ? "1 slaapt buiten" : `${n} slapen buiten`);
 
-const timeLeft = (ms: number) => {
-  const s = Math.max(0, Math.ceil(ms / 1000));
-  if (s >= 3600) return `${Math.floor(s / 3600)} u ${String(Math.floor(s / 60) % 60).padStart(2, "0")}`;
-  return s >= 60 ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}` : `${s} s`;
-};
+const timeLeft = durationText;
 
 /** One buyable thing: name, effect, cost, what's missing and a button. Refreshed by `update`. */
 interface Offer {
@@ -380,6 +385,12 @@ ${menuText(world)}` : "");
     if (world.boostUntil > now) boosts.push(`⚡ ×${BOOST_MULT} ${timeLeft(world.boostUntil - now)}`);
     for (const b of world.boosts) {
       if (b.until <= now) continue;
+      const lucky = luckyEvent(b.item);
+      if (lucky) {
+        const what = b.resource ? ` ${resourceDef(b.resource)?.emoji ?? ""} ×${b.mult}` : "";
+        boosts.push(`${lucky.emoji} ${lucky.name}${what} ${timeLeft(b.until - now)}`);
+        continue;
+      }
       const item = shopItem(b.item);
       boosts.push(`${item?.emoji ?? "✨"} ${b.resource ? resourceDef(b.resource)?.emoji ?? "" : "alles"} ×${b.mult} ${timeLeft(b.until - now)}`);
     }
@@ -396,7 +407,7 @@ ${menuText(world)}` : "");
     const a = p.action;
     if (a.kind === "build") return a;
     if (a.kind === "paths" || a.kind === "unpave") return a.tiles.length ? tileOf(a.tiles[0]) : null;
-    if (a.kind === "upgrade" || a.kind === "demolish") return deps.world()?.buildings.find((b) => b.id === a.building) ?? null;
+    if (a.kind === "upgrade" || a.kind === "demolish" || a.kind === "wonder") return deps.world()?.buildings.find((b) => b.id === a.building) ?? null;
     return null;
   }
 
@@ -882,6 +893,82 @@ ${menuText(world)}` : "");
     }
   }
 
+  /** The next phase of a wonder under construction, as an offer (hidden when there's none). */
+  function wonderPhaseOffer(): Offer {
+    const next = (w: IdleWorld): ProposalAction | null => {
+      const b = currentWonder(w);
+      return b && b.stage !== undefined ? { kind: "wonder", building: b.id } : null;
+    };
+    const o = offer({
+      emoji: "🏗️",
+      name: "Verder bouwen",
+      effect: `De volgende fase. Na fase ${WONDER_PHASES} is het wonder af en begint het volgende tijdperk.`,
+      action: "🗳️ voorstellen",
+      votes: true,
+      onClick: () => {
+        const a = deps.world() && next(deps.world()!);
+        if (a) propose(a);
+      },
+      cost: (w) => wonderCost(w, currentWonder(w)?.stage ?? 0),
+      error: (w) => (next(w) ? actionError(w, next(w)!) : "nog niet begonnen"),
+      level: (w) => `fase ${(currentWonder(w)?.stage ?? 0) + 1}/${WONDER_PHASES}`,
+    });
+    return o;
+  }
+
+  /** "🚧 fase 1/3 af · de bouwers zijn klaar over 5 u 12" for a wonder under construction. */
+  function wonderProgress(w: IdleWorld, b: PlacedBuilding): string {
+    if (b.stage === undefined) return `✅ Af: een monument uit de ${ERAS[b.level].name}`;
+    const wait = wonderWait(w, b);
+    return `🚧 fase ${b.stage}/${WONDER_PHASES} af · ${wait === null ? "de bouwers zijn klaar voor de volgende fase" : `de bouwers zijn klaar over ${durationText(wait)}`}`;
+  }
+
+  /** The town center: the goals for the next era and its world wonder. */
+  function eraPanel(world: IdleWorld): () => void {
+    const next = ERAS[world.era + 1];
+    const typeId = wonderType(world.era);
+    if (!next || !typeId) {
+      insActions.append(h("h4", "sx-h", `${ERAS[world.era].emoji} Het laatste tijdperk`), h("p", "sx-note", "Verder dan dit gaat de geschiedenis niet. Bouw maar mooie dingen!"));
+      return () => {};
+    }
+    const t = buildingType(typeId)!;
+    const goals = h("div", "sx-goals");
+    const progress = h("div", "sx-note");
+    const start = offer({
+      emoji: t.emoji,
+      name: `${buildingName(typeId, world.era)} bouwen`,
+      effect: `Het wereldwonder van de ${ERAS[world.era].name}, in ${WONDER_PHASES} fases (elk een eigen stemming). Kan pas als alle doelen gehaald zijn.`,
+      action: "📍 kies plek",
+      votes: true,
+      onClick: () => startPlacing(t),
+      cost: (w) => wonderCost(w, 0),
+      error: (w) =>
+        !eraGoals(w).every((g) => g.done) ? "eerst de doelen van dit tijdperk halen" : canAfford(w, wonderCost(w, 0)) ? null : "te duur",
+    });
+    const phase = wonderPhaseOffer();
+    insActions.append(
+      h("h4", "sx-h", `🏛️ Op weg naar ${next.emoji} ${next.name}`),
+      h("p", "sx-note", "Haal deze doelen en bouw het wereldwonder: dan begint het volgende tijdperk."),
+      goals,
+      progress,
+      start.el,
+      phase.el,
+    );
+    insOffers.push(start, phase);
+    return () => {
+      const w = deps.world();
+      if (!w) return;
+      goals.replaceChildren(
+        ...eraGoals(w).map((g) => h("div", g.done ? "sx-goal sx-goal-done" : "sx-goal", `${g.done ? "✅" : "⬜"} ${g.label}${g.need > 1 ? ` (${fmt(g.have)}/${fmt(g.need)})` : ""}`)),
+      );
+      const b = currentWonder(w);
+      progress.textContent = b ? `${t.emoji} ${buildingName(typeId, w.era)}: ${wonderProgress(w, b)}` : "";
+      progress.hidden = !b;
+      start.el.hidden = !!b;
+      phase.el.hidden = !b;
+    };
+  }
+
   /** The campfire: who works, who gathers what, and choosing that for the whole town. */
   function workPanel(world: IdleWorld): () => void {
     const rows = gatherable(world.era).map((id) => {
@@ -956,7 +1043,19 @@ ${menuText(world)}` : "");
       insOffers = [];
       insLive = null;
       if (b.type === "shop_market") insLive = marketPanel(world);
-      if (t.category === "center") insLive = workPanel(world);
+      if (t.category === "center") {
+        const era = eraPanel(world);
+        const work = workPanel(world);
+        insLive = () => {
+          era();
+          work();
+        };
+      }
+      if (t.category === "wonder" && b.stage !== undefined && b.type === wonderType(world.era)) {
+        const o = wonderPhaseOffer();
+        insActions.append(o.el);
+        insOffers.push(o);
+      }
       if (b.type === "shop_tailor") {
         insActions.append(
           h("h4", "sx-h", "🧍 Jouw NPC"),
@@ -1026,7 +1125,7 @@ ${menuText(world)}` : "");
           insActions.append(h("p", "sx-note", "✓ Helemaal bij voor dit tijdperk."));
         }
       }
-      if (t.category !== "center") {
+      if (t.category !== "center" && t.category !== "wonder") {
         const demolish: ProposalAction = { kind: "demolish", building: b.id };
         const o = offer({
           emoji: "🧨",
@@ -1070,6 +1169,7 @@ ${menuText(world)}` : "");
     if (t.category === "center") lines.push(`📦 opslag max ${fmt(capOf(world))} per grondstof`);
     if (t.category === "shop") lines.push(`🛒 ${shopBlurb(t.id)}`);
     if (b.type === "shop_tavern") lines.push(`😊 +${TAVERN_POINTS} geluk voor het hele dorp, en een dorpsfeest geeft er tijdelijk nog meer bij`);
+    if (t.category === "wonder") lines.push(`🏛️ Wereldwonder van de ${ERAS[b.level].name}`, wonderProgress(world, b));
     if (t.category === "decor") lines.push(`😊 +${DECOR_POINTS} geluk (alle decoraties samen tot +${MAX_DECOR_POINTS}). De inwoners komen er graag kijken.`);
     insInfo.replaceChildren(...lines.map((l) => h("div", "", l)));
     for (const o of insOffers) o.update(world, busy(), deps.connected());
@@ -1097,6 +1197,9 @@ ${menuText(world)}` : "");
     inspectVillager,
     tile(x, y, px, py) {
       if (placing) return placeAt(x, y);
+      // A supply drop: open it.
+      const drop = deps.world()?.drops.find((d) => d.x === x && d.y === y);
+      if (drop) return deps.send({ type: "open", id: drop.id, name: session.nickname });
       // Clicking the same tile again, or water/mountains (unless a path or bridge is there), just closes the popup.
       const w = deps.world();
       const land = ["grass", "sand"].includes(terrainAt(x, y)) || (!!w && isRoad(w.roads, x, y));

@@ -61,8 +61,8 @@ Daarnaast blijft gelden:
 
 | Wat | Bestand |
 | --- | --- |
-| Regels: productie, kosten, stemmen, paden, afbreken | `shared/idle.ts` |
-| Getallen en content: grondstoffen, tijdperken, gebouwen, winkels | `shared/idleContent.ts` |
+| Regels: productie, geluk, kosten, stemmen, paden, afbreken, doelen en wonderen, supply drops | `shared/idle.ts` |
+| Getallen en content: grondstoffen, tijdperken (doelen, wonderen), gebouwen, winkels, gelukjes | `shared/idleContent.ts` |
 | Kaart, natuur, waar gebouwen en paden mogen | `shared/idleMap.ts` |
 | Server: opslag (`data/idle.json`), invoercontrole, stemmen afhandelen | `server/src/idle.ts`, `server/src/counter.ts` |
 | Browser: wereld, panelen, NPC's, padvinden | `client/src/world/*`, `client/src/counter.ts` |
@@ -165,7 +165,7 @@ bos gekapt is; veehouderij pas vanaf de Bronstijd.
       bossen staan echt vol", "per speler 1 extra npc")
 
 ### Update 7: Geluk & wonen
-Status: in review (PR #33). Steunt op update 6 (soorten voedsel, `foodKindsOf`).
+Status: gedaan (PR #33). Steunt op update 6 (soorten voedsel, `foodKindsOf`).
 
 Afgesproken met Richard (2026-10-24): inwoners komen af op een gelukkig
 dorp, ook als er geen bed is, en ze vertrekken uit een ongelukkig dorp.
@@ -194,33 +194,40 @@ variatie telt.
       plek zoals een council house")
 
 ### Update 8: Tijdperken door het dorp
-Status: gepland. Steunt op update 7 (bevolking en geluk). Hierin zit ook
-de reset van het dorp.
+Status: in review (PR #34). Steunt op update 7 (bevolking en geluk). Hierin
+zit ook de reset van het dorp.
 
 Afgesproken met Richard (2026-10-24): het tijdperk hangt niet meer aan de
 67 counter, want dat gaat te traag. Het dorp verdient het zelf, met doelen
 per tijdperk (voorstel A) en een wereldwonder (voorstel C). De counter
 geeft alleen nog extra's.
 
-- [ ] Doelen per tijdperk, bijvoorbeeld een aantal inwoners, een minimaal
+- [x] Doelen per tijdperk, bijvoorbeeld een aantal inwoners, een minimaal
       geluk, soorten voedsel en bepaalde gebouwen. Ze staan in het
-      centrumpaneel. (bron: Richard, "tijdperk berekend door hoe goed de stad
-      het doet")
-- [ ] Een wereldwonder per tijdperk (Stonehenge, piramide, colosseum, …),
+      centrumpaneel. Gedaan: `ERA_GOALS` en `eraGoals`. Voor de Steentijd:
+      15 inwoners, 50% geluk, 3 soorten voedsel en een Schuur. (bron:
+      Richard, "tijdperk berekend door hoe goed de stad het doet")
+- [x] Een wereldwonder per tijdperk (Stonehenge, piramide, colosseum, …),
       gebouwd via stemmingen in een paar fases. Kan pas als de doelen
-      gehaald zijn. Is het af, dan begint het volgende tijdperk. (bron: idem)
-- [ ] Tempo: er is geen vaste tijd per tijdperk. Het hangt er gewoon van
+      gehaald zijn. Is het af, dan begint het volgende tijdperk. Gedaan: 3
+      fases (`WONDER_PHASES`), met 6 uur bouwtijd ertussen
+      (`WONDER_BUILD_MS`). Het wonder blijft daarna staan als monument.
+      (bron: idem)
+- [x] Tempo: er is geen vaste tijd per tijdperk. Het hangt er gewoon van
       af hoe snel het dorp de doelen haalt en het wonder bouwt. Maak die wel
       flink, zodat een tijdperk eerder dagen dan uren duurt (richtlijn: "een
-      week of 2"). Er wordt gespeeld tot eind december. (bron: Richard,
-      2026-10-24)
-- [ ] De counter geeft extra's, gekoppeld aan de hoogste stand zodat op en
+      week of 2"). Er wordt gespeeld tot eind december. Gedaan: de 6 uur
+      bouwtijd tussen fases, plus de doelen. Bekijk het opnieuw in update
+      12. (bron: Richard, 2026-10-24)
+- [x] De counter geeft extra's, gekoppeld aan de hoogste stand zodat op en
       neer klikken niets oplevert. Elke +1 blijft ×2 productie voor 67 s.
       Elke nieuwe 67 geeft een supply drop: een krat met grondstoffen die
       iemand openklikt. Af en toe is er een willekeurige gebeurtenis bij een
       +1: een gouden uur, nieuwkomers, een feest (+geluk) of een rondtrekkende
-      koopman. (bron: Richard, "de counter mag dienen als random extra's")
-- [ ] Reset van het dorp: alles begint opnieuw in de Steentijd. Spelers
+      koopman. Gedaan: 1 op 67 kans per +1, hoogstens één per half uur. Een
+      krat bevat 5 minuten productie. (bron: Richard, "de counter mag dienen
+      als random extra's")
+- [x] Reset van het dorp: alles begint opnieuw in de Steentijd. Spelers
       houden hun naam en uiterlijk. Gekochte kleding verdwijnt, en wie die
       droeg, krijgt de gratis variant. Dit gaat via een nieuwe
       `STATE_VERSION` zonder overzetten, zodat niemand bij de server-bestanden
@@ -321,6 +328,9 @@ een update worden opgenomen als het past.
 - **Geluk en bevolking bij een lange afwezigheid:** `advance` rekent een
   hele periode met het geluk en het aantal inwoners van het begin ervan. De
   server rekent vaak door, dus dit speelt alleen na lang niemand online.
+- **Wonderfase en opslag:** de laatste fase van Stonehenge kost precies
+  800 hout en 800 steen. Dat is wat een Kampvuur met één Schuur kan opslaan.
+  Wordt de kostenschaal veranderd, kijk dan of de opslag nog volstaat.
 - **Berichtgrootte:** `MAX_PATH_TILES` (150) en de `maxPayload` van de
   counter-socket (2048 bytes) horen bij elkaar. Verhoog je het ene, controleer
   dan het andere. Daar is een test voor.

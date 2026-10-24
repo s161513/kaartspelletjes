@@ -108,7 +108,7 @@ export const ERAS: readonly EraDef[] = [
   },
 ];
 
-export type Category = "center" | "house" | "work" | "storage" | "shop" | "decor";
+export type Category = "center" | "house" | "work" | "storage" | "shop" | "decor" | "wonder";
 
 /** How idle villagers react to a decoration. */
 export type DecorBehavior = "dance" | "photo" | "pose" | "sit";
@@ -116,6 +116,10 @@ export type DecorBehavior = "dance" | "photo" | "pose" | "sit";
 export type DecorShape =
   | "statue67" | "flowers" | "totem" | "menhir" | "statue" | "fountain"
   | "tower" | "neon" | "hologram" | "monument67";
+
+export type WonderShape =
+  | "stonehenge" | "pyramid" | "colossus" | "colosseum" | "cathedral"
+  | "dome" | "eiffel" | "skyscraper" | "computer" | "rocket";
 
 export interface BuildingType {
   id: string;
@@ -144,6 +148,7 @@ export interface BuildingType {
   /** Decorations don't level up. */
   noUpgrade?: boolean;
   decor?: { shape: DecorShape; behavior: DecorBehavior; color: string };
+  wonder?: { shape: WonderShape; color: string };
 }
 
 const sameName = (name: string) => Array.from({ length: 11 }, () => name);
@@ -249,6 +254,24 @@ export const BUILDING_TYPES: readonly BuildingType[] = [
   ).map(([id, name, emoji, era, cost, shape, behavior, color]): BuildingType => ({
     id: `decor_${id}`, category: "decor", emoji, minEra: era, noUpgrade: true,
     baseCost: cost, names: sameName(name), decor: { shape, behavior, color },
+  })),
+  // One world wonder per era (but the last): building it takes the town to the next era.
+  ...(
+    [
+      ["Stonehenge", "🗿", "stonehenge", "#9ca3af"],
+      ["Piramide", "🔺", "pyramid", "#e0c08a"],
+      ["Kolossus", "🗽", "colossus", "#b87333"],
+      ["Colosseum", "🏟️", "colosseum", "#efe6d4"],
+      ["Kathedraal", "⛪", "cathedral", "#d6cfc0"],
+      ["Sint-Pietersbasiliek", "🏛️", "dome", "#f0e6d0"],
+      ["Eiffeltoren", "🗼", "eiffel", "#7c4a2d"],
+      ["Wolkenkrabber", "🏙️", "skyscraper", "#9fb3c8"],
+      ["Supercomputer", "🖥️", "computer", "#22f0ff"],
+      ["Ruimteraket", "🚀", "rocket", "#e2e8f0"],
+    ] as const
+  ).map(([name, emoji, shape, color], era): BuildingType => ({
+    id: `wonder_${era}`, category: "wonder", emoji, minEra: era, unique: true, noUpgrade: true,
+    baseCost: {}, names: sameName(name), wonder: { shape, color },
   })),
 ];
 
@@ -360,6 +383,73 @@ export interface NpcLook {
   hat: string;
   pattern: string;
 }
+
+// ---------- eras: goals and world wonders ----------
+
+/** Something the town must have before it can start its era's world wonder. */
+export type EraGoal =
+  | { kind: "population"; n: number }
+  | { kind: "happiness"; n: number }
+  | { kind: "foodKinds"; n: number }
+  /** At least one of this building type. */
+  | { kind: "building"; type: string }
+  /** This many buildings (not decorations or wonders) at the current era's level: built or upgraded. */
+  | { kind: "current"; n: number };
+
+/** Per era (index), the goals for leaving it; the last era has none. */
+export const ERA_GOALS: readonly (readonly EraGoal[])[] = [
+  [{ kind: "population", n: 15 }, { kind: "happiness", n: 50 }, { kind: "foodKinds", n: 3 }, { kind: "building", type: "storage" }],
+  [{ kind: "population", n: 30 }, { kind: "happiness", n: 55 }, { kind: "foodKinds", n: 3 }, { kind: "building", type: "mine_bronze" }, { kind: "building", type: "shop_smith" }, { kind: "current", n: 5 }],
+  [{ kind: "population", n: 50 }, { kind: "happiness", n: 55 }, { kind: "building", type: "mine_iron" }, { kind: "building", type: "shop_market" }, { kind: "current", n: 8 }],
+  [{ kind: "population", n: 75 }, { kind: "happiness", n: 60 }, { kind: "building", type: "mine_gold" }, { kind: "building", type: "shop_bank" }, { kind: "current", n: 10 }],
+  [{ kind: "population", n: 100 }, { kind: "happiness", n: 60 }, { kind: "foodKinds", n: 4 }, { kind: "building", type: "mine_wool" }, { kind: "current", n: 12 }],
+  [{ kind: "population", n: 140 }, { kind: "happiness", n: 60 }, { kind: "building", type: "mine_knowledge" }, { kind: "building", type: "shop_university" }, { kind: "current", n: 15 }],
+  [{ kind: "population", n: 180 }, { kind: "happiness", n: 65 }, { kind: "building", type: "mine_coal" }, { kind: "current", n: 18 }],
+  [{ kind: "population", n: 230 }, { kind: "happiness", n: 65 }, { kind: "building", type: "mine_oil" }, { kind: "building", type: "shop_lab" }, { kind: "current", n: 20 }],
+  [{ kind: "population", n: 290 }, { kind: "happiness", n: 70 }, { kind: "building", type: "mine_data" }, { kind: "current", n: 22 }],
+  [{ kind: "population", n: 360 }, { kind: "happiness", n: 70 }, { kind: "building", type: "mine_titanium" }, { kind: "building", type: "shop_spaceport" }, { kind: "current", n: 25 }],
+  [],
+];
+
+/** A wonder goes up in this many phases, each its own vote. */
+export const WONDER_PHASES = 3;
+/** Level-0 cost of the first phase (×4 per era); every next phase costs half of it more. */
+export const WONDER_COST: Amounts = { wood: 400, stone: 400, food: 300 };
+/** Plus this much of the era's special resource (from the Bronze Age on). */
+export const WONDER_SPECIAL_COST = 120;
+/** After a phase the builders need this long before the next one can start. */
+export const WONDER_BUILD_MS = 6 * 60 * 60_000;
+
+// ---------- the 67 counter's extras ----------
+
+/** Every new 67 on the counter (by its highest value) drops a crate in town, holding this many seconds of production… */
+export const DROP_SECONDS = 300;
+/** …and at least this much of each base resource (×4 per era). */
+export const DROP_MIN = 30;
+/** Crates waiting to be opened, at most. */
+export const MAX_DROPS = 3;
+/** Chance per +1 of a lucky event, at most one per cooldown. */
+export const LUCKY_CHANCE = 1 / 67;
+export const LUCKY_COOLDOWN_MS = 30 * MIN;
+/** How long a lucky event lasts. */
+export const LUCKY_MS = 10 * MIN;
+
+export type LuckyId = "lucky_gold" | "lucky_newcomers" | "lucky_party" | "lucky_merchant";
+
+export const LUCKY_EVENTS: readonly { id: LuckyId; emoji: string; name: string }[] = [
+  { id: "lucky_gold", emoji: "🌟", name: "Gouden uur" },
+  { id: "lucky_newcomers", emoji: "🧳", name: "Nieuwkomers" },
+  { id: "lucky_party", emoji: "🥳", name: "Spontaan feest" },
+  { id: "lucky_merchant", emoji: "🐪", name: "Rondtrekkende koopman" },
+];
+/** Golden hour: one resource ×this. */
+export const LUCKY_GOLD_MULT = 3;
+/** Newcomers: this share of the beds (at least 3). */
+export const LUCKY_NEWCOMERS_SHARE = 0.1;
+/** A spontaneous party: this much happiness. */
+export const LUCKY_PARTY_POINTS = 20;
+/** The merchant: market rates ×this. */
+export const LUCKY_MERCHANT_MULT = 1.5;
 
 // ---------- balance ----------
 

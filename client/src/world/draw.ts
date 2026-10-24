@@ -1,8 +1,9 @@
-// Everything drawn in the town: ground, streets, nature, buildings,
+// Everything drawn in the town: ground, streets, nature, buildings, world
+// wonders (with scaffolding while they go up), supply drops,
 // decorations, animals and the villagers (players' own NPCs included). All shapes are simple isometric boxes and polygons in code; the
 // look per era comes from ERAS[level].style (shared/idleContent.ts).
 
-import { ERAS, buildingType, depositAt, type PlacedBuilding, type ResourceId, type Terrain } from "@app/shared/idle";
+import { ERAS, WONDER_PHASES, buildingType, depositAt, type PlacedBuilding, type ResourceId, type Terrain } from "@app/shared/idle";
 import { TILE_H, TILE_W, toWorld } from "./iso";
 
 type Ctx = CanvasRenderingContext2D;
@@ -390,6 +391,7 @@ function shapeOf(b: PlacedBuilding): Shape {
   const cat = buildingType(b.type)?.category;
   const roofH = (r: RoofType) => (r === "cone" ? 16 : r === "gable" ? 11 : r === "dome" ? 14 : 0);
   if (cat === "decor") return { w: 0.5, h: 30, roof: "none", roofH: 0, float: 0 };
+  if (cat === "wonder") return { w: 1, h: 60, roof: "none", roofH: 0, float: 0 };
   if (cat === "center") {
     if (b.level === 0) return { w: 0.6, h: 14, roof: "none", roofH: 0, float: 0 };
     const h = b.level >= 8 ? 64 : 22 + b.level * 4;
@@ -650,6 +652,10 @@ export function drawBuilding(ctx: Ctx, b: PlacedBuilding, t: number, selected: b
     drawDecor(ctx, b, cx, cy, t);
     return;
   }
+  if (type.category === "wonder") {
+    drawWonder(ctx, b, cx, cy, t);
+    return;
+  }
   if (type.category === "center" && b.level === 0) {
     drawCampfire(ctx, cx, cy, t);
     return;
@@ -725,6 +731,229 @@ function shopSign(ctx: Ctx, emoji: string, x: number, y: number, t: number): voi
   ctx.fillText(emoji, x, y + sway + 1);
   ctx.textAlign = "start";
   ctx.textBaseline = "alphabetic";
+}
+
+/** A world wonder; while it goes up, see-through behind scaffolding with how far it is. */
+function drawWonder(ctx: Ctx, b: PlacedBuilding, cx: number, cy: number, t: number): void {
+  const w = buildingType(b.type)?.wonder;
+  if (!w) return;
+  ellipse(ctx, cx, cy + 3, HW * 1.1, HH * 1.1, "rgba(0,0,0,0.2)");
+  if (b.stage === undefined) return wonderShape(ctx, w.shape, w.color, cx, cy, t);
+  ctx.save();
+  ctx.globalAlpha *= 0.25 + 0.6 * (b.stage / WONDER_PHASES);
+  wonderShape(ctx, w.shape, w.color, cx, cy, t);
+  ctx.restore();
+  // Scaffolding: poles and planks around it.
+  ctx.strokeStyle = "#8b5a2b";
+  ctx.lineWidth = 1.5;
+  const height = 20 + 14 * b.stage;
+  for (const dx of [-HW * 0.8, -HW * 0.3, HW * 0.3, HW * 0.8]) {
+    ctx.beginPath();
+    ctx.moveTo(cx + dx, cy + 4 - Math.abs(dx) * 0.3);
+    ctx.lineTo(cx + dx, cy + 4 - Math.abs(dx) * 0.3 - height);
+    ctx.stroke();
+  }
+  for (let y = 10; y < height; y += 12) {
+    ctx.beginPath();
+    ctx.moveTo(cx - HW * 0.8, cy - y);
+    ctx.lineTo(cx + HW * 0.8, cy - y);
+    ctx.stroke();
+  }
+  // A crane swinging slowly.
+  const a = Math.sin(t / 2000) * 0.4;
+  ctx.strokeStyle = "#f59e0b";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(cx + HW * 0.9, cy);
+  ctx.lineTo(cx + HW * 0.9, cy - height - 16);
+  ctx.lineTo(cx + HW * 0.9 - Math.cos(a) * 30, cy - height - 16 + Math.sin(a) * 6);
+  ctx.stroke();
+  shopSign(ctx, "🚧", cx, cy - height - 12, t);
+}
+
+function wonderShape(ctx: Ctx, shape: string, col: string, cx: number, cy: number, t: number): void {
+  switch (shape) {
+    case "stonehenge":
+      for (let i = 0; i < 7; i++) {
+        const a = (i / 7) * Math.PI * 2;
+        const x = cx + Math.cos(a) * 22;
+        const y = cy + Math.sin(a) * 10 - 2;
+        box(ctx, x, y, 0.14, 20, col, shade(col, 0.15));
+        if (i % 2 === 0) {
+          const b = ((i + 1) / 7) * Math.PI * 2;
+          poly(ctx, [x - 3, y - 22, cx + Math.cos(b) * 22 + 3, cy + Math.sin(b) * 10 - 24, cx + Math.cos(b) * 22 + 3, cy + Math.sin(b) * 10 - 20, x - 3, y - 18], shade(col, -0.1));
+        }
+      }
+      return;
+    case "pyramid":
+      poly(ctx, [cx - HW * 1.05, cy, cx, cy + HH * 1.05, cx, cy - 52], col);
+      poly(ctx, [cx, cy + HH * 1.05, cx + HW * 1.05, cy, cx, cy - 52], shade(col, -0.25));
+      for (let i = 1; i < 6; i++) {
+        ctx.strokeStyle = shade(col, -0.15);
+        ctx.lineWidth = 0.8;
+        const f = i / 6;
+        ctx.beginPath();
+        ctx.moveTo(cx - HW * 1.05 * (1 - f), cy - 52 * f);
+        ctx.lineTo(cx, cy + HH * 1.05 * (1 - f) - 52 * f);
+        ctx.lineTo(cx + HW * 1.05 * (1 - f), cy - 52 * f);
+        ctx.stroke();
+      }
+      return;
+    case "colossus": {
+      box(ctx, cx, cy, 0.6, 12, "#a8a29e", "#d6d3d1");
+      const y = cy - 12;
+      poly(ctx, [cx - 7, y, cx - 3, y, cx - 2, y - 22, cx - 6, y - 22], col);
+      poly(ctx, [cx + 3, y, cx + 7, y, cx + 6, y - 22, cx + 2, y - 22], shade(col, -0.2));
+      poly(ctx, [cx - 8, y - 22, cx + 8, y - 22, cx + 7, y - 44, cx - 7, y - 44], col);
+      ellipse(ctx, cx, y - 50, 6, 6, col);
+      // The torch held high.
+      ctx.strokeStyle = col;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(cx + 7, y - 42);
+      ctx.lineTo(cx + 13, y - 60);
+      ctx.stroke();
+      ellipse(ctx, cx + 13, y - 63 + Math.sin(t / 150), 3, 4, "#fb923c");
+      return;
+    }
+    case "colosseum": {
+      ellipse(ctx, cx, cy - 2, HW * 1.05, HH * 1.1, shade(col, -0.25));
+      ctx.beginPath();
+      ctx.ellipse(cx, cy - 2, HW * 1.05, HH * 1.1, 0, 0, Math.PI);
+      ctx.lineTo(cx - HW * 1.05, cy - 26);
+      ctx.ellipse(cx, cy - 26, HW * 1.05, HH * 1.1, 0, Math.PI, 0, true);
+      ctx.closePath();
+      ctx.fillStyle = col;
+      ctx.fill();
+      ellipse(ctx, cx, cy - 26, HW * 0.75, HH * 0.75, "#c8a165");
+      for (let i = 0; i < 9; i++) {
+        const a = Math.PI * (0.1 + (0.8 * i) / 8);
+        const x = cx - Math.cos(a) * HW * 0.95;
+        const y = cy - 2 + Math.sin(a) * HH;
+        poly(ctx, [x - 3, y - 4, x + 3, y - 4, x + 3, y - 12, x - 3, y - 12], shade(col, -0.45));
+        poly(ctx, [x - 3, y - 15, x + 3, y - 15, x + 3, y - 22, x - 3, y - 22], shade(col, -0.45));
+      }
+      return;
+    }
+    case "cathedral": {
+      const top = box(ctx, cx, cy, 0.75, 30, col);
+      roof(ctx, cx, top, 0.75, "gable", "#57534e", 14);
+      for (const dx of [-14, 14]) {
+        const tt = box(ctx, cx + dx, cy - 6, 0.24, 44, col, shade(col, 0.1));
+        roof(ctx, cx + dx, tt, 0.24, "cone", "#78716c", 14);
+      }
+      ellipse(ctx, cx, cy - 18, 5, 5, "#60a5fa");
+      return;
+    }
+    case "dome": {
+      const top = box(ctx, cx, cy, 0.9, 22, col, shade(col, 0.1));
+      for (const u of [0.2, 0.4, 0.6, 0.8]) {
+        const [x1, y1] = wallPoint(cx, cy, 0.9, 22, 0, u, 0);
+        poly(ctx, [x1 - 1, y1, x1 + 1, y1, x1 + 1, y1 - 22, x1 - 1, y1 - 22], shade(col, -0.25));
+      }
+      roof(ctx, cx, top, 0.75, "dome", "#94a3b8", 20);
+      box(ctx, cx, cy - 46, 0.12, 10, col, col);
+      return;
+    }
+    case "eiffel": {
+      ctx.strokeStyle = col;
+      ctx.lineWidth = 2;
+      const legs: [number, number][] = [[-HW * 0.8, 0], [HW * 0.8, 0], [-HW * 0.3, HH * 0.6], [HW * 0.3, -HH * 0.6]];
+      for (const [dx, dy] of legs) {
+        ctx.beginPath();
+        ctx.moveTo(cx + dx, cy + dy);
+        ctx.quadraticCurveTo(cx + dx * 0.25, cy - 30, cx, cy - 80);
+        ctx.stroke();
+      }
+      ctx.lineWidth = 1;
+      for (const [y, r] of [[-18, 0.55], [-38, 0.28], [-58, 0.12]] as const) {
+        ctx.beginPath();
+        ctx.moveTo(cx - HW * r, cy + y);
+        ctx.lineTo(cx + HW * r, cy + y);
+        ctx.stroke();
+      }
+      ellipse(ctx, cx, cy - 82, 2, 2, Math.sin(t / 300) > 0 ? "#fef08a" : col);
+      return;
+    }
+    case "skyscraper": {
+      box(ctx, cx, cy, 0.6, 84, col, shade(col, 0.1));
+      windows(ctx, cx, cy, 0.6, 84, "#fef3c7", 8, 3);
+      box(ctx, cx, cy - 84, 0.35, 12, "#cbd5e1", "#e2e8f0");
+      ctx.strokeStyle = "#475569";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - 96 - HH * 0.35);
+      ctx.lineTo(cx, cy - 112);
+      ctx.stroke();
+      ellipse(ctx, cx, cy - 113, 2, 2, Math.sin(t / 400) > 0 ? "#ef4444" : "#7f1d1d");
+      return;
+    }
+    case "computer": {
+      for (let i = 0; i < 3; i++) {
+        box(ctx, cx - 14 + i * 14, cy - 6 + i * 4, 0.3, 40, "#1f2937", "#374151");
+        for (let k = 0; k < 6; k++) {
+          const on = Math.sin(t / 120 + i * 7 + k * 3) > 0.2;
+          const [x, y] = wallPoint(cx - 14 + i * 14, cy - 6 + i * 4, 0.3, 40, 1, 0.5, 0.1 + k * 0.14);
+          ellipse(ctx, x, y, 1.5, 1.5, on ? col : "#0e7490");
+        }
+      }
+      ctx.save();
+      ctx.globalAlpha *= 0.5 + 0.3 * Math.sin(t / 500);
+      ellipse(ctx, cx, cy - 56, 12, 6, col);
+      ctx.restore();
+      return;
+    }
+    case "rocket": {
+      box(ctx, cx, cy, 0.9, 6, "#475569", "#64748b");
+      // The launch tower.
+      ctx.strokeStyle = "#ef4444";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(cx + 18, cy - 4);
+      ctx.lineTo(cx + 18, cy - 74);
+      ctx.stroke();
+      poly(ctx, [cx - 7, cy - 6, cx + 7, cy - 6, cx + 7, cy - 66, cx - 7, cy - 66], col);
+      poly(ctx, [cx - 7, cy - 66, cx + 7, cy - 66, cx, cy - 86], "#ef4444");
+      poly(ctx, [cx - 7, cy - 6, cx - 14, cy - 2, cx - 7, cy - 22], "#ef4444");
+      poly(ctx, [cx + 7, cy - 6, cx + 14, cy - 2, cx + 7, cy - 22], "#b91c1c");
+      ellipse(ctx, cx, cy - 50, 3.5, 3.5, "#7dd3fc");
+      smoke(ctx, cx, cy - 2, t, "rgba(226,232,240,");
+      return;
+    }
+  }
+}
+
+/** A supply drop from the counter: a crate under a little parachute, bobbing to be clicked. */
+export function drawDrop(ctx: Ctx, x: number, y: number, t: number): void {
+  const c = toWorld(x + 0.5, y + 0.5);
+  const bob = Math.abs(Math.sin(t / 400)) * 3;
+  ellipse(ctx, c.x, c.y + 2, 12, 5, "rgba(0,0,0,0.25)");
+  const top = box(ctx, c.x, c.y - bob, 0.36, 14, "#b45309", "#d97706");
+  ctx.strokeStyle = "#78350f";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(top.L[0], top.L[1] + 7);
+  ctx.lineTo(top.B[0], top.B[1] + 7);
+  ctx.lineTo(top.R[0], top.R[1] + 7);
+  ctx.stroke();
+  // Parachute strings and canopy.
+  const py = c.y - bob - 34;
+  ctx.strokeStyle = "rgba(255,255,255,0.8)";
+  for (const p of [top.L, top.R, top.T]) {
+    ctx.beginPath();
+    ctx.moveTo(p[0], p[1]);
+    ctx.lineTo(c.x + (p[0] - c.x) * 1.4, py);
+    ctx.stroke();
+  }
+  ctx.beginPath();
+  ctx.ellipse(c.x, py, 16, 9, 0, Math.PI, 0);
+  ctx.fillStyle = "#ff2fb3";
+  ctx.fill();
+  ctx.fillStyle = "#fff";
+  ctx.font = "bold 7px sans-serif";
+  ctx.textAlign = "center";
+  ctx.fillText("67", c.x, py - 2);
+  ctx.textAlign = "start";
 }
 
 function drawDecor(ctx: Ctx, b: PlacedBuilding, cx: number, cy: number, t: number): void {

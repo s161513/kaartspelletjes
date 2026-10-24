@@ -28,6 +28,7 @@ import {
   drawBubble,
   drawBuilding,
   drawAnimal,
+  drawDrop,
   drawBush,
   drawDeposit,
   drawMountain,
@@ -533,6 +534,10 @@ export function createWorld(opts: WorldOptions): TownWorld {
     for (const b of world?.buildings ?? []) {
       if (b.x < x0 - 1 || b.x > x1 || b.y < y0 - 1 || b.y > y1) continue;
       items.push({ d: b.x + b.y + 1.01, f: () => drawBuilding(ctx, b, t, b.id === selected) });
+    }
+    for (const d of world?.drops ?? []) {
+      if (d.x < x0 - 1 || d.x > x1 || d.y < y0 - 1 || d.y > y1) continue;
+      items.push({ d: d.x + d.y + 1.01, f: () => drawDrop(ctx, d.x, d.y, t) });
     }
     if (ghost?.kind === "build") {
       const g = { id: -1, type: ghost.type, level: era, x: ghost.x, y: ghost.y };

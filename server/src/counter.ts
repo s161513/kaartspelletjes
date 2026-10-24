@@ -2,13 +2,13 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocket, WebSocketServer } from "ws";
-import { eraFor, type IdleEvent } from "@app/shared/idle";
+import { IDLE_MILESTONE, type IdleEvent } from "@app/shared/idle";
 import { createIdleGame } from "./idle.js";
 import { debouncedSaver, loadJsonFile, saveJsonFile } from "./jsonFile.js";
 
 // The "67 counter": one shared number, synced live to everyone on /counter,
-// plus "67 Beschaving", the shared idle game whose eras unlock every 67 (see
-// idle.ts). Persisted to JSON files outside dist/ so restarts and rebuilds
+// plus "67 Beschaving", the shared idle game (see idle.ts). The counter gives
+// the town extras: a boost per +1, a supply drop per new 67, now and then luck. Persisted to JSON files outside dist/ so restarts and rebuilds
 // keep them (in Docker: a volume on /app/data, see the Dockerfile).
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -24,7 +24,7 @@ const IDLE_SYNC_MS = 5000;
 
 interface CounterData {
   count: number;
-  /** Highest count ever; eras stay unlocked when the count goes down. */
+  /** Highest count ever: supply drops come for every new 67 of it. */
   peak: number;
 }
 
@@ -53,7 +53,6 @@ export function createCounterServer(opts: CounterServerOptions = {}): WebSocketS
   let { count, peak } = loadJsonFile(file, parseCounter, () => ({ count: 0, peak: 0 }), "counter");
   const saver = debouncedSaver(() => saveJsonFile(file, { count, peak }, "counter"), SAVE_DELAY_MS);
   const idle = createIdleGame(idleFile);
-  idle.unlockEra(eraFor(peak));
   const clientIds = new WeakMap<WebSocket, string>();
 
   // Don't lose the last half second of clicks on `docker stop` / Ctrl+C.
@@ -147,13 +146,13 @@ export function createCounterServer(opts: CounterServerOptions = {}): WebSocketS
       switch (msg.type) {
         case "inc": {
           count += 1;
-          const before = eraFor(peak);
+          const before = peak;
           peak = Math.max(peak, count);
           saver.schedule();
           broadcast(1);
           idle.boost(now);
-          const era = eraFor(peak);
-          broadcastIdle(era > before && idle.unlockEra(era) ? [{ kind: "era", era }] : []);
+          const drop = Math.floor(peak / IDLE_MILESTONE) > Math.floor(before / IDLE_MILESTONE) ? idle.drop(now) : [];
+          broadcastIdle([...drop, ...idle.lucky(now, Math.random)]);
           return;
         }
         case "dec":
@@ -170,6 +169,8 @@ export function createCounterServer(opts: CounterServerOptions = {}): WebSocketS
           return reply(idle.trade(clientId, msg.name, msg.from, msg.to, msg.amount, now));
         case "buy":
           return reply(idle.buy(clientId, msg.name, msg.item, now));
+        case "open":
+          return reply(idle.open(clientId, msg.name, msg.id, now));
         case "outfit":
           return reply(idle.outfit(clientId, msg.item, now));
         // Who's who: their NPC shows up for everyone.

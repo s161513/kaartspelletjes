@@ -4,17 +4,18 @@
 // Server -> { type: "count", count, delta: -1 | 0 | 1, online }
 // Client -> { type: "inc" } | { type: "dec" }
 // Animations are driven by incoming messages (delta), so every viewer sees them:
-// a +1 makes the whole town do the 67; big fireworks only for a new era.
+// a +1 makes the whole town do the 67; big fireworks only for a new era (which
+// the town earns by building its world wonder; the counter drops crates).
 // The counter is a compact bar at the top; the rest of the screen is
 // "67 Beschaving", the shared town (world/).
 
-import { ERAS, IDLE_MILESTONE, eraFor, type IdleClientMsg, type IdleEvent, type IdleStateMsg } from "@app/shared/idle";
+import { ERAS, IDLE_MILESTONE, type IdleClientMsg, type IdleEvent, type IdleStateMsg } from "@app/shared/idle";
 import { createTown } from "./world";
 
 interface CountMessage {
   type: "count";
   count: number;
-  /** Highest count ever; decides the idle game's era. */
+  /** Highest count ever: every new 67 of it drops a crate in town. */
   peak: number;
   delta: number;
   online: number;
@@ -122,17 +123,14 @@ let lastCount: number | null = null;
 function render(msg: CountMessage): void {
   countEl.textContent = String(msg.count);
   onlineEl.textContent = `👀 ${msg.online} ${msg.online === 1 ? "kijker" : "kijkers"} live`;
-  const era = eraFor(msg.peak);
-  const nextEra = ERAS[era + 1];
+  // The next crate comes at the next 67 above the highest count ever.
+  const nextDrop = (Math.floor(msg.peak / IDLE_MILESTONE) + 1) * IDLE_MILESTONE;
   nextEl.textContent =
     msg.count > 0 && msg.count % 67 === 0
       ? `🏆 ${msg.count} = 67 × ${msg.count / 67} — absolute cinema`
-      : nextEra
-        ? `nog ${(era + 1) * IDLE_MILESTONE - msg.count} tot ${nextEra.emoji} ${nextEra.name} 🎯`
-        : `nog ${67 - (msg.count % 67)} tot de volgende 67-mijlpaal 🎯`;
+      : `nog ${nextDrop - msg.count} tot een 📦 supply drop 🎯`;
   decBtn.disabled = !isOpen() || msg.count <= 0;
   lastCount = msg.count;
-  setEra(era);
 }
 
 // ---------- town ----------
@@ -145,7 +143,7 @@ function onIdleEvent(ev: IdleEvent): void {
     case "era": {
       const era = ERAS[ev.era];
       setEra(ev.era);
-      // After the 67 overlay that came with the same +1.
+      // After the ✅ popup for the wonder that brought it.
       window.setTimeout(() => {
         playOverlay(true);
         emojiBurst(80);
@@ -163,6 +161,10 @@ function onIdleEvent(ev: IdleEvent): void {
       return;
     case "deal":
       popup(`🛒 ${ev.by}: ${ev.label}`, { y: rand(55, 80), color: "#ffe82e" });
+      return;
+    case "lucky":
+      popup(ev.label, { big: true, x: 50, y: 30, color: "#b6ff2e" });
+      emojiBurst(24);
       return;
     case "rejected":
       popup(`❌ ${ev.label}: ${ev.reason}`, { y: rand(30, 70), color: "#ff3b3b" });
@@ -241,7 +243,10 @@ function connect(): void {
     } catch {
       return;
     }
-    if (msg?.type === "idle") return town.update(msg);
+    if (msg?.type === "idle") {
+      setEra(msg.state.era);
+      return town.update(msg);
+    }
     if (msg?.type === "idleEvent") return onIdleEvent(msg.event);
     if (msg?.type !== "count" || typeof msg.count !== "number") return;
     render(msg);

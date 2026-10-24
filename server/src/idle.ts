@@ -7,10 +7,16 @@ import {
   MAX_PROPOSALS,
   MIN_YES,
   MAX_NAME_LENGTH,
+  LUCKY_GOLD_MULT,
+  LUCKY_MS,
+  MAX_DROPS,
   STATE_VERSION,
   VOTE_MS,
+  WONDER_BUILD_MS,
+  WONDER_PHASES,
   actionError,
   actionLabel,
+  addDrop,
   advance,
   applyAction,
   applyBoost,
@@ -20,18 +26,19 @@ import {
   buyItem,
   buyOutfit,
   canPave,
-  classicStreets,
   defaultLook,
   itemError,
   lookError,
+  luckyEvent,
   newIdleState,
+  openDrop,
   outfit,
   outfitError,
   patches,
   resourceDef,
+  rollLucky,
   shopItem,
   trade,
-  unlockEra,
   voteCounts,
   voteOutcome,
   votesNeeded,
@@ -65,8 +72,12 @@ export interface IdleGame {
   assign(from: unknown, to: unknown, now: number): { error?: string; events: IdleEvent[] };
   /** A +1 on the counter. */
   boost(now: number): void;
-  /** Returns true if this unlocked a new era. */
-  unlockEra(era: number): boolean;
+  /** A new 67 on the counter: a supply drop lands in town. */
+  drop(now: number): IdleEvent[];
+  /** A +1 on the counter may bring a lucky event (`rand`: 0..1). */
+  lucky(now: number, rand: () => number): IdleEvent[];
+  /** Open a supply drop. */
+  open(clientId: string, name: unknown, id: unknown, now: number): { error?: string; events: IdleEvent[] };
   /** `error` goes back to the proposer only; `events` to everyone. */
   propose(clientId: string, name: unknown, action: unknown, online: number, now: number): { error?: string; events: IdleEvent[] };
   vote(clientId: string, id: unknown, yes: unknown, online: number, now: number): IdleEvent[];
@@ -96,6 +107,12 @@ function parseBoosts(raw: unknown, now: number): ActiveBoost[] {
   if (!Array.isArray(raw)) return [];
   const out: ActiveBoost[] = [];
   for (const b of raw.map(record)) {
+    // Lucky events from the counter: they bring their own resource and multiplier.
+    const lucky = typeof b.item === "string" ? luckyEvent(b.item) : undefined;
+    if (lucky && finite(b.until) && finite(b.mult) && (b.resource === null || (typeof b.resource === "string" && !!resourceDef(b.resource)))) {
+      out.push({ item: lucky.id, resource: b.resource as string | null, mult: Math.min(Math.max(b.mult, 1), LUCKY_GOLD_MULT), until: Math.min(b.until, now + LUCKY_MS) });
+      continue;
+    }
     const item = typeof b.item === "string" ? shopItem(b.item) : undefined;
     if (item?.effect.kind !== "boost" || !finite(b.until) || out.some((o) => o.item === item.id)) continue;
     const { resource, mult } = item.effect;
@@ -147,17 +164,14 @@ function parseProposals(raw: unknown, now: number): IdleProposal[] {
 }
 
 /**
- * Keep only known, sane fields. A v2 file gets empty shops; v2 and v3 files
- * (streets on a fixed grid) get those streets as laid paths, and lose their
- * open vote (30 s back then); files before v5 get a villager per bed (houses
- * gave them back then); anything older is replaced by a fresh town,
- * quietly: it was never in production. Renamed building types (RENAMED) get
- * their new name, in the town and in open votes.
+ * Keep only known, sane fields. A file from an older version means the town
+ * starts over (update 8: eras come from the town now, not the counter): only
+ * the players stay, with their names and looks, but nothing they bought.
  */
 function parseIdle(raw: unknown, now: number): IdleState | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const r = raw as Record<string, unknown>;
-  if (r.v !== STATE_VERSION && r.v !== 4 && r.v !== 3 && r.v !== 2) return newIdleState(now);
+  if (r.v !== STATE_VERSION) return { ...newIdleState(now), players: resetPlayers(parsePlayers(r.players)) };
   const s = newIdleState(now);
   if (Number.isInteger(r.era)) s.era = Math.max(0, Math.min(ERAS.length - 1, r.era as number));
   s.resources = {};
@@ -169,7 +183,7 @@ function parseIdle(raw: unknown, now: number): IdleState | null {
     const ids = new Set<number>();
     const buildings: PlacedBuilding[] = [];
     for (const raw of r.buildings as Record<string, unknown>[]) {
-      const b = raw && typeof raw.type === "string" ? { ...raw, type: typeName(raw.type) } : raw;
+      const b = raw;
       if (!b || typeof b.type !== "string" || !buildingType(b.type)) continue;
       if (!Number.isInteger(b.id) || ids.has(b.id as number) || !tileInt(b.x) || !tileInt(b.y)) continue;
       if (!Number.isInteger(b.level) || (b.level as number) < 0 || (b.level as number) >= ERAS.length) continue;
@@ -179,7 +193,13 @@ function parseIdle(raw: unknown, now: number): IdleState | null {
       if (seen.has(tile)) continue;
       seen.add(tile);
       ids.add(b.id as number);
-      buildings.push({ id: b.id as number, type: b.type as string, level: b.level as number, x: b.x as number, y: b.y as number });
+      const building: PlacedBuilding = { id: b.id as number, type: b.type as string, level: b.level as number, x: b.x as number, y: b.y as number };
+      // A world wonder under construction.
+      if (buildingType(b.type)!.category === "wonder" && Number.isInteger(b.stage) && (b.stage as number) > 0 && (b.stage as number) < WONDER_PHASES) {
+        building.stage = b.stage as number;
+        building.ready = finite(b.ready) ? Math.min(b.ready, now + WONDER_BUILD_MS) : now;
+      }
+      buildings.push(building);
     }
     // Keep the fresh campfire only if the file somehow lost its center.
     if (!buildings.some((b) => b.type === "center")) buildings.unshift(s.buildings[0]);
@@ -207,24 +227,34 @@ function parseIdle(raw: unknown, now: number): IdleState | null {
     if (p && String(p.id) === id && finite(n) && n > 0) s.nature[id] = Math.min(n, p.capacity);
   }
   if (Number.isInteger(r.roadLevel)) s.roadLevel = Math.max(0, Math.min(s.era, r.roadLevel as number));
-  const v4 = r.v === STATE_VERSION || r.v === 4;
-  s.roads = v4 ? parseRoads(r.roads, s.buildings) : classicStreets(s.buildings);
-  if (v4) s.proposals = parseProposals(r.proposals, now);
-  // Before v5 every house simply gave villagers: they all had a bed.
-  s.population = r.v === STATE_VERSION && finite(r.population) && r.population >= 0 ? Math.min(r.population, 100_000) : bedsOf(s);
+  s.roads = parseRoads(r.roads, s.buildings);
+  s.proposals = parseProposals(r.proposals, now);
+  s.population = finite(r.population) && r.population >= 0 ? Math.min(r.population, 100_000) : bedsOf(s);
+  if (Array.isArray(r.drops)) {
+    for (const d of r.drops.map(record)) {
+      if (Number.isInteger(d.id) && tileInt(d.x) && tileInt(d.y) && s.drops.length < MAX_DROPS) s.drops.push({ id: d.id as number, x: d.x as number, y: d.y as number });
+    }
+  }
+  s.nextDropId = Math.max(Number.isInteger(r.nextDropId) ? (r.nextDropId as number) : 1, ...s.drops.map((d) => d.id + 1));
+  if (finite(r.lastLucky)) s.lastLucky = Math.min(r.lastLucky, now);
   if (Number.isInteger(r.nextProposalId) && (r.nextProposalId as number) >= 1) s.nextProposalId = r.nextProposalId as number;
   s.nextProposalId = Math.max(s.nextProposalId, ...s.proposals.map((p) => p.id + 1));
   s.players = parsePlayers(r.players);
   return s;
 }
 
-/** Building types that were renamed: the one food building became the farm (and hunters, fishers, ranches). */
-const RENAMED: Record<string, string> = { food: "farm" };
-const typeName = (type: string): string => RENAMED[type] ?? type;
+/** Players after a reset: same name and colors, the free hat and pattern, nothing bought. */
+function resetPlayers(players: Record<string, IdlePlayer>): Record<string, IdlePlayer> {
+  const free = (id: string, fallback: string) => (outfit(id)?.cost ? fallback : id);
+  return Object.fromEntries(
+    Object.entries(players).map(([id, p]) => [id, { ...p, owned: [], look: { ...p.look, hat: free(p.look.hat, "none"), pattern: free(p.look.pattern, "plain") } }]),
+  );
+}
 
 function parseAction(a: unknown): ProposalAction | null {
   const r = record(a);
-  if (r.kind === "build" && typeof r.type === "string" && tileInt(r.x) && tileInt(r.y)) return { kind: "build", type: typeName(r.type), x: r.x, y: r.y };
+  if (r.kind === "build" && typeof r.type === "string" && tileInt(r.x) && tileInt(r.y)) return { kind: "build", type: r.type, x: r.x, y: r.y };
+  if (r.kind === "wonder" && Number.isInteger(r.building)) return { kind: "wonder", building: r.building as number };
   if (r.kind === "upgrade" && Number.isInteger(r.building)) return { kind: "upgrade", building: r.building as number };
   if (r.kind === "roads") return { kind: "roads" };
   if (r.kind === "buy" && typeof r.item === "string") return { kind: "buy", item: r.item };
@@ -287,9 +317,11 @@ export function createIdleGame(file: string, now = Date.now()): IdleGame {
       } else if (err) {
         events.push({ kind: "rejected", ...base, reason: err });
       } else {
+        const era = state.era;
         const done = applyAction(state, p.action);
         state = done.state;
         events.push(done.building ? { kind: "bought", ...base, building: done.building } : { kind: "bought", ...base });
+        if (state.era > era) events.push({ kind: "era", era: state.era });
       }
     }
     return events;
@@ -338,12 +370,29 @@ export function createIdleGame(file: string, now = Date.now()): IdleGame {
       saver.schedule();
     },
 
-    unlockEra(era) {
-      if (era <= state.era) return false;
-      // Produce up to now under the old era first; storage grows with the era.
-      state = unlockEra(advance(state, Date.now()), era);
+    drop(now) {
+      const before = state.drops.length;
+      state = addDrop(advance(state, now), Math.random);
       saver.schedule();
-      return true;
+      return state.drops.length > before ? [{ kind: "lucky", label: "📦 Supply drop! Er is een krat in het dorp geland: klik erop" }] : [];
+    },
+
+    lucky(now, rand) {
+      const done = rollLucky(advance(state, now), rand);
+      if (!done) return [];
+      state = done.state;
+      saver.schedule();
+      return [{ kind: "lucky", label: done.label }];
+    },
+
+    open(clientId, name, id, now) {
+      if (!Number.isInteger(id)) return { error: "onbekende krat", events: [] };
+      const done = openDrop(advance(state, now), id as number);
+      if (typeof done === "string") return { error: done, events: [] };
+      state = done.state;
+      saver.schedule();
+      const got = Object.entries(done.got).map(([r, n]) => `+${amountText(n)} ${resourceDef(r)!.emoji}`).join(" ");
+      return { events: [{ kind: "deal", label: `📦 supply drop: ${got}`, by: nameOf(clientId, name) }] };
     },
 
     propose(clientId, name, rawAction, online, now) {

@@ -29,7 +29,7 @@ thema (zie [ROADMAP.md](ROADMAP.md)):
   dingen gaan weg: Update 8
 - 2026-10-24, Richard: geluk en wonen afgesproken (inwoners komen af op een
   gelukkig dorp, productie ×0,5 tot ×1,2, decoraties en taverne geven geluk,
-  geen voedselverbruik): Update 7
+  geen voedselverbruik): Update 7 (PR #33)
 
 - 2026-10-23, Richard: "Zorg dat er wat minder dieren zijn, de bossen staan
   echt vol. Ook zijn er te veel NPC's ik zou per speler 1 extra npc
@@ -77,12 +77,12 @@ thema (zie [ROADMAP.md](ROADMAP.md)):
 - 2026-10-22: "Animals, Hunting, Animal husbandry": Update 6 (PR #32)
 - 2026-10-22: "fishery": Update 6 (PR #32)
 - 2026-10-22: "Variatie in voedsel of mensen worden boos": Update 6 (PR #32) (soorten
-  voedsel) en Update 7 (boos worden)
-- 2026-10-22: "Happiness level": Update 7
+  voedsel) en Update 7 (PR #33) (boos worden)
+- 2026-10-22: "Happiness level": Update 7 (PR #33)
 - 2026-10-22: "elke persoon heeft een huis nodig of die worden ongelukkig":
-  Update 7
+  Update 7 (PR #33)
 - 2026-10-22: "duidelijkere jobs / jobs kiezen": Update 4 (PR #29)
-- 2026-10-22: "Population overzicht plek zoals een council house": Update 7
+- 2026-10-22: "Population overzicht plek zoals een council house": Update 7 (PR #33)
 - 2026-10-22: "Mines": Update 9
 - 2026-10-22: "coal": Update 9
 - 2026-10-22: "armor smith", "weapon smith": Update 9

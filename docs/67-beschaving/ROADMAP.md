@@ -165,7 +165,7 @@ bos gekapt is; veehouderij pas vanaf de Bronstijd.
       bossen staan echt vol", "per speler 1 extra npc")
 
 ### Update 7: Geluk & wonen
-Status: bezig. Steunt op update 6 (soorten voedsel, `foodKindsOf`).
+Status: in review (PR #33). Steunt op update 6 (soorten voedsel, `foodKindsOf`).
 
 Afgesproken met Richard (2026-10-24): inwoners komen af op een gelukkig
 dorp, ook als er geen bed is, en ze vertrekken uit een ongelukkig dorp.
@@ -173,15 +173,25 @@ Geluk maakt werkers en verzamelaars ×0,5 tot ×1,2 zo hard. Decoraties en de
 taverne (en een feest) geven geluk. Inwoners eten geen voedsel op; alleen de
 variatie telt.
 
-- [ ] Een geluksniveau voor het dorp. Ongelukkige inwoners werken minder
-      hard. (bron: "Happiness level")
-- [ ] Iedere inwoner heeft een plek in een huis nodig. Wie geen huis heeft,
+- [x] Een geluksniveau voor het dorp. Ongelukkige inwoners werken minder
+      hard. Gedaan: `happinessOf` geeft 0–100%, met 50 als basis. Decoraties
+      geven +4 per stuk (samen hoogstens +20), de taverne +10 en een
+      dorpsfeest +15. (bron: "Happiness level")
+- [x] Iedere inwoner heeft een plek in een huis nodig. Wie geen huis heeft,
       wordt ongelukkig, in plaats van dat een huis gewoon bevolking oplevert.
-      (bron: "elke persoon heeft een huis nodig of die worden ongelukkig")
-- [ ] Te weinig variatie in voedsel maakt mensen boos. (bron: "variatie in
+      Gedaan: een huis geeft bedden. `population` groeit of krimpt met 1 per
+      minuut naar `populationTarget`: van de helft van de bedden (ongelukkig)
+      tot een kwart meer dan er bedden zijn (gelukkig). Wie buiten slaapt,
+      kost zoveel procent van 60 punten als het deel van het dorp dat buiten
+      slaapt. (bron: "elke persoon heeft een huis nodig of die worden
+      ongelukkig")
+- [x] Te weinig variatie in voedsel maakt mensen boos. Gedaan: 1 soort is −20,
+      2 soorten 0, 3 soorten +10 en 4 soorten +20. (bron: "variatie in
       voedsel of mensen worden boos")
-- [ ] Een bevolkingsoverzicht op een vaste plek, bijvoorbeeld in een raadhuis.
-      (bron: "Population overzicht plek zoals een council house")
+- [x] Een bevolkingsoverzicht op een vaste plek, bijvoorbeeld in een raadhuis.
+      Gedaan: het centrum heeft een blok 📊 Bevolking, en de HUD toont
+      bedden, wie buiten slaapt en het geluk. (bron: "Population overzicht
+      plek zoals een council house")
 
 ### Update 8: Tijdperken door het dorp
 Status: gepland. Steunt op update 7 (bevolking en geluk). Hierin zit ook
@@ -306,6 +316,9 @@ een update worden opgenomen als het past.
   kost evenveel, welk soort het ook is (`costGroup`). Zo maakt het opsplitsen
   voedsel niet goedkoper. Voor de rest is alles even sterk als de oude
   boerderij; de balans komt in update 12.
+- **Geluk en bevolking bij een lange afwezigheid:** `advance` rekent een
+  hele periode met het geluk en het aantal inwoners van het begin ervan. De
+  server rekent vaak door, dus dit speelt alleen na lang niemand online.
 - **Berichtgrootte:** `MAX_PATH_TILES` (150) en de `maxPayload` van de
   counter-socket (2048 bytes) horen bij elkaar. Verhoog je het ene, controleer
   dan het andere. Daar is een test voor.

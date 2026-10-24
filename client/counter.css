@@ -604,6 +604,12 @@ body.sx-era-10 { --sx-bg: #12002b; --sx-bg2: #2a0050; }
   font-size: 0.82rem;
 }
 
+/* What the town's happiness is made of, in the town center. */
+.sx-happy-part {
+  padding-left: 1.2em;
+  font-variant-numeric: tabular-nums;
+}
+
 .sx-x {
   position: absolute;
   top: 8px;

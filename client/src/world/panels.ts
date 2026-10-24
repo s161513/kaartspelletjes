@@ -1,4 +1,4 @@
-// The DOM around the town: a compact HUD (resources, villagers, boosts), the
+// The DOM around the town: a compact HUD (resources, villagers, happiness, boosts), the
 // open votes on the right, the popup on a clicked tile (build there, or upgrade the
 // streets), the building inspector (which is the shop window for shops, and
 // where buildings are torn down), the "choose a spot" banner for decorations
@@ -7,11 +7,14 @@
 
 import {
   BOOST_MULT,
+  DECOR_POINTS,
   ERAS,
+  MAX_DECOR_POINTS,
   MAX_PATH_TILES,
   MAX_PROPOSALS,
   RESOURCES,
   STORAGE_CAP,
+  TAVERN_POINTS,
   actionError,
   assignWorkers,
   buildCost,
@@ -25,6 +28,7 @@ import {
   fullRateOf,
   gatherable,
   gatheringOf,
+  happinessOf,
   housingOf,
   isRiver,
   isRoad,
@@ -41,6 +45,7 @@ import {
   foodKindsOf,
   pathError,
   placeError,
+  populationTarget,
   ratesOf,
   refundOf,
   resourceDef,
@@ -126,10 +131,10 @@ function missingText(world: IdleWorld, cost: Amounts): string {
 
 function effectText(world: IdleWorld, t: BuildingType): string {
   const era = world.era;
-  if (t.category === "house") return `👥 +${housingOf(era)} inwoners`;
+  if (t.category === "house") return `🛏️ +${housingOf(era)} bedden: wie geen bed heeft, slaapt buiten en is ongelukkig`;
   if (t.category === "storage") return `📦 +${fmt(STORAGE_CAP * scaleOf(era))} opslag per grondstof`;
-  if (t.category === "decor") return "✨ puur voor de sier (de inwoners vinden het geweldig)";
-  if (t.category === "shop") return `🛒 winkel: ${shopBlurb(t.id)}`;
+  if (t.category === "decor") return `😊 +${DECOR_POINTS} geluk (alle decoraties samen tot +${MAX_DECOR_POINTS})`;
+  if (t.category === "shop") return `🛒 winkel: ${shopBlurb(t.id)}${t.id === "shop_tavern" ? ` · 😊 +${TAVERN_POINTS} geluk` : ""}`;
   if (t.produces) {
     const rate = fullRateOf({ id: 0, type: t.id, level: era, x: 0, y: 0 });
     const kind = t.foodKind ? ` (${foodKindText(t.foodKind)})` : "";
@@ -177,6 +182,34 @@ function menuText(world: IdleWorld): string {
   const parts = FOOD_KINDS.filter((k) => kinds[k.id]).map((k) => `${k.emoji} ${k.name} ${fmt(kinds[k.id]!)}/s`);
   return parts.length ? parts.join(" · ") : "niets: bouw een jagerskamp, akker of visserij";
 }
+
+const moodEmoji = (level: number) => (level < 35 ? "😠" : level < 50 ? "😕" : level < 70 ? "🙂" : "😄");
+const multText = (mult: number) => `×${mult.toFixed(2).replace(".", ",")}`;
+
+/** "😊 62% · werken ×1,05": how happy the town is and how hard they work for it. */
+function happyText(world: IdleWorld, now: number): string {
+  const h = happinessOf(world, now);
+  return `${moodEmoji(h.level)} ${Math.round(h.level)}% geluk · werken ${multText(h.mult)}`;
+}
+
+/** What makes the town happy, one line each: "🍽️ 3 soorten voedsel +10". */
+function happyLines(world: IdleWorld, now: number): string[] {
+  const h = happinessOf(world, now);
+  return [
+    "🙂 basis 50",
+    ...h.parts.map((p) => `${p.emoji} ${p.label} ${p.points >= 0 ? "+" : "−"}${Math.abs(p.points)}`),
+  ];
+}
+
+/** "🏃 er komen er 2 bij" / "🧳 er vertrekken er 3" / "" while the town has as many as it draws. */
+function trendText(world: IdleWorld, now: number): string {
+  const diff = Math.round(populationTarget(world, now) - world.population);
+  if (diff > 0) return `🏃 er ${diff === 1 ? "komt er 1" : `komen er ${diff}`} bij`;
+  if (diff < 0) return `🧳 er ${diff === -1 ? "vertrekt er 1" : `vertrekken er ${-diff}`}`;
+  return "";
+}
+
+const outside = (n: number) => (n === 1 ? "1 slaapt buiten" : `${n} slapen buiten`);
 
 const timeLeft = (ms: number) => {
   const s = Math.max(0, Math.ceil(ms / 1000));
@@ -295,6 +328,7 @@ export function createPanels(deps: PanelDeps): Panels {
   /** Per resource: the chip, its text and the bar showing how full storage is. */
   const hudChips = new Map<string, { chip: HTMLSpanElement; text: HTMLSpanElement; fill: HTMLSpanElement }>();
   const popChip = h("span", "sx-hud-chip sx-hud-pop");
+  const happyChip = h("span", "sx-hud-chip sx-hud-pop");
   const boostBox = h("span");
   boostBox.style.display = "contents";
 
@@ -313,7 +347,7 @@ export function createPanels(deps: PanelDeps): Panels {
         hud.append(chip);
         hudChips.set(r.id, { chip, text, fill });
       }
-      hud.append(popChip, boostBox);
+      hud.append(popChip, happyChip, boostBox);
     }
     const cap = capOf(world);
     const rates = ratesOf(world);
@@ -329,10 +363,18 @@ export function createPanels(deps: PanelDeps): Panels {
 ${menuText(world)}` : "");
     }
     const wf = assignWorkers(world);
-    popChip.textContent = `👥 ${wf.population} (${wf.population - wf.idle} werken)`;
+    popChip.textContent = `👥 ${wf.population} · 🛏️ ${wf.beds}${wf.homeless ? ` · ⛺ ${wf.homeless}` : ""}`;
+    popChip.classList.toggle("sx-hud-full", wf.homeless > 0);
+    const trend = trendText(world, now);
     popChip.title =
-      `${wf.population} inwoners, ${wf.idle} zonder werk · opslag max ${fmt(cap)} per grondstof` +
-      ` · op de kaart lopen er ${NPCS_PER_PLAYER} per speler online rond`;
+      `${wf.population} inwoners, ${wf.population - wf.idle} met werk, ${wf.idle} zonder werk · ${wf.beds} bedden` +
+      (wf.homeless ? ` · ${outside(wf.homeless)}: bouw huizen` : "") +
+      (trend ? ` · ${trend}` : "") +
+      ` · op de kaart lopen er ${NPCS_PER_PLAYER} per speler online rond · meer bij het ${buildingName("center", world.era)}`;
+    const mood = happinessOf(world, now);
+    happyChip.textContent = `${moodEmoji(mood.level)} ${Math.round(mood.level)}%`;
+    happyChip.classList.toggle("sx-hud-full", mood.level < 35);
+    happyChip.title = [happyText(world, now), ...happyLines(world, now)].join("\n");
 
     const boosts: string[] = [];
     if (world.boostUntil > now) boosts.push(`⚡ ×${BOOST_MULT} ${timeLeft(world.boostUntil - now)}`);
@@ -829,7 +871,7 @@ ${menuText(world)}` : "");
             : v.gather
               ? `🧺 geen baan, verzamelt ${resourceDef(v.gather.resource)?.emoji ?? ""} ${resourceDef(v.gather.resource)?.name ?? ""} (${v.gather.chosen ? "gekozen" : "kiest zelf"})`
               : "😴 werkloos: bouw een werkgebouw met plek vrij",
-          `🏠 woont in: ${v.home ?? "—"}`,
+          v.home ? `🏠 woont in: ${v.home}` : "⛺ geen bed: slaapt buiten, en dat maakt het dorp ongelukkig",
           `⏱️ nu: ${v.doing}`,
         ];
     insInfo.replaceChildren(...lines.map((l) => h("div", "", l)));
@@ -852,9 +894,15 @@ ${menuText(world)}` : "");
       row.append(text, less, more);
       return { id, text, less, more, row };
     });
+    const census = h("div", "sx-note");
+    const mood = h("div", "sx-note");
     const summary = h("div", "sx-note");
     const menu = h("div", "sx-note");
     insActions.append(
+      h("h4", "sx-h", "📊 Bevolking"),
+      census,
+      mood,
+      h("p", "sx-note", "Een gelukkig dorp trekt nieuwkomers, ook als er geen bed meer vrij is; uit een ongelukkig dorp vertrekken mensen. Gelukkige mensen werken harder."),
       h("h4", "sx-h", "👥 Wie doet wat"),
       summary,
       menu,
@@ -867,6 +915,13 @@ ${menuText(world)}` : "");
       const wf = assignWorkers(w);
       const { chosen, auto } = gatheringOf(w);
       const picked = Object.values(chosen).reduce((a, n) => a + n, 0);
+      const now = deps.serverNow();
+      const trend = trendText(w, now);
+      census.textContent =
+        `👥 ${wf.population} inwoners · 🛏️ ${wf.beds} bedden` +
+        (wf.homeless ? ` · ⛺ ${outside(wf.homeless)}` : wf.beds > wf.population ? ` · ${wf.beds - wf.population} vrij` : "") +
+        (trend ? ` · ${trend}` : "");
+      mood.replaceChildren(h("div", "", happyText(w, now)), ...happyLines(w, now).map((l) => h("div", "sx-happy-part", l)));
       summary.textContent = `👷 ${wf.population - wf.idle} met een baan · 🧺 ${wf.idle} zonder baan, die verzamelen`;
       menu.textContent = `🍽️ Op het menu: ${menuText(w)}`;
       for (const r of rows) {
@@ -990,14 +1045,14 @@ ${menuText(world)}` : "");
     }
     // Live info.
     const lines: string[] = [`${ERAS[b.level].emoji} ${ERAS[b.level].name}`];
-    if (t.category === "house") lines.push(`👥 ${housingOf(b.level)} inwoners`);
+    if (t.category === "house") lines.push(`🛏️ ${housingOf(b.level)} bedden`);
     if (t.category === "work" && t.produces) {
       const w = assignWorkers(world).workers[b.id] ?? 0;
       const slots = slotsAt(world, b);
       lines.push(`👷 ${w}/${slots} werkers`);
       const share = t.sparesSource ? sourceShareOf(world, b) : 1;
       const kind = t.foodKind ? ` ${foodKindText(t.foodKind)}` : "";
-      lines.push(`${resourceDef(t.produces)?.emoji}${kind} ${fmt(((fullRateOf(b) * w) / slotsOf(b.level)) * share)}/s (zonder bonussen)${w < slots ? " — meer huizen = meer werkers" : ""}`);
+      lines.push(`${resourceDef(t.produces)?.emoji}${kind} ${fmt(((fullRateOf(b) * w) / slotsOf(b.level)) * share)}/s (zonder bonussen)${w < slots ? " — meer inwoners = meer werkers" : ""}`);
       const src = sourceLeft(world, b);
       const from = t.source === undefined ? t.produces : t.source;
       if (src && t.sparesSource) {
@@ -1014,7 +1069,8 @@ ${menuText(world)}` : "");
     if (t.category === "storage") lines.push(`📦 +${fmt(STORAGE_CAP * scaleOf(b.level))} opslag`);
     if (t.category === "center") lines.push(`📦 opslag max ${fmt(capOf(world))} per grondstof`);
     if (t.category === "shop") lines.push(`🛒 ${shopBlurb(t.id)}`);
-    if (t.category === "decor") lines.push("✨ Puur voor de sier. De inwoners komen er graag kijken.");
+    if (b.type === "shop_tavern") lines.push(`😊 +${TAVERN_POINTS} geluk voor het hele dorp, en een dorpsfeest geeft er tijdelijk nog meer bij`);
+    if (t.category === "decor") lines.push(`😊 +${DECOR_POINTS} geluk (alle decoraties samen tot +${MAX_DECOR_POINTS}). De inwoners komen er graag kijken.`);
     insInfo.replaceChildren(...lines.map((l) => h("div", "", l)));
     for (const o of insOffers) o.update(world, busy(), deps.connected());
     insLive?.();

@@ -19,12 +19,24 @@ thema (zie [ROADMAP.md](ROADMAP.md)):
 
 ## Verwerkt
 
+- 2026-10-24, Richard: het tijdperk moet afhangen van hoe goed de stad het
+  doet, niet van de 67 counter (gaat te traag); doelen per tijdperk plus een
+  wereldwonder; een tijdperk mag zo'n twee weken duren: Update 8
+- 2026-10-24, Richard: de counter mag dienen voor willekeurige extra's (supply
+  drop, boosts), en hij wil ze allemaal: Update 8
+- 2026-10-24, Richard: het dorp resetten na deze updates, zonder dat iemand bij
+  de server-bestanden hoeft; spelers houden naam en uiterlijk, gekochte
+  dingen gaan weg: Update 8
+- 2026-10-24, Richard: geluk en wonen afgesproken (inwoners komen af op een
+  gelukkig dorp, productie ×0,5 tot ×1,2, decoraties en taverne geven geluk,
+  geen voedselverbruik): Update 7
+
 - 2026-10-23, Richard: "Zorg dat er wat minder dieren zijn, de bossen staan
   echt vol. Ook zijn er te veel NPC's ik zou per speler 1 extra npc
   toevoegen": Update 6 (PR #32)
 - 2026-10-23, Richard: voedsel blijft één voorraad met een soort per bron,
   vier voedselgebouwen, jagerskamp vangt minder bij gekapt bos, veehouderij
-  vanaf de Bronstijd: Update 6
+  vanaf de Bronstijd: Update 6 (PR #32)
 
 - 2026-10-22, speler: "maak de recourses nietmeer clickable maar dat de
   mannetjes het werk doen (meer idle). wij kunnen nog steeds de rest klikken
@@ -43,13 +55,13 @@ thema (zie [ROADMAP.md](ROADMAP.md)):
 - 2026-10-22, Richard: minimaal 2 ja-stemmen, dus alleen kun je niet direct
   bouwen: Update 2 (PR #27)
 - 2026-10-22, Richard: bouwen moet duurder, het tempo ligt te hoog:
-  Update 2 (PR #27); de balans wordt opnieuw bekeken in Update 11
+  Update 2 (PR #27); de balans wordt opnieuw bekeken in Update 12
 - 2026-10-22, Richard: afbreken voor een deel van de grondstoffen terug, ook
   bij paden: Update 2 (PR #27)
 - 2026-10-22, Richard: telefoon voorlopig negeren, de browser op een computer
   is genoeg: zie "Scope" in ROADMAP.md
-- 2026-10-22: "moeilijker resources": Update 11
-- 2026-10-22: "de dorpsfeest resources moeten scalen met population": Update 11
+- 2026-10-22: "moeilijker resources": Update 12
+- 2026-10-22: "de dorpsfeest resources moeten scalen met population": Update 12
 - 2026-10-22: "een balk voor resources om makkelijk te zien hoe vol iets is":
   Update 3 (PR #28)
 - 2026-10-22: "scrollen op mousepad werkt veel te traag": Update 3 (PR #28)
@@ -61,26 +73,26 @@ thema (zie [ROADMAP.md](ROADMAP.md)):
   glitchen": Update 5 (PR #31)
 - 2026-10-22: "teveel random npc's": Update 5 (PR #31)
 - 2026-10-22: extra zin "Who's gonna carry the logs and the boats?": Update 5 (PR #31)
-- 2026-10-22: "Farm land": Update 6
-- 2026-10-22: "Animals, Hunting, Animal husbandry": Update 6
-- 2026-10-22: "fishery": Update 6
-- 2026-10-22: "Variatie in voedsel of mensen worden boos": Update 6 (soorten
+- 2026-10-22: "Farm land": Update 6 (PR #32)
+- 2026-10-22: "Animals, Hunting, Animal husbandry": Update 6 (PR #32)
+- 2026-10-22: "fishery": Update 6 (PR #32)
+- 2026-10-22: "Variatie in voedsel of mensen worden boos": Update 6 (PR #32) (soorten
   voedsel) en Update 7 (boos worden)
 - 2026-10-22: "Happiness level": Update 7
 - 2026-10-22: "elke persoon heeft een huis nodig of die worden ongelukkig":
   Update 7
 - 2026-10-22: "duidelijkere jobs / jobs kiezen": Update 4 (PR #29)
 - 2026-10-22: "Population overzicht plek zoals een council house": Update 7
-- 2026-10-22: "Mines": Update 8
-- 2026-10-22: "coal": Update 8
-- 2026-10-22: "armor smith", "weapon smith": Update 8
-- 2026-10-22: "enemies": Update 9
-- 2026-10-22: "Walls": Update 9
+- 2026-10-22: "Mines": Update 9
+- 2026-10-22: "coal": Update 9
+- 2026-10-22: "armor smith", "weapon smith": Update 9
+- 2026-10-22: "enemies": Update 10
+- 2026-10-22: "Walls": Update 10
 - 2026-10-22: "gebruik skills van gamedev" (awesome-gamedev-agent-skills):
-  Update 10
+  Update 11
 - 2026-10-22: "Retexturing nadat de gamedev skills erdoor zijn gegaan":
-  Update 10
-- 2026-10-22: "Tijdperk voelt nu niet als prehistory": Update 10
+  Update 11
+- 2026-10-22: "Tijdperk voelt nu niet als prehistory": Update 11
 - 2026-10-22: "soviets city council type beat zodat we kunnen voten voor
   updates": eerst beslissen (zie ROADMAP)
 - 2026-10-22: "relationships, sex, marriage": eerst beslissen (zie ROADMAP)

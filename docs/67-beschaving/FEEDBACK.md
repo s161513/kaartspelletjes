@@ -21,14 +21,14 @@ thema (zie [ROADMAP.md](ROADMAP.md)):
 
 - 2026-10-24, Richard: het tijdperk moet afhangen van hoe goed de stad het
   doet, niet van de 67 counter (gaat te traag); doelen per tijdperk plus een
-  wereldwonder; een tijdperk mag zo'n twee weken duren: Update 8
+  wereldwonder; een tijdperk mag zo'n twee weken duren: Update 8 (PR #34)
 - 2026-10-24, Richard: hoe snel de tijdperken gaan, hangt gewoon af van hoe
-  snel de doelen gehaald zijn en het wereldwonder gebouwd is: Update 8
+  snel de doelen gehaald zijn en het wereldwonder gebouwd is: Update 8 (PR #34)
 - 2026-10-24, Richard: de counter mag dienen voor willekeurige extra's (supply
-  drop, boosts), en hij wil ze allemaal: Update 8
+  drop, boosts), en hij wil ze allemaal: Update 8 (PR #34)
 - 2026-10-24, Richard: het dorp resetten na deze updates, zonder dat iemand bij
   de server-bestanden hoeft; spelers houden naam en uiterlijk, gekochte
-  dingen gaan weg: Update 8
+  dingen gaan weg: Update 8 (PR #34)
 - 2026-10-24, Richard: geluk en wonen afgesproken (inwoners komen af op een
   gelukkig dorp, productie ×0,5 tot ×1,2, decoraties en taverne geven geluk,
   geen voedselverbruik): Update 7 (PR #33)

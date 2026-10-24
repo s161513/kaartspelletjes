@@ -15,6 +15,7 @@ import {
   applyAction,
   applyBoost,
   assignGatherer,
+  bedsOf,
   buildingType,
   buyItem,
   buyOutfit,
@@ -148,14 +149,15 @@ function parseProposals(raw: unknown, now: number): IdleProposal[] {
 /**
  * Keep only known, sane fields. A v2 file gets empty shops; v2 and v3 files
  * (streets on a fixed grid) get those streets as laid paths, and lose their
- * open vote (30 s back then); anything older is replaced by a fresh town,
+ * open vote (30 s back then); files before v5 get a villager per bed (houses
+ * gave them back then); anything older is replaced by a fresh town,
  * quietly: it was never in production. Renamed building types (RENAMED) get
  * their new name, in the town and in open votes.
  */
 function parseIdle(raw: unknown, now: number): IdleState | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const r = raw as Record<string, unknown>;
-  if (r.v !== STATE_VERSION && r.v !== 3 && r.v !== 2) return newIdleState(now);
+  if (r.v !== STATE_VERSION && r.v !== 4 && r.v !== 3 && r.v !== 2) return newIdleState(now);
   const s = newIdleState(now);
   if (Number.isInteger(r.era)) s.era = Math.max(0, Math.min(ERAS.length - 1, r.era as number));
   s.resources = {};
@@ -205,8 +207,11 @@ function parseIdle(raw: unknown, now: number): IdleState | null {
     if (p && String(p.id) === id && finite(n) && n > 0) s.nature[id] = Math.min(n, p.capacity);
   }
   if (Number.isInteger(r.roadLevel)) s.roadLevel = Math.max(0, Math.min(s.era, r.roadLevel as number));
-  s.roads = r.v === STATE_VERSION ? parseRoads(r.roads, s.buildings) : classicStreets(s.buildings);
-  if (r.v === STATE_VERSION) s.proposals = parseProposals(r.proposals, now);
+  const v4 = r.v === STATE_VERSION || r.v === 4;
+  s.roads = v4 ? parseRoads(r.roads, s.buildings) : classicStreets(s.buildings);
+  if (v4) s.proposals = parseProposals(r.proposals, now);
+  // Before v5 every house simply gave villagers: they all had a bed.
+  s.population = r.v === STATE_VERSION && finite(r.population) && r.population >= 0 ? Math.min(r.population, 100_000) : bedsOf(s);
   if (Number.isInteger(r.nextProposalId) && (r.nextProposalId as number) >= 1) s.nextProposalId = r.nextProposalId as number;
   s.nextProposalId = Math.max(s.nextProposalId, ...s.proposals.map((p) => p.id + 1));
   s.players = parsePlayers(r.players);

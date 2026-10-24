@@ -30,6 +30,7 @@ import {
   applyBoost,
   assignGatherer,
   assignWorkers,
+  bedsOf,
   buildCost,
   buildTypeError,
   buyItem,
@@ -40,6 +41,7 @@ import {
   gatherable,
   gatherPatches,
   gatheringOf,
+  happinessOf,
   isLand,
   isRiver,
   isRoad,
@@ -56,6 +58,7 @@ import {
   pathError,
   placeBuilding,
   placeError,
+  populationTarget,
   ratesOf,
   refundOf,
   roadCost,
@@ -151,11 +154,11 @@ test("workers: round robin over work buildings, leftovers idle, production follo
   assert.ok(near(rates.food, 1 + GATHER_RATE) && near(rates.wood, 1 + GATHER_RATE));
   assert.deepEqual(ratesOf(noGatherers(s)).wood, 1);
 
-  // One hut: 3 villagers over 2 jobs → 2 + 1.
-  const fewer = { ...s, buildings: s.buildings.filter((b) => b.id !== 2) };
+  // 3 villagers over 2 jobs → 2 + 1.
+  const fewer = { ...s, population: 3 };
   assert.deepEqual(Object.values(assignWorkers(fewer).workers).sort(), [1, 2]);
   const r = ratesOf(fewer);
-  assert.equal(r.food + r.wood, 1.5);
+  assert.ok(near(r.food + r.wood, 1.5 * 0.8), "nobody on berries: only meat, a bit less happy");
 });
 
 test("advance: produces over time, boost doubles, offline is capped, storage limit holds", () => {
@@ -195,11 +198,13 @@ test("gatherers: the jobless gather near the town, spread over the basics unless
   // Choices only count as far as there are people without a job.
   assert.deepEqual(gatheringOf(noGatherers(two)), { chosen: {}, auto: {} });
   // Production: a click's worth per GATHER_RATE per second each, taken from nature near the town.
+  // (Without anyone on berries there's only meat on the menu: a bit less happy, ×0.8.)
   const empty = { ...two, resources: {} };
+  assert.equal(happinessOf(empty, T0).mult, 0.8);
   const after = advance(empty, T0 + 10_000);
-  assert.ok(near(after.resources.stone, 2 * GATHER_RATE * 10));
+  assert.ok(near(after.resources.stone, 0.8 * 2 * GATHER_RATE * 10));
   const used = gatherPatches("stone").reduce((a, p) => a + (after.nature[p.id] ?? 0), 0);
-  assert.ok(near(used, 2 * GATHER_RATE * 10), "a click used per click's worth");
+  assert.ok(near(used, 0.8 * 2 * GATHER_RATE * 10), "a click used per click's worth");
   // All stone near the town gone: nothing more from it.
   const bare = { ...empty, nature: Object.fromEntries(gatherPatches("stone").map((p) => [p.id, p.capacity])) };
   assert.equal(ratesOf(bare).stone, undefined);
@@ -293,6 +298,60 @@ test("food: hunters, farms, fishers and ranches make kinds of food; hunters catc
   assert.equal(buildCost(s, "fishery")!.wood, Math.ceil(30 * BUILD_COST_MULT * COST_GROWTH ** 2));
 });
 
+test("happiness: food variety, beds, decorations and the tavern; it sets the work speed", () => {
+  const s = newIdleState(T0); // meat from the hunters, berries from a gatherer
+  assert.deepEqual(happinessOf(s, T0), { level: 50, parts: [{ emoji: "🍽️", label: "2 soorten voedsel", points: 0 }], mult: 1 });
+
+  // One kind of food: unhappy, they work slower.
+  const bland = { ...s, gatherers: { wood: 2 } };
+  assert.deepEqual([happinessOf(bland, T0).level, happinessOf(bland, T0).mult], [30, 0.8]);
+  assert.ok(near(ratesOf(bland).food, 0.8));
+
+  // Decorations (+4 each, +20 at most), the tavern and a party.
+  const decor = Array.from({ length: 6 }, (_, i) => ({ id: 100 + i, type: "decor_flowers", level: 0, x: i, y: 0 }));
+  const merry = {
+    ...s,
+    buildings: [...s.buildings, ...decor, { id: 200, type: "shop_tavern", level: 0, x: 0, y: 1 }],
+    boosts: [{ item: "party", resource: null, mult: 2, until: T0 + 1000 }],
+  };
+  const h = happinessOf(merry, T0);
+  assert.deepEqual(h.parts.map((p) => p.points), [0, 20, 10, 15]);
+  assert.equal(h.level, 95);
+  assert.ok(near(h.mult, 1.18));
+  assert.equal(happinessOf(merry, T0 + 1000).level, 80, "the party is over");
+
+  // Sleeping outside: a share of the town without a bed costs that share of 60 points.
+  const crowded = { ...s, population: 9 };
+  assert.deepEqual(happinessOf(crowded, T0).parts.at(-1), { emoji: "⛺", label: "3 zonder bed", points: -20 });
+  assert.equal(happinessOf(crowded, T0).level, 30);
+  assert.equal(happinessOf({ ...s, population: 100, gatherers: {} }, T0).level, 0, "never below 0");
+});
+
+test("population: villagers move in to a happy town, also without a bed, and leave an unhappy one", () => {
+  const s = { ...newIdleState(T0), resources: {} };
+  assert.equal(s.population, 6, "a fresh town: one per bed");
+  assert.equal(populationTarget(s, T0), 6, "content: as many as there are beds");
+
+  // A happy town draws up to a quarter more than its beds, one per minute.
+  const decor = Array.from({ length: 5 }, (_, i) => ({ id: 100 + i, type: "decor_flowers", level: 0, x: i, y: 0 }));
+  const happy = { ...s, buildings: [...s.buildings, ...decor, { id: 200, type: "shop_tavern", level: 0, x: 0, y: 1 }] };
+  assert.equal(populationTarget(happy, T0), 6 * (1 + 30 / 200));
+  const half = advance(happy, T0 + 30_000);
+  assert.equal(half.population, 6.5);
+  assert.equal(assignWorkers(half).population, 6, "halfway moving in doesn't count yet");
+  const full = advance(happy, T0 + 10 * 60_000);
+  assert.ok(near(full.population, 6.9));
+  assert.deepEqual([assignWorkers(full).beds, assignWorkers(full).homeless], [6, 0]);
+
+  // A new hut fills up; a miserable town loses up to half its people.
+  const hut = { ...s, buildings: [...s.buildings, { id: 300, type: "house", level: 0, x: 2, y: 2 }] };
+  assert.equal(advance(hut, T0 + 60 * 60_000).population, 9);
+  const bland = { ...s, gatherers: { wood: 2 } };
+  assert.equal(populationTarget(bland, T0), 6 * 0.8);
+  assert.ok(near(advance(bland, T0 + 60 * 60_000).population, 4.8));
+  assert.equal(s.population, 6, "pure");
+});
+
 test("boost stacks by 67 s, up to an hour ahead", () => {
   let s = applyBoost(newIdleState(T0), T0);
   assert.equal(s.boostUntil, T0 + BOOST_MS);
@@ -340,7 +399,7 @@ test("upgrade: old buildings go straight to the current era, decorations never",
   const { state, building } = applyAction(s, { kind: "upgrade", building: hut.id });
   assert.equal(building!.level, 2);
   assert.equal(state.buildings.find((b) => b.id === hut.id)!.level, 2);
-  assert.ok(assignWorkers(state).population > assignWorkers(s).population, "bigger house");
+  assert.ok(bedsOf(state) > bedsOf(s), "bigger house");
 
   const statue = s.buildings.find((b) => b.type === "decor_statue67")!;
   assert.equal(actionError(s, { kind: "upgrade", building: statue.id }), "kan niet upgraden");
@@ -359,7 +418,8 @@ test("demolish: anything but the center, for a share of its cost back, up to the
   assert.deepEqual(refundOf(s, action), { wood: 11, stone: 3 }, "25% of 1.5 × the base cost");
   const { state } = applyAction(s, action);
   assert.ok(!state.buildings.some((b) => b.id === hut.id));
-  assert.equal(assignWorkers(state).population, assignWorkers(s).population - 3);
+  assert.equal(bedsOf(state), bedsOf(s) - 3);
+  assert.equal(assignWorkers(state).homeless, 3, "its people sleep outside now");
   assert.deepEqual([state.resources.wood, state.resources.stone], [11, 3]);
   const full = { ...s, resources: { wood: capOf(s) } };
   assert.equal(applyAction(full, action).state.resources.wood, capOf(s), "storage limit holds");
@@ -599,7 +659,7 @@ test("idle game: propose + vote builds and places, state survives a reload, v1 f
 
     game.flush();
     const saved = JSON.parse(readFileSync(file, "utf8"));
-    assert.equal(saved.v, 4);
+    assert.equal(saved.v, 5);
     assert.deepEqual(saved.roads, msg.state.roads);
     const reloaded = createIdleGame(file, T0 + 1000);
     assert.equal(reloaded.message("a", 0, 0, 1, T0 + 1000).state.buildings.length, msg.state.buildings.length);
@@ -633,7 +693,8 @@ test("idle game: open votes wait for resources, count once per player, survive a
     // Two villagers without a job gather stone for it.
     game.assign(null, "stone", T0);
     game.assign(null, "stone", T0);
-    assert.deepEqual(game.tick(2, T0 + 110_000).map((e) => e.kind), ["bought"], "built once there's enough");
+    // (Nobody on berries: only meat, so a bit slower.)
+    assert.deepEqual(game.tick(2, T0 + 150_000).map((e) => e.kind), ["bought"], "built once there's enough");
 
     // Two tabs of one player are one voter.
     game.hello("t1", KEY, "Ann", T0);
@@ -681,6 +742,7 @@ test("idle game: a v2 file keeps its town; trades and small buys are instant, bi
     assert.equal(first.buildings.length, town.buildings.length);
     assert.deepEqual(first.roads, classicStreets(town.buildings), "old towns get their grid streets as paths");
     assert.deepEqual([first.boosts, first.perks, first.market], [[], {}, {}]);
+    assert.equal(first.population, bedsOf(town), "a villager per bed, as houses gave them before");
 
     assert.deepEqual(game.trade("a", "  Ann ", "wood", "stone", 100, T0).events, [{ kind: "deal", label: "100 🪵 → 40 🪨", by: "Ann" }]);
     assert.equal(game.trade("a", "Ann", "wood", "wood", 1, T0).error, "onbekende ruil");

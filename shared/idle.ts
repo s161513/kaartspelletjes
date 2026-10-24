@@ -1,7 +1,10 @@
 // "67 Beschaving": the shared idle game behind the 67 counter page.
 //
-// One town for everyone, kept by the server. Every 67 on the counter (by its
-// highest value ever, `peak`) unlocks the next era. Villagers move in while
+// One town for everyone, kept by the server. The town earns its next era: once
+// it meets the era's goals (people, happiness, food, certain buildings) it
+// builds that era's world wonder, phase by phase, and the last phase starts
+// the next era. The 67 counter only gives extras: every +1 a short boost,
+// every new 67 a supply drop to open, and now and then a lucky event. Villagers move in while
 // the town is happy and leave when it isn't; each needs a bed in a house or
 // sleeps outside, which makes everyone less happy (so does eating the same
 // thing every day; decorations and the tavern help). Villagers staff work
@@ -34,7 +37,23 @@ import {
   CLICK_BASE,
   COST_GROWTH,
   DECOR_POINTS,
+  DROP_MIN,
+  DROP_SECONDS,
+  ERA_GOALS,
   HAPPY_BASE,
+  LUCKY_CHANCE,
+  LUCKY_COOLDOWN_MS,
+  LUCKY_EVENTS,
+  LUCKY_GOLD_MULT,
+  LUCKY_MERCHANT_MULT,
+  LUCKY_MS,
+  LUCKY_NEWCOMERS_SHARE,
+  LUCKY_PARTY_POINTS,
+  MAX_DROPS,
+  WONDER_BUILD_MS,
+  WONDER_COST,
+  WONDER_PHASES,
+  WONDER_SPECIAL_COST,
   HOMELESS_POINTS,
   MAX_DECOR_POINTS,
   MOVE_PER_MIN,
@@ -75,7 +94,9 @@ import {
   slotsOf,
   worthOf,
   type Amounts,
+  type EraGoal,
   type FoodKind,
+  type LuckyId,
   type NpcLook,
   type Outfit,
   type ResourceId,
@@ -84,7 +105,9 @@ import {
 import {
   CENTER,
   classicStreets,
+  isLand,
   isRiver,
+  isRoad,
   natureAt,
   patchAt,
   patches,
@@ -99,6 +122,7 @@ import {
 export * from "./idleContent.js";
 export * from "./idleMap.js";
 
+/** Every new 67 on the counter (by its highest value) drops a crate in town. */
 export const IDLE_MILESTONE = 67;
 /** Every +1 on the counter: production ×2 for 67 s (stacks by extending). */
 export const BOOST_MULT = 2;
@@ -110,7 +134,7 @@ export const MAX_OFFLINE_MS = 7 * 24 * 60 * 60_000;
 export const VOTE_MS = 24 * 60 * 60_000;
 /** Open proposals at once, at most. */
 export const MAX_PROPOSALS = 20;
-export const STATE_VERSION = 5;
+export const STATE_VERSION = 6;
 export const MAX_NAME_LENGTH = 20;
 
 // ---------- state ----------
@@ -120,6 +144,17 @@ export interface PlacedBuilding {
   type: string;
   /** Era it was built in or upgraded to: its look and strength. */
   level: number;
+  x: number;
+  y: number;
+  /** A world wonder under construction: phases done so far (gone once it's finished). */
+  stage?: number;
+  /** …and when the builders are ready for the next phase. */
+  ready?: number;
+}
+
+/** A crate from the counter, waiting on a tile for someone to open it. */
+export interface SupplyDrop {
+  id: number;
   x: number;
   y: number;
 }
@@ -159,6 +194,11 @@ export interface IdleWorld {
   gatherers: Amounts;
   /** Villagers living in town, as of `lastTick` (fractional while someone is moving in or out). */
   population: number;
+  /** Crates from the counter, not opened yet. */
+  drops: SupplyDrop[];
+  nextDropId: number;
+  /** When the last lucky event happened (ms). */
+  lastLucky: number;
 }
 
 export type ProposalAction =
@@ -171,7 +211,9 @@ export type ProposalAction =
   /** Take the path off these tiles, for a bit back. */
   | { kind: "unpave"; tiles: number[] }
   /** Tear a building down, for a bit back. */
-  | { kind: "demolish"; building: number };
+  | { kind: "demolish"; building: number }
+  /** The next phase of the world wonder under construction. */
+  | { kind: "wonder"; building: number };
 
 export interface IdleProposal {
   id: number;
@@ -202,11 +244,6 @@ export interface IdleState extends IdleWorld {
   players: Record<string, IdlePlayer>;
 }
 
-/** Era unlocked by the highest counter value ever reached. */
-export function eraFor(peak: number): number {
-  return Math.max(0, Math.min(ERAS.length - 1, Math.floor(peak / IDLE_MILESTONE)));
-}
-
 const perkOf = (s: Pick<IdleWorld, "perks">, id: string): number => s.perks[id] ?? 0;
 
 function addBuilding<T extends IdleWorld>(s: T, type: string, level: number, spot: { x: number; y: number }): { state: T; building: PlacedBuilding } {
@@ -218,7 +255,7 @@ function addBuilding<T extends IdleWorld>(s: T, type: string, level: number, spo
 export function newIdleState(now: number): IdleState {
   let s: IdleState = {
     v: STATE_VERSION, era: 0, resources: { food: 50, wood: 60, stone: 40 }, buildings: [], nextBuildingId: 1,
-    lastTick: now, boostUntil: 0, boosts: [], perks: {}, market: {}, roadLevel: 0, roads: [], nature: {}, gatherers: {}, population: 0, proposals: [], nextProposalId: 1, players: {},
+    lastTick: now, boostUntil: 0, boosts: [], perks: {}, market: {}, roadLevel: 0, roads: [], nature: {}, gatherers: {}, population: 0, drops: [], nextDropId: 1, lastLucky: 0, proposals: [], nextProposalId: 1, players: {},
   };
   for (const type of ["center", "house", "house", "hunter", "wood"]) s = addBuilding(s, type, 0, placeBuilding(s.buildings, type)!).state;
   return { ...s, roads: classicStreets(s.buildings), population: bedsOf(s) };
@@ -502,6 +539,7 @@ function moodParts(s: Town, now: number): HappinessPart[] {
   if (decor) parts.push({ emoji: "🗿", label: decor === 1 ? "1 decoratie" : `${decor} decoraties`, points: Math.min(MAX_DECOR_POINTS, decor * DECOR_POINTS) });
   if (hasBuilding(s, "shop_tavern")) parts.push({ emoji: "🍺", label: buildingName("shop_tavern", s.era), points: TAVERN_POINTS });
   if (s.boosts.some((b) => b.item === "party" && b.until > now)) parts.push({ emoji: "🎉", label: "dorpsfeest", points: PARTY_POINTS });
+  if (s.boosts.some((b) => b.item === "lucky_party" && b.until > now)) parts.push({ emoji: "🥳", label: "spontaan feest", points: LUCKY_PARTY_POINTS });
   return parts;
 }
 
@@ -684,15 +722,138 @@ export function buildTypeError(s: Pick<IdleWorld, "buildings" | "era">, typeId: 
   if (t.unique && hasBuilding(s, typeId)) return "bestaat al";
   if (t.minEra > s.era) return "nog niet ontgrendeld";
   if (t.category === "decor" && !hasBuilding(s, "shop_sculptor")) return needShop(s, "shop_sculptor");
+  if (t.category === "wonder" && t.minEra < s.era) return "hoort bij een vorig tijdperk";
   return null;
 }
 
-/** Types that can go on a free tile through the build popup, in menu order (decorations come from the sculptor). */
+/** Types that can go on a free tile through the build popup, in menu order (decorations come from the sculptor, the wonder from the center). */
 export const buildableTypes = (s: Pick<IdleWorld, "buildings" | "era">) =>
-  BUILDING_TYPES.filter((t) => t.category !== "decor" && !buildTypeError(s, t.id));
+  BUILDING_TYPES.filter((t) => t.category !== "decor" && t.category !== "wonder" && !buildTypeError(s, t.id));
 
 /** Decorations the sculptor sells now. */
 export const decorTypes = (era: number) => BUILDING_TYPES.filter((t) => t.category === "decor" && t.minEra <= era);
+
+// ---------- eras: goals and the world wonder ----------
+
+export interface GoalStatus {
+  goal: EraGoal;
+  label: string;
+  have: number;
+  need: number;
+  done: boolean;
+}
+
+const countsAsCurrent = (b: PlacedBuilding) => !["decor", "wonder"].includes(buildingType(b.type)?.category ?? "");
+
+/** How far the town is with the goals for leaving its era (none in the last era). */
+export function eraGoals(s: IdleWorld): GoalStatus[] {
+  return (ERA_GOALS[s.era] ?? []).map((goal): GoalStatus => {
+    if (goal.kind === "population") {
+      const have = assignWorkers(s).population;
+      return { goal, label: `👥 ${goal.n} inwoners`, have, need: goal.n, done: have >= goal.n };
+    }
+    if (goal.kind === "happiness") {
+      const have = Math.round(happinessOf(s, s.lastTick).level);
+      return { goal, label: `😊 minstens ${goal.n}% geluk`, have, need: goal.n, done: have >= goal.n };
+    }
+    if (goal.kind === "foodKinds") {
+      const have = Object.keys(foodKindsOf(s)).length;
+      return { goal, label: `🍽️ ${goal.n} soorten voedsel`, have, need: goal.n, done: have >= goal.n };
+    }
+    if (goal.kind === "building") {
+      const have = hasBuilding(s, goal.type) ? 1 : 0;
+      return { goal, label: `${buildingType(goal.type)?.emoji ?? ""} een ${buildingName(goal.type, s.era)}`, have, need: 1, done: have >= 1 };
+    }
+    const have = s.buildings.filter((b) => countsAsCurrent(b) && b.level >= s.era).length;
+    const era = ERAS[s.era];
+    return { goal, label: `${era.emoji} ${goal.n} gebouwen uit de ${era.name} (nieuw of geüpgraded)`, have, need: goal.n, done: have >= goal.n };
+  });
+}
+
+/** The era's world wonder type, or null in the last era. */
+export const wonderType = (era: number): string | null => (buildingType(`wonder_${era}`) ? `wonder_${era}` : null);
+
+/** The wonder under construction for the current era, if it was started. */
+export const currentWonder = (s: Pick<IdleWorld, "buildings" | "era">): PlacedBuilding | null =>
+  s.buildings.find((b) => b.type === wonderType(s.era)) ?? null;
+
+/** Cost of a phase (0 = the first) of the current era's wonder. */
+export function wonderCost(s: Pick<IdleWorld, "era" | "perks">, phase: number): Amounts {
+  const cost: Amounts = { ...WONDER_COST };
+  const special = ERAS[s.era].special;
+  if (special) cost[special] = WONDER_SPECIAL_COST;
+  return scaled(cost, scaleOf(s.era) * (1 + 0.5 * phase) * discountOf(s));
+}
+
+/** Milliseconds until the builders of a wonder are ready for its next phase, or null if they are. */
+export function wonderWait(s: Pick<IdleWorld, "lastTick">, b: PlacedBuilding): number | null {
+  return b.ready !== undefined && b.ready > s.lastTick ? b.ready - s.lastTick : null;
+}
+
+// ---------- the counter's extras: supply drops and lucky events ----------
+
+/**
+ * A crate lands on a free tile near the center (picked with `rand`, 0..1).
+ * Nothing happens if MAX_DROPS are already waiting or no tile was found.
+ */
+export function addDrop<T extends IdleWorld>(s: T, rand: () => number): T {
+  if (s.drops.length >= MAX_DROPS) return s;
+  for (let i = 0; i < 60; i++) {
+    const x = CENTER.x + Math.round((rand() - 0.5) * 12);
+    const y = CENTER.y + Math.round((rand() - 0.5) * 12);
+    const taken = s.buildings.some((b) => b.x === x && b.y === y) || s.drops.some((d) => d.x === x && d.y === y);
+    if (!isLand(x, y) || isRoad(s.roads, x, y) || taken) continue;
+    return { ...s, drops: [...s.drops, { id: s.nextDropId, x, y }], nextDropId: s.nextDropId + 1 };
+  }
+  return s;
+}
+
+/** What a crate holds right now: DROP_SECONDS of production, and at least DROP_MIN of each base resource. */
+export function dropContents(s: IdleWorld): Amounts {
+  const rates = ratesOf(s);
+  const out: Amounts = {};
+  for (const id of unlockedResources(s.era)) {
+    const min = id in BASE_RATE ? DROP_MIN * scaleOf(s.era) : 0;
+    const n = Math.floor(Math.max(min, (rates[id] ?? 0) * DROP_SECONDS));
+    if (n > 0) out[id] = n;
+  }
+  return out;
+}
+
+/** Open a crate: what's in it goes into storage (as far as it holds it). */
+export function openDrop<T extends IdleWorld>(s: T, id: number): { state: T; got: Amounts } | string {
+  if (!s.drops.some((d) => d.id === id)) return "die krat is al open";
+  const got = dropContents(s);
+  return { state: { ...receive(s, got), drops: s.drops.filter((d) => d.id !== id) }, got };
+}
+
+export const luckyEvent = (id: string) => LUCKY_EVENTS.find((e) => e.id === id);
+const luckyActive = (s: Pick<IdleWorld, "boosts" | "lastTick">, id: LuckyId) => s.boosts.some((b) => b.item === id && b.until > s.lastTick);
+
+/**
+ * A +1 on the counter may bring luck: LUCKY_CHANCE, at most once per
+ * LUCKY_COOLDOWN_MS (at `lastTick`). Returns the new state and what
+ * happened, or null. `rand` (0..1) decides; the server passes Math.random.
+ */
+export function rollLucky<T extends IdleWorld>(s: T, rand: () => number): { state: T; label: string } | null {
+  const now = s.lastTick;
+  if (now - s.lastLucky < LUCKY_COOLDOWN_MS || rand() >= LUCKY_CHANCE) return null;
+  const options = LUCKY_EVENTS.filter((e) => e.id !== "lucky_merchant" || hasBuilding(s, "shop_market"));
+  const e = options[Math.floor(rand() * options.length) % options.length];
+  const next = { ...s, lastLucky: now };
+  const boost = (resource: ResourceId | null, mult: number) => [...s.boosts.filter((b) => b.item !== e.id), { item: e.id, resource, mult, until: now + LUCKY_MS }];
+  if (e.id === "lucky_gold") {
+    const all = unlockedResources(s.era);
+    const res = all[Math.floor(rand() * all.length) % all.length];
+    return { state: { ...next, boosts: boost(res, LUCKY_GOLD_MULT) }, label: `${e.emoji} ${e.name}: ${resourceDef(res)?.emoji ?? ""} ×${LUCKY_GOLD_MULT} voor 10 minuten` };
+  }
+  if (e.id === "lucky_newcomers") {
+    const n = Math.max(3, Math.round(bedsOf(s) * LUCKY_NEWCOMERS_SHARE));
+    return { state: { ...next, population: s.population + n }, label: `${e.emoji} ${e.name}: ${n} mensen trekken het dorp in` };
+  }
+  if (e.id === "lucky_party") return { state: { ...next, boosts: boost(null, 1) }, label: `${e.emoji} ${e.name}: +${LUCKY_PARTY_POINTS} geluk voor 10 minuten` };
+  return { state: { ...next, boosts: boost(null, 1) }, label: `${e.emoji} ${e.name}: betere koersen op de markt voor 10 minuten` };
+}
 
 // ---------- shop items ----------
 
@@ -750,10 +911,11 @@ export function buyItem<T extends IdleWorld>(s: T, itemId: string): T {
 // ---------- market ----------
 
 /** How much of `to` one `from` buys right now. */
-export function tradeRate(s: Pick<IdleWorld, "buildings" | "perks" | "market">, from: ResourceId, to: ResourceId): number {
+export function tradeRate(s: Pick<IdleWorld, "buildings" | "perks" | "market" | "boosts" | "lastTick">, from: ResourceId, to: ResourceId): number {
   const level = s.buildings.find((b) => b.type === "shop_market")?.level ?? 0;
   const fee = MARKET_FEE + 0.02 * level + 0.05 * perkOf(s, "tradeDeal");
-  return ((worthOf(from) / worthOf(to)) * fee) / (1 + (s.market[to] ?? 0));
+  const merchant = luckyActive(s, "lucky_merchant") ? LUCKY_MERCHANT_MULT : 1;
+  return ((worthOf(from) / worthOf(to)) * fee * merchant) / (1 + (s.market[to] ?? 0));
 }
 
 /**
@@ -887,7 +1049,7 @@ export function buyOutfit<T extends IdleWorld>(s: T, p: IdlePlayer, id: string):
 // ---------- proposals ----------
 
 export function actionCost(s: IdleWorld, action: ProposalAction): Amounts | null {
-  if (action.kind === "build") return buildCost(s, action.type);
+  if (action.kind === "build") return buildingType(action.type)?.category === "wonder" ? wonderCost(s, 0) : buildCost(s, action.type);
   if (action.kind === "roads") return roadCost(s);
   if (action.kind === "paths") return pathCost(s, action.tiles);
   if (action.kind === "unpave" || action.kind === "demolish") return {};
@@ -896,7 +1058,15 @@ export function actionCost(s: IdleWorld, action: ProposalAction): Amounts | null
     return item ? itemCost(s, item) : null;
   }
   const b = s.buildings.find((x) => x.id === action.building);
+  if (action.kind === "wonder") return b ? wonderCost(s, b.stage ?? 0) : null;
   return b ? upgradeCost(s, b) : null;
+}
+
+/** "3 u 05" / "12:30" / "40 s". */
+export function durationText(ms: number): string {
+  const s = Math.max(0, Math.ceil(ms / 1000));
+  if (s >= 3600) return `${Math.floor(s / 3600)} u ${String(Math.floor(s / 60) % 60).padStart(2, "0")}`;
+  return s >= 60 ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}` : `${s} s`;
 }
 
 /** Why this can't happen now, or null if it can. */
@@ -905,6 +1075,13 @@ export function actionError(s: IdleWorld, action: ProposalAction): string | null
   if (action.kind === "build") {
     const err = buildTypeError(s, action.type) ?? placeError(s.buildings, s.roads, action.type, action.x, action.y);
     if (err) return err;
+    if (buildingType(action.type)!.category === "wonder" && !eraGoals(s).every((g) => g.done)) return "eerst de doelen van dit tijdperk halen";
+  } else if (action.kind === "wonder") {
+    const b = s.buildings.find((x) => x.id === action.building);
+    if (!b || buildingType(b.type)?.category !== "wonder") return "onbekend wereldwonder";
+    if (b.stage === undefined) return "al af";
+    const wait = wonderWait(s, b);
+    if (wait !== null) return `de bouwers zijn nog bezig (nog ${durationText(wait)})`;
   } else if (action.kind === "roads") {
     if (s.roadLevel >= s.era) return "al up-to-date";
   } else if (action.kind === "paths") {
@@ -918,6 +1095,7 @@ export function actionError(s: IdleWorld, action: ProposalAction): string | null
     const b = s.buildings.find((x) => x.id === action.building);
     if (!b) return "onbekend gebouw";
     if (buildingType(b.type)?.category === "center") return "het centrum blijft staan";
+    if (buildingType(b.type)?.category === "wonder") return "een wereldwonder blijft staan";
   } else {
     const b = s.buildings.find((x) => x.id === action.building);
     if (!b) return "onbekend gebouw";
@@ -939,6 +1117,11 @@ export function applyAction<T extends IdleWorld>(s: T, action: ProposalAction): 
     return { state: { ...receive(s, refundOf(s, action)), buildings: s.buildings.filter((b) => b.id !== action.building) } };
   }
   const paid = pay(s, actionCost(s, action)!);
+  if (action.kind === "build" && buildingType(action.type)?.category === "wonder") {
+    const { state, building } = addBuilding(paid, action.type, s.era, action);
+    return wonderPhase(state, { ...building, stage: 0 });
+  }
+  if (action.kind === "wonder") return wonderPhase(paid, s.buildings.find((b) => b.id === action.building)!);
   if (action.kind === "build") return addBuilding(paid, action.type, s.era, action);
   if (action.kind === "roads") return { state: { ...paid, roadLevel: s.era } };
   if (action.kind === "paths") return { state: { ...paid, roads: [...s.roads, ...action.tiles].sort((a, b) => a - b) } };
@@ -946,12 +1129,22 @@ export function applyAction<T extends IdleWorld>(s: T, action: ProposalAction): 
   return { state: { ...paid, buildings: paid.buildings.map((b) => (b.id === building.id ? building : b)) }, building };
 }
 
+/** One more phase of a wonder done; after the last one it's finished and the next era starts. */
+function wonderPhase<T extends IdleWorld>(s: T, b: PlacedBuilding): { state: T; building: PlacedBuilding } {
+  const stage = (b.stage ?? 0) + 1;
+  const { stage: _, ready: __, ...rest } = b;
+  const building: PlacedBuilding = stage >= WONDER_PHASES ? rest : { ...rest, stage, ready: s.lastTick + WONDER_BUILD_MS };
+  const state = { ...s, buildings: s.buildings.map((x) => (x.id === b.id ? building : x)) };
+  return { state: stage >= WONDER_PHASES ? unlockEra(state, s.era + 1) : state, building };
+}
+
 const tilesText = (n: number) => (n === 1 ? "1 tegel" : `${n} tegels`);
 
 /** "🛖 Hut bouwen" / "⬆️ Hut → Lemen huis" / "🎉 Groot dorpsfeest kopen" / "🛤️ 12 tegels pad leggen". */
 export function actionLabel(s: Pick<IdleWorld, "buildings" | "era" | "roadLevel">, action: ProposalAction): string {
   if (action.kind === "build") {
-    return `${buildingType(action.type)?.emoji ?? ""} ${buildingName(action.type, s.era)} bouwen`.trim();
+    const phase = buildingType(action.type)?.category === "wonder" ? ` (fase 1/${WONDER_PHASES})` : "";
+    return `${buildingType(action.type)?.emoji ?? ""} ${buildingName(action.type, s.era)} bouwen${phase}`.trim();
   }
   if (action.kind === "buy") {
     const item = shopItem(action.item);
@@ -962,6 +1155,7 @@ export function actionLabel(s: Pick<IdleWorld, "buildings" | "era" | "roadLevel"
   if (action.kind === "unpave") return `⛏️ ${tilesText(action.tiles.length)} pad weghalen`;
   const b = s.buildings.find((x) => x.id === action.building);
   if (action.kind === "demolish") return b ? `🧨 ${buildingName(b.type, b.level)} afbreken` : "afbreken";
+  if (action.kind === "wonder") return b ? `${buildingType(b.type)?.emoji ?? ""} ${buildingName(b.type, b.level)}: fase ${(b.stage ?? 0) + 1}/${WONDER_PHASES}` : "wereldwonder";
   if (!b) return "upgrade";
   return `⬆️ ${buildingName(b.type, b.level)} → ${buildingName(b.type, s.era)}`;
 }
@@ -1039,8 +1233,10 @@ export type IdleEvent =
   /** A vote passed; `building` when something was built or upgraded. */
   | { kind: "bought"; label: string; by: string; building?: PlacedBuilding }
   | { kind: "rejected"; label: string; by: string; reason: string }
-  /** A trade or a small shop item, no vote needed. */
+  /** A trade or a small shop item, no vote needed; or a supply drop opened. */
   | { kind: "deal"; label: string; by: string }
+  /** From the counter: a supply drop landed, or a lucky event. */
+  | { kind: "lucky"; label: string }
   /** Only to the one connection whose request failed. */
   | { kind: "error"; message: string };
 
@@ -1062,4 +1258,6 @@ export type IdleClientMsg =
   | { type: "vote"; id: number; yes: boolean }
   | { type: "trade"; from: ResourceId; to: ResourceId; amount: number; name?: string }
   /** A small shop item (vote: false). */
-  | { type: "buy"; item: string; name?: string };
+  | { type: "buy"; item: string; name?: string }
+  /** Open a supply drop. */
+  | { type: "open"; id: number; name?: string };

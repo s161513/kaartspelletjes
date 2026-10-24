@@ -22,8 +22,11 @@ import {
   MARKET_HALF_LIFE_MS,
   SHOP_ITEMS,
   VOTE_MS,
+  WONDER_BUILD_MS,
+  WONDER_PHASES,
   actionError,
   actionLabel,
+  addDrop,
   advance,
   anchorOf,
   applyAction,
@@ -35,8 +38,10 @@ import {
   buildTypeError,
   buyItem,
   capOf,
+  currentWonder,
+  dropContents,
+  eraGoals,
   classicStreets,
-  eraFor,
   foodKindsOf,
   gatherable,
   gatherPatches,
@@ -52,6 +57,7 @@ import {
   multiplierAt,
   natureAt,
   newIdleState,
+  openDrop,
   patchAt,
   patches,
   pathCost,
@@ -61,6 +67,9 @@ import {
   populationTarget,
   ratesOf,
   refundOf,
+  rollLucky,
+  tradeRate,
+  wonderCost,
   roadCost,
   sourceLeft,
   sourcePatches,
@@ -134,13 +143,6 @@ test("placeBuilding: deterministic, no overlap, never on water or streets, work 
 });
 
 // ---------- rules ----------
-
-test("eraFor: a new era every 67, capped at the last", () => {
-  assert.equal(eraFor(66), 0);
-  assert.equal(eraFor(67), 1);
-  assert.equal(eraFor(134), 2);
-  assert.equal(eraFor(100_000), ERAS.length - 1);
-});
 
 test("workers: round robin over work buildings, leftovers idle, production follows staff", () => {
   const s = newIdleState(T0); // 2 huts × 3 = 6 villagers, 2 jobs × 2 slots
@@ -350,6 +352,109 @@ test("population: villagers move in to a happy town, also without a bed, and lea
   assert.equal(populationTarget(bland, T0), 6 * 0.8);
   assert.ok(near(advance(bland, T0 + 60 * 60_000).population, 4.8));
   assert.equal(s.population, 6, "pure");
+});
+
+/** The Stone Age goals met: 15 people, three kinds of food, a barn. */
+function readyTown(): IdleState {
+  let s = rich(newIdleState(T0));
+  for (const t of ["storage", "farm", "fishery"]) s = build(s, t);
+  for (let i = 0; i < 3; i++) s = build(s, "house");
+  return { ...s, population: 15 };
+}
+
+test("eras: goals first, then the world wonder in phases; its last phase starts the next era", () => {
+  const fresh = newIdleState(T0);
+  const goals = eraGoals(fresh);
+  assert.deepEqual(goals.map((g) => [g.label, g.have, g.done]), [
+    ["👥 15 inwoners", 6, false],
+    ["😊 minstens 50% geluk", 50, true],
+    ["🍽️ 3 soorten voedsel", 2, false],
+    ["🏚️ een Schuur", 0, false],
+  ]);
+  const spot = (st: IdleState) => ({ kind: "build" as const, type: "wonder_0", ...placeBuilding(st.buildings, "decor_flowers")! });
+  assert.equal(actionError(rich(fresh), spot(fresh)), "eerst de doelen van dit tijdperk halen");
+  assert.equal(actionError(rich(fresh), { ...spot(fresh), type: "wonder_1" }), "nog niet ontgrendeld");
+
+  let s = readyTown();
+  assert.ok(eraGoals(s).every((g) => g.done), JSON.stringify(eraGoals(s)));
+  assert.equal(actionLabel(s, spot(s)), `🗿 Stonehenge bouwen (fase 1/${WONDER_PHASES})`);
+  assert.equal(actionError({ ...s, resources: {} }, spot(s)), "te duur");
+  const before = s.resources.wood;
+  s = applyAction(s, spot(s)).state;
+  const w = currentWonder(s)!;
+  assert.deepEqual([w.type, w.stage, w.ready], ["wonder_0", 1, T0 + WONDER_BUILD_MS]);
+  assert.equal(before - s.resources.wood, wonderCost(s, 0).wood);
+  assert.equal(actionError(s, spot(s)), "bestaat al");
+  const next = { kind: "wonder" as const, building: w.id };
+  assert.match(actionError(s, next)!, /^de bouwers zijn nog bezig \(nog 6 u 00\)$/);
+  assert.equal(actionError(s, { kind: "demolish", building: w.id }), "een wereldwonder blijft staan");
+
+  // Each phase costs more; after the last one it's done and the Bronze Age begins.
+  assert.ok(wonderCost(s, 1).wood > wonderCost(s, 0).wood);
+  for (let phase = 1; phase < WONDER_PHASES; phase++) {
+    s = { ...s, lastTick: currentWonder(s)!.ready! };
+    assert.equal(actionLabel(s, next), `🗿 Stonehenge: fase ${phase + 1}/${WONDER_PHASES}`);
+    assert.equal(actionError(s, next), null);
+    s = applyAction(s, next).state;
+  }
+  assert.equal(s.era, 1);
+  const done = s.buildings.find((b) => b.id === w.id)!;
+  assert.deepEqual([done.stage, done.ready, done.level], [undefined, undefined, 0], "finished, it stays as a Stone Age monument");
+  assert.equal(currentWonder(s), null, "the Bronze Age has its own wonder");
+  assert.equal(eraGoals(s)[0].label, "👥 30 inwoners");
+  assert.equal(actionError(s, next), "al af");
+  assert.equal(actionError(s, { ...spot(s), type: "wonder_0" }), "bestaat al");
+  assert.equal(eraGoals(unlockEra(s, ERAS.length - 1)).length, 0, "nothing after the last era");
+});
+
+test("supply drops: a crate lands on free land near the center and holds a few minutes of production", () => {
+  const s = newIdleState(T0);
+  let r = 0;
+  const rand = () => ((r = (r * 9301 + 49297) % 233280) / 233280);
+  let t = addDrop(s, rand);
+  assert.equal(t.drops.length, 1);
+  const [d] = t.drops;
+  assert.ok(isLand(d.x, d.y) && !isRoad(t.roads, d.x, d.y) && !t.buildings.some((b) => b.x === d.x && b.y === d.y));
+  assert.ok(Math.abs(d.x - CENTER.x) <= 6 && Math.abs(d.y - CENTER.y) <= 6);
+  for (let i = 0; i < 5; i++) t = addDrop(t, rand);
+  assert.equal(t.drops.length, 3, "at most three wait");
+
+  // Five minutes of production, at least 30 of each base resource.
+  const got = dropContents(t);
+  assert.equal(got.food, Math.floor(ratesOf(t).food * 300));
+  assert.equal(got.stone, 30);
+  const opened = openDrop({ ...t, resources: {} }, d.id);
+  assert.ok(typeof opened !== "string");
+  assert.deepEqual(opened.state.resources, got);
+  assert.equal(opened.state.drops.length, 2);
+  assert.equal(openDrop(opened.state, d.id), "die krat is al open");
+});
+
+test("lucky events: now and then on a +1, at most once per half hour", () => {
+  const s = { ...build(rich(newIdleState(T0)), "shop_market"), lastTick: T0 + 3600_000 };
+  const seq = (...xs: number[]) => () => xs.shift() ?? 0;
+  assert.equal(rollLucky(s, seq(0.5)), null, "not this time");
+  assert.equal(rollLucky({ ...s, lastLucky: s.lastTick - 60_000 }, seq(0)), null, "cooling down");
+
+  const gold = rollLucky(s, seq(0, 0, 0.5))!;
+  assert.match(gold.label, /^🌟 Gouden uur: 🪵 ×3 voor 10 minuten$/);
+  assert.equal(multiplierAt(gold.state, "wood", s.lastTick), 3);
+  assert.equal(gold.state.lastLucky, s.lastTick);
+
+  const come = rollLucky(s, seq(0, 0.3))!;
+  assert.equal(come.label, "🧳 Nieuwkomers: 3 mensen trekken het dorp in");
+  assert.equal(come.state.population, s.population + 3);
+
+  const party = rollLucky(s, seq(0, 0.6))!;
+  assert.equal(happinessOf(party.state, s.lastTick).level, happinessOf(s, s.lastTick).level + 20);
+  assert.equal(multiplierAt(party.state, "wood", s.lastTick), 1, "no production boost");
+
+  const merchant = rollLucky(s, seq(0, 0.9))!;
+  assert.ok(merchant.label.startsWith("🐪 Rondtrekkende koopman"));
+  assert.ok(near(tradeRate(merchant.state, "wood", "stone"), tradeRate(s, "wood", "stone") * 1.5));
+  // No merchant without a market.
+  const noMarket = { ...newIdleState(T0), lastTick: T0 + 3600_000 };
+  assert.ok(!rollLucky(noMarket, seq(0, 0.99))!.label.includes("koopman"));
 });
 
 test("boost stacks by 67 s, up to an hour ahead", () => {
@@ -659,7 +764,7 @@ test("idle game: propose + vote builds and places, state survives a reload, v1 f
 
     game.flush();
     const saved = JSON.parse(readFileSync(file, "utf8"));
-    assert.equal(saved.v, 5);
+    assert.equal(saved.v, 6);
     assert.deepEqual(saved.roads, msg.state.roads);
     const reloaded = createIdleGame(file, T0 + 1000);
     assert.equal(reloaded.message("a", 0, 0, 1, T0 + 1000).state.buildings.length, msg.state.buildings.length);
@@ -731,18 +836,17 @@ test("idle game: at most MAX_PROPOSALS votes are open at once", () => {
   }
 });
 
-test("idle game: a v2 file keeps its town; trades and small buys are instant, big ones go to a vote", () => {
+test("idle game: a saved town is kept; trades and small buys are instant, big ones go to a vote", () => {
   const dir = mkdtempSync(path.join(tmpdir(), "idle-"));
   try {
     const file = path.join(dir, "idle.json");
     const { boosts: _b, perks: _p, market: _m, ...town } = build(build(rich(newIdleState(T0)), "shop_market"), "shop_tavern");
-    writeFileSync(file, JSON.stringify({ ...town, v: 2, resources: { food: 300, wood: 300, stone: 300 } }));
+    writeFileSync(file, JSON.stringify({ ...town, resources: { food: 300, wood: 300, stone: 300 } }));
     const game = createIdleGame(file, T0);
     const first = game.message("a", 0, 0, 1, T0).state;
     assert.equal(first.buildings.length, town.buildings.length);
-    assert.deepEqual(first.roads, classicStreets(town.buildings), "old towns get their grid streets as paths");
+    assert.deepEqual(first.roads, town.roads);
     assert.deepEqual([first.boosts, first.perks, first.market], [[], {}, {}]);
-    assert.equal(first.population, bedsOf(town), "a villager per bed, as houses gave them before");
 
     assert.deepEqual(game.trade("a", "  Ann ", "wood", "stone", 100, T0).events, [{ kind: "deal", label: "100 🪵 → 40 🪨", by: "Ann" }]);
     assert.equal(game.trade("a", "Ann", "wood", "wood", 1, T0).error, "onbekende ruil");
@@ -764,18 +868,22 @@ test("idle game: a v2 file keeps its town; trades and small buys are instant, bi
   }
 });
 
-test("idle game: the old food building becomes a farm, in the town and in open votes", () => {
+test("idle game: a town from before update 8 starts over; players keep their name and look, not what they bought", () => {
   const dir = mkdtempSync(path.join(tmpdir(), "idle-"));
   try {
     const file = path.join(dir, "idle.json");
-    const town = newIdleState(T0);
-    const spot = placeBuilding(town.buildings, "farm")!;
-    const proposal = { id: 1, action: { kind: "build", type: "food", ...spot }, by: "Ann", votes: { a: true }, deadline: T0 + VOTE_MS };
-    const old = { ...town, buildings: [...town.buildings, { id: 50, type: "food", level: 0, x: 1, y: 1 }], proposals: [proposal], nextProposalId: 2 };
-    writeFileSync(file, JSON.stringify(old));
-    const msg = createIdleGame(file, T0).message("a", 0, 0, 1, T0);
-    assert.equal(msg.state.buildings.find((b) => b.id === 50)?.type, "farm");
-    assert.deepEqual(msg.proposals[0].action, { kind: "build", type: "farm", ...spot });
+    const town = build(rich(newIdleState(T0)), "storage");
+    const ann = { name: "Ann", look: { skin: 2, clothes: 5, hat: "crown", pattern: "stripes" }, owned: ["crown"], seen: T0 };
+    writeFileSync(file, JSON.stringify({ ...town, v: 5, era: 4, players: { "0123456789ab": ann } }));
+    const s = createIdleGame(file, T0).message("a", 0, 0, 1, T0).state;
+    assert.deepEqual([s.era, s.buildings.length, s.resources], [0, 5, newIdleState(T0).resources], "a fresh town");
+    const game = createIdleGame(file, T0);
+    game.hello("t", "0123456789abcdef-secret", "x", T0);
+    // Not this key's player, so look at the file once it's saved again.
+    game.flush();
+    const saved = JSON.parse(readFileSync(file, "utf8"));
+    assert.equal(saved.v, 6);
+    assert.deepEqual(saved.players["0123456789ab"], { ...ann, owned: [], look: { skin: 2, clothes: 5, hat: "none", pattern: "stripes" } });
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -880,7 +988,7 @@ class Peer {
 const event = (kind: string) => (m: any) => m.type === "idleEvent" && m.event.kind === kind;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-test("counter socket: 67 unlocks an era, gatherers reach the others, vote builds, upgrade works", async () => {
+test("counter socket: a new 67 drops a crate, gatherers reach the others, vote builds", async () => {
   const dir = mkdtempSync(path.join(tmpdir(), "counter-"));
   const file = path.join(dir, "counter.json");
   writeFileSync(file, JSON.stringify({ count: 60 })); // format from before `peak`
@@ -929,26 +1037,33 @@ test("counter socket: 67 unlocks an era, gatherers reach the others, vote builds
     assert.ok(Number.isInteger(bought.event.building.x));
     await a.wait<IdleStateMsg>((m) => m.type === "idle" && m.state.buildings.some((x) => x.id === bought.event.building.id));
 
-    // 7 × +1: era 1 for everyone; a − doesn't take it back.
+    // 7 × +1 reaches 67: a crate lands for everyone, the era stays (the town earns that itself).
     await sleep(1100); // fresh rate-limit window
     for (let i = 0; i < 7; i++) a.send({ type: "inc" });
-    assert.equal((await a.wait(event("era"))).event.era, 1);
-    assert.equal((await b.wait(event("era"))).event.era, 1);
+    const isDrop = (m: { type: string; event?: { kind: string; label?: string } }) => m.type === "idleEvent" && m.event?.kind === "lucky" && !!m.event.label?.startsWith("📦");
+    await a.wait(isDrop);
+    await b.wait(isDrop);
+    const crate = await b.wait<IdleStateMsg>((m) => m.type === "idle" && m.state.drops.length === 1);
+    assert.equal(crate.state.era, 0);
     b.send({ type: "dec" });
     const afterDec = await b.wait((m) => m.type === "count" && m.delta === -1);
     assert.equal(afterDec.peak, 67);
-    const bronze = await b.wait<IdleStateMsg>((m) => m.type === "idle" && m.state.era === 1);
-    assert.equal(bronze.state.era, 1);
+    // b opens it, once.
+    b.send({ type: "open", id: crate.state.drops[0].id, name: "Bob" });
+    const opened = await a.wait(event("deal"));
+    assert.ok(opened.event.label.startsWith("📦 supply drop: +"));
+    await a.wait<IdleStateMsg>((m) => m.type === "idle" && m.state.drops.length === 0);
+    b.send({ type: "open", id: crate.state.drops[0].id });
+    assert.equal((await b.wait(event("error"))).event.message, "die krat is al open");
 
-    // Upgrading the hut needs bronze, which nobody has yet.
     await sleep(1100);
     a.send({ type: "propose", action: { kind: "upgrade", building: bought.event.building.id } });
-    assert.equal((await a.wait(event("error"))).event.message, "te duur");
-    a.send({ type: "propose", action: at(rich, "decor_menhir") });
+    assert.equal((await a.wait(event("error"))).event.message, "al up-to-date");
+    a.send({ type: "propose", action: at(rich, "decor_statue67") });
     assert.equal((await a.wait(event("error"))).event.message, "eerst een Beeldhouwer bouwen");
     // Shop messages reach the game too.
     a.send({ type: "trade", from: "wood", to: "stone", amount: 10 });
-    assert.equal((await a.wait(event("error"))).event.message, "eerst een Marktkraam bouwen");
+    assert.equal((await a.wait(event("error"))).event.message, "eerst een Ruilplaats bouwen");
     a.send({ type: "buy", item: "party" });
     assert.equal((await a.wait(event("error"))).event.message, "hiervoor is een stemming nodig");
     // A path proposal of the biggest size fits through the socket (here: all water, at the map's edge).

@@ -61,7 +61,7 @@ Daarnaast blijft gelden:
 
 | Wat | Bestand |
 | --- | --- |
-| Regels: productie, geluk, kosten, stemmen, paden, afbreken, doelen en wonderen, supply drops | `shared/idle.ts` |
+| Regels: productie (ook mijnen en smeden), geluk, kosten, stemmen, paden, afbreken, doelen en wonderen, supply drops | `shared/idle.ts` |
 | Getallen en content: grondstoffen, tijdperken (doelen, wonderen), gebouwen, winkels, gelukjes | `shared/idleContent.ts` |
 | Kaart, natuur, waar gebouwen en paden mogen | `shared/idleMap.ts` |
 | Server: opslag (`data/idle.json`), invoercontrole, stemmen afhandelen | `server/src/idle.ts`, `server/src/counter.ts` |
@@ -233,19 +233,28 @@ geeft alleen nog extra's.
       hoeft. (bron: Richard, "de game resetten na deze updates")
 
 ### Update 9: Mijnen & smeden
-Status: bezig.
+Status: in review (PR #35).
 
 Afgesproken met Richard (2026-10-25): één soort Mijn, tegen de berg; de
 spelers stemmen welk erts hij delft (alles wat ontgrendeld is). Kolen vanaf
 de IJzertijd. De wapensmid en harnassmid maken wapens en harnassen uit metaal
 en kolen, en verbruiken die.
 
-- [ ] Mijnen als echte bouwplek voor steen en erts, en meer mijnen dan alleen
-      bij de ertsaders. (bron: "Mines")
-- [ ] Kolen eerder of belangrijker maken: nu komen ze pas in de Industriële
-      revolutie. (bron: "coal")
-- [ ] Een wapensmid en een harnassmid, nodig voor update 10. (bron: "weapon
-      smith", "armor smith")
+- [x] Mijnen als echte bouwplek voor steen en erts, en meer mijnen dan alleen
+      bij de ertsaders. Gedaan: de 🏔️ Mijn (Vuursteenmijn in de Steentijd)
+      staat hoogstens `MINE_RANGE` (5) tegels van de berg. Hij raakt nooit op,
+      maar maakt de helft (`oreShare`) van een groeve of een mijn bij de ader.
+      Een stemming "⛏️ … delven" zet hem op een ander erts (`ore` op het
+      gebouw), gratis. (bron: "Mines")
+- [x] Kolen eerder of belangrijker maken: nu komen ze pas in de Industriële
+      revolutie. Gedaan: kolen, de Kolenlaag en de Kolenmijn vanaf de
+      IJzertijd. De Industriële revolutie houdt kolen als speciale
+      grondstof voor de bouwkosten. (bron: "coal")
+- [x] Een wapensmid en een harnassmid, nodig voor update 10. Gedaan: vanaf de
+      IJzertijd. Ze maken 🗡️ wapens en 🛡️ harnassen en gebruiken per stuk
+      1 ijzer en 1 kolen (`consumes`). Zonder die voorraad staan ze stil. De
+      winkel Smederij heet in de IJzertijd nu Smidse. (bron: "weapon smith",
+      "armor smith")
 
 ### Update 10: Vijanden & muren
 Status: gepland. Steunt op update 9.
@@ -385,3 +394,6 @@ een update worden opgenomen als het past.
 - **Berichtgrootte:** `MAX_PATH_TILES` (150) en de `maxPayload` van de
   counter-socket (2048 bytes) horen bij elkaar. Verhoog je het ene, controleer
   dan het andere. Daar is een test voor.
+- **Smeden in de browser:** de smeden gebruiken ijzer en kolen uit de opslag.
+  De browser rekent dat na met dezelfde `advance`. Tussen twee berichten van
+  de server kan de HUD dus even een andere voorraad tonen dan de server.

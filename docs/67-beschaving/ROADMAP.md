@@ -286,20 +286,31 @@ tijdje minder gelukkig.
       stemming 🔧 het herstelt, voor 30% van de bouwprijs.
 
 ### Update 11: Uiterlijk
-Status: gepland.
+Status: in review (PR #37).
 
 Afgesproken met Richard (2026-10-25): installeer `create-game-assets`,
 `game-feel`, `procedural-gen` en `tower-defense` (die laatste voor update 10)
 in `~/.claude/skills`, niet in de repo.
 
-- [ ] Uitzoeken welke skills uit
+- [x] Uitzoeken welke skills uit
       https://github.com/gamedev-skills/awesome-gamedev-agent-skills bruikbaar
-      zijn. Installeren pas na een ok van Richard. (bron: "gebruik skills van
-      gamedev")
-- [ ] Nieuwe textures, met die skills. (bron: "Retexturing nadat de gamedev
-      skills erdoor zijn gegaan")
-- [ ] De tijdperken moeten echt historisch aanvoelen. (bron: "Tijdperk voelt
-      nu niet als prehistory")
+      zijn. Installeren pas na een ok van Richard. Gedaan: de meeste skills
+      gaan over engines (Godot, Unity, …); deze vier passen bij een spel dat
+      alles zelf op een canvas tekent. Ze staan in `~/.claude/skills`, niet
+      in de repo. (bron: "gebruik skills van gamedev")
+- [x] Nieuwe textures, met die skills. Gedaan: de art direction staat boven
+      in `client/src/world/draw.ts` (licht van linksboven, geen omlijning,
+      een vormentaal per tijdperk). Het gras heeft een zachte ruis (value
+      noise), plukjes gras en hier en daar een bloempje, wilder in de vroege
+      tijdperken (`procedural-gen`). Een nieuw gebouw "popt" omhoog (squash
+      & stretch, `game-feel`), en bij een aanval schudt het beeld. (bron:
+      "Retexturing nadat de gamedev skills erdoor zijn gegaan")
+- [x] De tijdperken moeten echt historisch aanvoelen. Gedaan voor het begin:
+      in de Steentijd wonen de mensen in tipi's van huiden, en de rest
+      bestaat uit ronde hutten van leem onder een strokegel. De uitkijkpost
+      staat op palen. In de Bronstijd is alles een groot rond huis (Keltisch
+      roundhouse). Vanaf de IJzertijd blijven het rechthoekige huizen.
+      (bron: "Tijdperk voelt nu niet als prehistory")
 
 ### Update 12: Balans
 Status: gepland. Bouw deze pas als er een paar dagen gespeeld is, en na

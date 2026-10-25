@@ -20,6 +20,8 @@ import {
   type PlacedBuilding,
   type ProposalAction,
   type ResourceId,
+  RAID_WARNING_MS,
+  type RaidStage,
 } from "@app/shared/idle";
 import {
   RESOURCE_COLORS,
@@ -34,6 +36,8 @@ import {
   drawMountain,
   drawNameTag,
   drawRoadDetail,
+  drawWall,
+  drawRaiders,
   drawRock,
   drawUsedUp,
   drawTree,
@@ -74,6 +78,8 @@ export interface TownWorld {
   built(b: PlacedBuilding): void;
   cheer(): void;
   celebrate(): void;
+  /** Enemies: seen coming, beaten or not (the building they set on fire). */
+  raid(stage: RaidStage, damaged?: number): void;
   select(id: number | null): void;
   /** Ring a villager, or none. */
   selectVillager(id: string | null): void;
@@ -128,6 +134,10 @@ export function createWorld(opts: WorldOptions): TownWorld {
   /** The streets as text, so the far-away picture is redrawn when they change (paths clear nature, bridges cross water). */
   let roadsKey = "";
   let roadLevel = 0;
+  /** Wall tiles, as "x,y". */
+  let walls = new Set<string>();
+  /** Screen shake: 0..1, decaying; the shake is its square, so small knocks barely move. */
+  let trauma = 0;
   let landCache: { key: string; canvas: HTMLCanvasElement } | null = null;
   /** Used-up nature, as "x,y" (redrawn from scratch when it changes). */
   let usedUp = new Set<string>();
@@ -481,7 +491,11 @@ export function createWorld(opts: WorldOptions): TownWorld {
     ctx.fillStyle = "#1d4f86";
     ctx.fillRect(0, 0, cam.width, cam.height);
     const z = cam.zoom * dpr;
-    ctx.setTransform(z, 0, 0, z, dpr * (cam.width / 2 - cam.x * cam.zoom), dpr * (cam.height / 2 - cam.y * cam.zoom));
+    // Shake only the picture, never the camera itself (clicks keep landing where they should).
+    const sh = reducedMotion.matches ? 0 : trauma * trauma;
+    const sx = sh * 10 * Math.sin(t / 23);
+    const sy = sh * 6 * Math.sin(t / 31 + 1);
+    ctx.setTransform(z, 0, 0, z, dpr * (cam.width / 2 - cam.x * cam.zoom + sx), dpr * (cam.height / 2 - cam.y * cam.zoom + sy));
 
     // Visible tile range (with margin for tall things below the screen edge).
     const corners = [[0, 0], [cam.width, 0], [0, cam.height], [cam.width, cam.height]].map(([x, y]) => {
@@ -518,8 +532,13 @@ export function createWorld(opts: WorldOptions): TownWorld {
 
     // Tile outlines under everything standing: a vote's tiles (yellow, red to remove), the
     // paths being drawn, placing or painting (green/red), the build popup's tile (yellow).
-    if (ghost?.kind === "paths" || ghost?.kind === "unpave") {
-      for (const i of ghost.tiles) outline(tileOf(i).x, tileOf(i).y, ghost.kind === "paths" ? "#ffe82e" : "#ff3b3b");
+    if (ghost?.kind === "paths" || ghost?.kind === "unpave" || ghost?.kind === "walls" || ghost?.kind === "unwall") {
+      for (const i of ghost.tiles) outline(tileOf(i).x, tileOf(i).y, ghost.kind === "paths" || ghost.kind === "walls" ? "#ffe82e" : "#ff3b3b");
+    }
+    if (ghost?.kind === "repair") {
+      const id = ghost.building;
+      const b = world?.buildings.find((x) => x.id === id);
+      if (b) outline(b.x, b.y, "#ffe82e");
     }
     if (ghost?.kind === "demolish") {
       const id = ghost.building;
@@ -534,6 +553,23 @@ export function createWorld(opts: WorldOptions): TownWorld {
     for (const b of world?.buildings ?? []) {
       if (b.x < x0 - 1 || b.x > x1 || b.y < y0 - 1 || b.y > y1) continue;
       items.push({ d: b.x + b.y + 1.01, f: () => drawBuilding(ctx, b, t, b.id === selected) });
+    }
+    for (const key of walls) {
+      const [x, y] = key.split(",").map(Number);
+      if (x < x0 - 1 || x > x1 || y < y0 - 1 || y > y1) continue;
+      const links = ([[1, 0], [-1, 0], [0, 1], [0, -1]] as const).filter(([dx, dy]) => walls.has(`${x + dx},${y + dy}`));
+      const c = toWorld(x + 0.5, y + 0.5);
+      items.push({ d: x + y + 1.005, f: () => drawWall(ctx, c.x, c.y, world?.wallLevel ?? 0, links, t) });
+    }
+    const raid = world?.raid;
+    if (raid) {
+      // They march from the edge of the map towards the town, and wait just outside it.
+      const k = Math.max(0, Math.min(1, 1 - (raid.at - now) / RAID_WARNING_MS)) * 0.8;
+      const fx = raid.from.x + (CENTER.x - raid.from.x) * k + 0.5;
+      const fy = raid.from.y + (CENTER.y - raid.from.y) * k + 0.5;
+      const p = toWorld(fx, fy);
+      const n = Math.max(3, Math.min(12, Math.round(raid.strength / 8)));
+      items.push({ d: fx + fy + 0.03, f: () => drawRaiders(ctx, p.x, p.y, n, era, t) });
     }
     for (const d of world?.drops ?? []) {
       if (d.x < x0 - 1 || d.x > x1 || d.y < y0 - 1 || d.y > y1) continue;
@@ -658,6 +694,7 @@ export function createWorld(opts: WorldOptions): TownWorld {
     if (document.hidden) return;
     const dt = Math.min(0.1, (t - last) / 1000);
     last = t;
+    trauma = Math.max(0, trauma - dt * 0.9);
     pop.update(dt, Date.now());
     wild.update(dt, Date.now());
     draw(t);
@@ -705,6 +742,7 @@ export function createWorld(opts: WorldOptions): TownWorld {
       if (changed) setTown(w.buildings, w.roads);
       world = w;
       roadLevel = w.roadLevel;
+      walls = new Set(w.walls.map((i) => `${tileOf(i).x},${tileOf(i).y}`));
       // Which tiles are used up only changes when a patch crosses a tile's worth.
       const all = patches();
       const key = Object.entries(w.nature)
@@ -733,6 +771,16 @@ export function createWorld(opts: WorldOptions): TownWorld {
     },
     cheer() {
       pop.cheer(Date.now());
+    },
+    raid(stage, damaged) {
+      trauma = Math.min(1, trauma + (stage === "lost" ? 0.9 : stage === "won" ? 0.4 : 0.3));
+      const b = damaged === undefined ? undefined : world?.buildings.find((x) => x.id === damaged);
+      if (b) {
+        const p = toWorld(b.x + 0.5, b.y + 0.5);
+        burst(p.x, p.y - 16, "#f97316", 30, 90, 1400);
+        burst(p.x, p.y - 16, "#3f3f46", 20, 50, 1800);
+      }
+      if (stage === "won") pop.cheer(Date.now());
     },
     celebrate() {
       const c = toWorld(CENTER.x + 0.5, CENTER.y + 0.5);

@@ -1,5 +1,5 @@
-// Everything drawn in the town: ground, streets, nature, buildings, world
-// wonders (with scaffolding while they go up), supply drops,
+// Everything drawn in the town: ground, streets, walls, nature, buildings, world
+// wonders (with scaffolding while they go up), buildings on fire, raiders, supply drops,
 // decorations, animals and the villagers (players' own NPCs included). All shapes are simple isometric boxes and polygons in code; the
 // look per era comes from ERAS[level].style (shared/idleContent.ts).
 
@@ -391,6 +391,10 @@ function shapeOf(b: PlacedBuilding): Shape {
   const cat = buildingType(b.type)?.category;
   const roofH = (r: RoofType) => (r === "cone" ? 16 : r === "gable" ? 11 : r === "dome" ? 14 : 0);
   if (cat === "decor") return { w: 0.5, h: 30, roof: "none", roofH: 0, float: 0 };
+  if (cat === "defense") {
+    const r: RoofType = b.level <= 1 ? "cone" : style.roofType === "dome" ? "dome" : style.roofType === "flat" ? "flat" : "cone";
+    return { w: 0.42, h: 28 + b.level * 2, roof: r, roofH: roofH(r) + 2, float: 0 };
+  }
   if (cat === "wonder") return { w: 1, h: 60, roof: "none", roofH: 0, float: 0 };
   if (cat === "center") {
     if (b.level === 0) return { w: 0.6, h: 14, roof: "none", roofH: 0, float: 0 };
@@ -748,6 +752,119 @@ export function drawBuilding(ctx: Ctx, b: PlacedBuilding, t: number, selected: b
     poly(ctx, [cx - 2, cy + 12, cx + 6, cy + 8, cx + 6, cy + 2, cx - 2, cy + 6], "#8b5a2b");
   }
   if (type.category === "shop") shopSign(ctx, type.emoji, cx, by - s.h - s.roofH - 8, t + b.id * 500);
+  if (type.category === "defense") {
+    // A lookout under the roof and a pennant on top.
+    const ly = by - s.h + 6;
+    ctx.fillStyle = "#141414";
+    ctx.fillRect(cx - 6, ly - 4, 3, 4);
+    ctx.fillRect(cx + 3, ly - 3, 3, 4);
+    const fy = by - s.h - s.roofH;
+    ctx.strokeStyle = "#333";
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(cx, fy);
+    ctx.lineTo(cx, fy - 12);
+    ctx.stroke();
+    poly(ctx, [cx, fy - 12, cx + 9, fy - 10 + Math.sin(t / 260 + b.id) * 1.5, cx, fy - 8], "#dc2626");
+  }
+  if (b.damaged) burning(ctx, cx, by - s.h, t + b.id * 777);
+}
+
+/** A building set on fire by raiders: flames and black smoke. */
+function burning(ctx: Ctx, cx: number, top: number, t: number): void {
+  for (let i = 0; i < 3; i++) {
+    const x = cx - 8 + i * 8;
+    const f = Math.sin(t / 80 + i * 2) * 2.5;
+    poly(ctx, [x - 5, top + 4, x + 5, top + 4, x + f, top - 12 - (i % 2) * 4], "#f97316");
+    poly(ctx, [x - 3, top + 4, x + 3, top + 4, x - f * 0.5, top - 6], "#fde047");
+  }
+  smoke(ctx, cx, top - 14, t, "rgba(30,30,30,");
+}
+
+// ---------- walls ----------
+
+/** Wall looks by level: wooden stakes, earth, stone, concrete, light. */
+function wallStyle(level: number): { kind: "stakes" | "stone" | "energy"; color: string; h: number } {
+  if (level <= 1) return { kind: "stakes", color: level === 0 ? "#8b5a2b" : "#7a5a3a", h: 13 + level * 2 };
+  if (level <= 7) return { kind: "stone", color: ["", "", "#9a9184", "#d8cfbf", "#a8a29e", "#b45f45", "#8a8580", "#b8bcc2"][level], h: 14 + level };
+  return { kind: "energy", color: ["#22f0ff", "#7dd3fc", "#b06bff"][Math.min(level - 8, 2)], h: 18 };
+}
+
+/**
+ * A wall tile standing on (cx, cy): a post, and a half-segment towards every
+ * neighboring wall tile (`links`: tile steps), so the wall joins up.
+ */
+export function drawWall(ctx: Ctx, cx: number, cy: number, level: number, links: readonly (readonly [number, number])[], t: number): void {
+  const st = wallStyle(level);
+  const ends = links.length ? links : [[0, 0] as const];
+  for (const [dx, dy] of ends) {
+    const ex = cx + ((dx - dy) * HW) / 2;
+    const ey = cy + ((dx + dy) * HH) / 2;
+    if (st.kind === "energy") {
+      const a = 0.45 + 0.2 * Math.sin(t / 300 + cx * 0.05);
+      ctx.globalAlpha = a;
+      poly(ctx, [cx, cy, ex, ey, ex, ey - st.h, cx, cy - st.h], st.color);
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = st.color;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - st.h);
+      ctx.lineTo(ex, ey - st.h);
+      ctx.stroke();
+      continue;
+    }
+    if (st.kind === "stakes") {
+      // Pointed stakes along the segment.
+      for (let i = 0; i <= 3; i++) {
+        const k = i / 3;
+        const x = cx + (ex - cx) * k;
+        const y = cy + (ey - cy) * k;
+        const h = st.h - (i % 2) * 2;
+        poly(ctx, [x - 2, y, x + 2, y, x + 2, y - h, x, y - h - 3, x - 2, y - h], shade(st.color, (i % 2) * 0.1));
+      }
+      continue;
+    }
+    // Stone: a block with a lighter top and battlements.
+    const face = dx - dy > 0 ? -0.25 : dx - dy < 0 ? -0.1 : -0.15;
+    poly(ctx, [cx - 2, cy, ex - 2, ey, ex - 2, ey - st.h, cx - 2, cy - st.h], shade(st.color, face));
+    poly(ctx, [cx - 2, cy - st.h, ex - 2, ey - st.h, ex + 2, ey - st.h - 2, cx + 2, cy - st.h - 2], shade(st.color, 0.15));
+    for (const k of [0.25, 0.75]) {
+      const x = cx + (ex - cx) * k;
+      const y = cy + (ey - cy) * k - st.h;
+      poly(ctx, [x - 2, y, x + 2, y, x + 2, y - 3, x - 2, y - 3], shade(st.color, 0.05));
+    }
+  }
+  // The post where segments meet.
+  box(ctx, cx, cy, 0.12, st.h + 3, st.kind === "energy" ? "#334155" : st.color, shade(st.kind === "energy" ? "#334155" : st.color, 0.2));
+  if (st.kind === "energy") ellipse(ctx, cx, cy - st.h - 5, 2, 2, st.color);
+}
+
+// ---------- raiders ----------
+
+const RAIDER_CLOTHES = ["#7f1d1d", "#3f3f46", "#78350f"];
+
+/** A band of raiders marching on (x, y), with a black banner. */
+export function drawRaiders(ctx: Ctx, x: number, y: number, n: number, level: number, t: number): void {
+  const spots: [number, number][] = [];
+  for (let i = 0; i < n; i++) spots.push([((i % 4) - 1.5) * 9 + (Math.floor(i / 4) % 2) * 4, Math.floor(i / 4) * 6 - 6]);
+  spots.sort((a, b) => a[1] - b[1]);
+  // The banner behind them.
+  ctx.strokeStyle = "#1f1f1f";
+  ctx.lineWidth = 1.4;
+  ctx.beginPath();
+  ctx.moveTo(x - 14, y - 6);
+  ctx.lineTo(x - 14, y - 40);
+  ctx.stroke();
+  poly(ctx, [x - 14, y - 40, x + 2, y - 37 + Math.sin(t / 200) * 2, x - 14, y - 30], "#111");
+  ctx.fillStyle = "#e5e5e5";
+  ctx.font = "bold 7px sans-serif";
+  ctx.fillText("☠", x - 11, y - 33);
+  for (const [i, [dx, dy]] of spots.entries()) {
+    drawVillager(ctx, x + dx, y + dy, {
+      clothes: RAIDER_CLOTHES[i % RAIDER_CLOTHES.length], skin: "#c68642", level, walking: true, phase: t + i * 137,
+      action: "none", tool: "spear", carry: null, jump: 0,
+    });
+  }
 }
 
 /** A mine: a rocky mound with a timbered entrance, rails and a cart of what it digs. */

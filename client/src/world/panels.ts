@@ -2,8 +2,8 @@
 // town center's overview (the era's goals and world wonder, the population), the
 // open votes on the right, the popup on a clicked tile (build there, or upgrade the
 // streets), the building inspector (which is the shop window for shops, and
-// where buildings are torn down), the "choose a spot" banner for decorations
-// and the path-drawing banner. Numbers refresh a few times a second; elements
+// where buildings are torn down or repaired), the "choose a spot" banner for decorations
+// and the banner for drawing paths and walls. Numbers refresh a few times a second; elements
 // are kept, not rebuilt, so buttons never vanish under a click.
 
 import {
@@ -14,6 +14,7 @@ import {
   WONDER_PHASES,
   MAX_PATH_TILES,
   MAX_PROPOSALS,
+  RAID_MOODS,
   RESOURCES,
   STORAGE_CAP,
   TAVERN_POINTS,
@@ -28,6 +29,16 @@ import {
   capOf,
   currentWonder,
   decorTypes,
+  defenseOf,
+  fortifyCost,
+  repairCost,
+  wallCost,
+  wallError,
+  wallName,
+  RAID_FROM_ERA,
+  RAID_WARNING_MS,
+  TOWER_POINTS,
+  WALL_POINTS,
   durationText,
   eraGoals,
   fullRateOf,
@@ -145,6 +156,7 @@ function effectText(world: IdleWorld, t: BuildingType): string {
   if (t.category === "house") return `🛏️ +${housingOf(era)} bedden: wie geen bed heeft, slaapt buiten en is ongelukkig`;
   if (t.category === "storage") return `📦 +${fmt(STORAGE_CAP * scaleOf(era))} opslag per grondstof`;
   if (t.category === "decor") return `😊 +${DECOR_POINTS} geluk (alle decoraties samen tot +${MAX_DECOR_POINTS})`;
+  if (t.category === "defense") return `🛡️ +${TOWER_POINTS * (1 + era)} verdediging tegen aanvallen`;
   if (t.category === "shop") return `🛒 winkel: ${shopBlurb(t.id)}${t.id === "shop_tavern" ? ` · 😊 +${TAVERN_POINTS} geluk` : ""}`;
   if (t.produces) {
     const rate = fullRateOf({ id: 0, type: t.id, level: era, x: 0, y: 0 });
@@ -325,7 +337,7 @@ export function createPanels(deps: PanelDeps): Panels {
   const busy = () => (deps.msg()?.proposals.length ?? 0) >= MAX_PROPOSALS;
 
   recenterBtn.addEventListener("click", () => window.dispatchEvent(new CustomEvent("sx-recenter")));
-  pathsBtn.addEventListener("click", () => (paths ? stopPaths() : startPaths(false)));
+  pathsBtn.addEventListener("click", () => (paths ? stopPaths() : startPaths("paths")));
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
     stopPlacing();
@@ -343,6 +355,7 @@ export function createPanels(deps: PanelDeps): Panels {
   const happyChip = h("span", "sx-hud-chip sx-hud-pop");
   const boostBox = h("span");
   boostBox.style.display = "contents";
+  const raidChip = h("span", "sx-hud-chip sx-hud-raid");
 
   function renderHud(world: IdleWorld, now: number): void {
     if (hudEra !== world.era) {
@@ -359,7 +372,7 @@ export function createPanels(deps: PanelDeps): Panels {
         hud.append(chip);
         hudChips.set(r.id, { chip, text, fill });
       }
-      hud.append(popChip, happyChip, boostBox);
+      hud.append(popChip, happyChip, raidChip, boostBox);
     }
     const cap = capOf(world);
     const rates = ratesOf(world);
@@ -388,10 +401,24 @@ ${menuText(world)}` : "");
     happyChip.classList.toggle("sx-hud-full", mood.level < 35);
     happyChip.title = [happyText(world, now), ...happyLines(world, now)].join("\n");
 
+    const raid = world.raid;
+    raidChip.hidden = !raid;
+    if (raid) {
+      const def = defenseOf(world).total;
+      raidChip.textContent = raid.at > now ? `⚔️ aanval over ${timeLeft(raid.at - now)} · ⚔️ ${raid.strength} vs 🛡️ ${def}` : "⚔️ de aanval is bezig!";
+      raidChip.classList.toggle("sx-hud-full", def < raid.strength);
+      raidChip.title = `Vijanden in aantocht. Verdediging: ${defenseOf(world).parts.map((p) => `${p.emoji} ${p.label} ${fmt(p.points)}`).join(" · ")}. Meer bij het ${buildingName("center", world.era)}.`;
+    }
+
     const boosts: string[] = [];
     if (world.boostUntil > now) boosts.push(`⚡ ×${BOOST_MULT} ${timeLeft(world.boostUntil - now)}`);
     for (const b of world.boosts) {
       if (b.until <= now) continue;
+      const mood = RAID_MOODS.find((m) => m.id === b.item);
+      if (mood) {
+        boosts.push(`${mood.emoji} ${mood.name} ${mood.points > 0 ? "+" : "−"}${Math.abs(mood.points)} geluk ${timeLeft(b.until - now)}`);
+        continue;
+      }
       const lucky = luckyEvent(b.item);
       if (lucky) {
         const what = b.resource ? ` ${resourceDef(b.resource)?.emoji ?? ""} ×${b.mult}` : "";
@@ -413,8 +440,8 @@ ${menuText(world)}` : "");
   function spotOf(p: IdleProposalView): { x: number; y: number } | null {
     const a = p.action;
     if (a.kind === "build") return a;
-    if (a.kind === "paths" || a.kind === "unpave") return a.tiles.length ? tileOf(a.tiles[0]) : null;
-    if (a.kind === "upgrade" || a.kind === "demolish" || a.kind === "wonder" || a.kind === "ore") return deps.world()?.buildings.find((b) => b.id === a.building) ?? null;
+    if (a.kind === "paths" || a.kind === "unpave" || a.kind === "walls" || a.kind === "unwall") return a.tiles.length ? tileOf(a.tiles[0]) : null;
+    if (a.kind === "upgrade" || a.kind === "demolish" || a.kind === "wonder" || a.kind === "ore" || a.kind === "repair") return deps.world()?.buildings.find((b) => b.id === a.building) ?? null;
     return null;
   }
 
@@ -517,7 +544,7 @@ ${menuText(world)}` : "");
     banner.hidden = false;
     deps.setPlacing((x, y) => {
       const w = deps.world();
-      return !!w && !placeError(w.buildings, w.roads, t.id, x, y);
+      return !!w && !placeError(w.buildings, w.roads, t.id, x, y, w.walls);
     });
   }
 
@@ -531,7 +558,7 @@ ${menuText(world)}` : "");
   function placeAt(x: number, y: number): void {
     const world = deps.world();
     if (!world || !placing) return;
-    const err = placeError(world.buildings, world.roads, placing.id, x, y);
+    const err = placeError(world.buildings, world.roads, placing.id, x, y, world.walls);
     if (err) {
       bannerText.textContent = `❌ ${err} — probeer een andere plek (Esc = stoppen)`;
       return;
@@ -540,50 +567,63 @@ ${menuText(world)}` : "");
     stopPlacing();
   }
 
-  // ---------- drawing paths ----------
-  // Drag over tiles to draw (or pick paths to remove), then propose it all at once.
+  // ---------- drawing paths and walls ----------
+  // Drag over tiles to draw (or pick paths or walls to remove), then propose it all at once.
+
+  type DrawMode = "paths" | "unpave" | "walls" | "unwall";
+  const ERASING: Record<DrawMode, boolean> = { paths: false, unpave: true, walls: false, unwall: true };
+  const DRAW_TEXT: Record<DrawMode, string> = {
+    paths: "🛤️ Sleep over tegels: een pad, dwars door de natuur of als brug over de rivier",
+    unpave: "⛏️ Sleep over paden om ze weg te halen",
+    walls: "🧱 Sleep over tegels: een muur rond het dorp houdt vijanden tegen",
+    unwall: "⛏️ Sleep over muren om ze weg te halen",
+  };
 
   /** The drawing under way; `adding` is whether the current stroke adds tiles or takes them off again. */
-  let paths: { erase: boolean; tiles: Set<number>; adding: boolean } | null = null;
+  let paths: { mode: DrawMode; erase: boolean; tiles: Set<number>; adding: boolean } | null = null;
   const pathsText = h("span");
-  /** Switching between laying and removing starts a new drawing. */
-  const tool = (erase: boolean) => () => {
-    if (paths?.erase !== erase) startPaths(erase);
+  /** Switching tools starts a new drawing. */
+  const tool = (mode: DrawMode) => () => {
+    if (paths?.mode !== mode) startPaths(mode);
   };
-  const layBtn = button("sx-act", "🛤️ leggen", tool(false));
-  const eraseBtn = button("sx-act", "⛏️ weghalen", tool(true));
+  const toolBtns: [DrawMode, HTMLButtonElement][] = [
+    ["paths", button("sx-act", "🛤️ pad", tool("paths"))],
+    ["walls", button("sx-act", "🧱 muur", tool("walls"))],
+    ["unpave", button("sx-act", "⛏️ pad weg", tool("unpave"))],
+    ["unwall", button("sx-act", "⛏️ muur weg", tool("unwall"))],
+  ];
   const pathsCosts = h("div", "sx-costs");
   const pathsMissing = h("span", "sx-missing");
   const pathsGo = button("sx-act sx-act-now", "🗳️ voorstellen", () => proposePaths());
-  const pathsParts = [pathsText, layBtn, eraseBtn, pathsCosts, pathsMissing, pathsGo, button("sx-act", "✕ stoppen", () => stopPaths())];
+  const pathsParts = [pathsText, ...toolBtns.map(([, b]) => b), pathsCosts, pathsMissing, pathsGo, button("sx-act", "✕ stoppen", () => stopPaths())];
 
-  /** Can this tile be drawn on in the current mode? */
-  const paintable = (w: IdleWorld, erase: boolean, x: number, y: number) =>
-    erase ? isRoad(w.roads, x, y) : !pathError(w.buildings, w.roads, x, y);
+  /** Can this tile be drawn on in this mode? */
+  const paintable = (w: IdleWorld, mode: DrawMode, x: number, y: number) =>
+    mode === "unpave" ? isRoad(w.roads, x, y)
+    : mode === "unwall" ? isRoad(w.walls, x, y)
+    : mode === "walls" ? !wallError(w.buildings, w.roads, w.walls, x, y)
+    : !pathError(w.buildings, w.roads, x, y, w.walls);
 
-  const pathsAction = (): ProposalAction | null =>
-    paths && { kind: paths.erase ? "unpave" : "paths", tiles: [...paths.tiles] };
+  const pathsAction = (): ProposalAction | null => paths && { kind: paths.mode, tiles: [...paths.tiles] };
 
-  /** Start drawing (or switch between laying and removing, which starts over), optionally from a tile. */
-  function startPaths(erase: boolean, from?: { x: number; y: number }): void {
+  /** Start drawing (or switch tools, which starts over), optionally from a tile. */
+  function startPaths(mode: DrawMode, from?: { x: number; y: number }): void {
     stopPlacing();
     inspect(null);
     closePlace();
-    paths = { erase, tiles: new Set(), adding: true };
+    const erase = ERASING[mode];
+    paths = { mode, erase, tiles: new Set(), adding: true };
     const w = deps.world();
-    if (from && w && paintable(w, erase, from.x, from.y)) paths.tiles.add(tileIndex(from.x, from.y));
-    pathsText.textContent = erase
-      ? "⛏️ Sleep over paden om ze weg te halen"
-      : "🛤️ Sleep over tegels: een pad, dwars door de natuur of als brug over de rivier";
-    layBtn.setAttribute("aria-pressed", String(!erase));
-    eraseBtn.setAttribute("aria-pressed", String(erase));
+    if (from && w && paintable(w, mode, from.x, from.y)) paths.tiles.add(tileIndex(from.x, from.y));
+    pathsText.textContent = DRAW_TEXT[mode];
+    for (const [m, b] of toolBtns) b.setAttribute("aria-pressed", String(m === mode));
     banner.className = "sx-banner sx-banner-paths";
     banner.replaceChildren(...pathsParts);
     banner.hidden = false;
     pathsBtn.setAttribute("aria-pressed", "true");
     deps.setPainting((x, y) => {
       const w = deps.world();
-      return !!w && paintable(w, erase, x, y);
+      return !!w && paintable(w, mode, x, y);
     });
     deps.setDraft({ tiles: paths.tiles, erase });
     renderPaths();
@@ -605,7 +645,7 @@ ${menuText(world)}` : "");
     // A stroke that starts on a drawn tile takes tiles off the drawing again.
     if (first) paths.adding = !paths.tiles.has(i);
     if (!paths.adding) paths.tiles.delete(i);
-    else if (paths.tiles.size < MAX_PATH_TILES && paintable(w, paths.erase, x, y)) paths.tiles.add(i);
+    else if (paths.tiles.size < MAX_PATH_TILES && paintable(w, paths.mode, x, y)) paths.tiles.add(i);
     renderPaths();
   }
 
@@ -622,15 +662,17 @@ ${menuText(world)}` : "");
     if (!w || !paths || !action) return;
     const tiles = [...paths.tiles];
     const n = tiles.length;
-    const bridges = tiles.filter((i) => isRiver(tileOf(i).x, tileOf(i).y)).length;
+    const walls = paths.mode === "walls" || paths.mode === "unwall";
+    const bridges = walls ? 0 : tiles.filter((i) => isRiver(tileOf(i).x, tileOf(i).y)).length;
     const count = `${n === 1 ? "1 tegel" : `${n} tegels`}${n >= MAX_PATH_TILES ? " (max)" : ""}${bridges ? `, waarvan ${bridges} brug` : ""}:`;
+    const cost = walls ? wallCost(w, tiles) : pathCost(w, tiles);
     pathsCosts.replaceChildren(
       ...(!n
-        ? [h("span", "sx-cost", paths.erase ? "nog geen paden gekozen" : "nog geen tegels")]
-        : [h("span", "sx-cost", count), ...(paths.erase ? gainChips(refundOf(w, action)) : costChips(w, pathCost(w, tiles)))]),
+        ? [h("span", "sx-cost", paths.erase ? `nog geen ${walls ? "muren" : "paden"} gekozen` : "nog geen tegels")]
+        : [h("span", "sx-cost", count), ...(paths.erase ? gainChips(refundOf(w, action)) : costChips(w, cost))]),
     );
     const err = n ? actionError(w, action) : null;
-    pathsMissing.textContent = err === "te duur" ? missingText(w, pathCost(w, tiles)) : err ?? "";
+    pathsMissing.textContent = err === "te duur" ? missingText(w, cost) : err ?? "";
     const blocked = busy();
     pathsGo.disabled = !deps.connected() || blocked || !n || !!err;
     pathsGo.title = !deps.connected() ? "offline" : blocked ? "te veel open stemmingen" : !n ? "teken eerst een paar tegels" : err ?? "";
@@ -671,7 +713,7 @@ ${menuText(world)}` : "");
     const world = deps.world();
     if (!world || !placeTile) return;
     const { x, y } = placeTile;
-    const sig = `${x},${y}|${world.era}|${world.buildings.length}|${world.roadLevel}|${world.roads.length}`;
+    const sig = `${x},${y}|${world.era}|${world.buildings.length}|${world.roadLevel}|${world.roads.length}|${world.wallLevel}|${world.walls.length}`;
     if (sig !== placeSig) {
       placeSig = sig;
       placeOffers = [];
@@ -681,8 +723,8 @@ ${menuText(world)}` : "");
         placeTitle.textContent = isRiver(x, y) ? `🌉 Brug (${roadName(world.roadLevel).toLowerCase()})` : `🛣️ ${roadName(world.roadLevel)}`;
         placeSub.textContent = "De straten van het hele dorp gaan samen omhoog.";
         placeBody.append(
-          button("sx-act sx-act-now", "⛏️ Paden weghalen", () => startPaths(true, { x, y })),
-          button("sx-act", "🛤️ Paden tekenen", () => startPaths(false)),
+          button("sx-act sx-act-now", "⛏️ Paden weghalen", () => startPaths("unpave", { x, y })),
+          button("sx-act", "🛤️ Paden tekenen", () => startPaths("paths")),
         );
         if (world.roadLevel < world.era) {
           const o = offer({
@@ -703,17 +745,46 @@ ${menuText(world)}` : "");
         } else {
           placeBody.append(h("p", "sx-note", "✓ De straten zijn helemaal bij voor dit tijdperk."));
         }
+      } else if (isRoad(world.walls, x, y)) {
+        placeTitle.textContent = `🧱 ${wallName(world.wallLevel)}`;
+        placeSub.textContent = `De hele muur gaat samen omhoog. Elke tegel geeft 🛡️ ${fmt(WALL_POINTS * (1 + world.wallLevel))} verdediging.`;
+        placeBody.append(
+          button("sx-act sx-act-now", "⛏️ Muren weghalen", () => startPaths("unwall", { x, y })),
+          button("sx-act", "🧱 Muren tekenen", () => startPaths("walls")),
+        );
+        if (world.wallLevel < world.era) {
+          const o = offer({
+            emoji: "⬆️",
+            name: `Upgrade naar ${wallName(world.era).toLowerCase()}`,
+            effect: `${ERAS[world.era].emoji} ${ERAS[world.era].name} · de hele muur in één keer · 🛡️ ${fmt(WALL_POINTS * (1 + world.era))} per tegel`,
+            action: "🗳️ voorstellen",
+            votes: true,
+            onClick: () => {
+              propose({ kind: "fortify" });
+              closePlace();
+            },
+            cost: (w) => fortifyCost(w),
+            error: (w) => actionError(w, { kind: "fortify" }),
+          });
+          placeBody.append(o.el);
+          placeOffers.push(o);
+        } else {
+          placeBody.append(h("p", "sx-note", "✓ De muur is helemaal bij voor dit tijdperk."));
+        }
       } else {
         const fits: BuildingType[] = [];
         const elsewhere: string[] = [];
         for (const t of buildableTypes(world)) {
-          const err = placeError(world.buildings, world.roads, t.id, x, y);
+          const err = placeError(world.buildings, world.roads, t.id, x, y, world.walls);
           if (err) elsewhere.push(`${t.emoji} ${buildingName(t.id, world.era)}: ${err}`);
           else fits.push(t);
         }
         placeSub.textContent = fits.length ? "Wat bouwen we hier? Iedereen stemt mee." : "Hier past niets.";
-        if (!pathError(world.buildings, world.roads, x, y)) {
-          placeBody.append(button("sx-act", "🛤️ Pad tekenen vanaf hier", () => startPaths(false, { x, y })));
+        if (!pathError(world.buildings, world.roads, x, y, world.walls)) {
+          placeBody.append(button("sx-act", "🛤️ Pad tekenen vanaf hier", () => startPaths("paths", { x, y })));
+        }
+        if (!wallError(world.buildings, world.roads, world.walls, x, y)) {
+          placeBody.append(button("sx-act", "🧱 Muur tekenen vanaf hier", () => startPaths("walls", { x, y })));
         }
         for (const t of fits) {
           const o = offer({
@@ -976,6 +1047,51 @@ ${menuText(world)}` : "");
     };
   }
 
+  /** The town center: how well the town is defended, and the raids. */
+  function defensePanel(world: IdleWorld): () => void {
+    const head = h("h4", "sx-h", "🛡️ Verdediging");
+    const total = h("div", "sx-note");
+    const parts = h("div", "sx-note");
+    const raid = h("div", "sx-note");
+    const last = h("div", "sx-note");
+    insActions.append(
+      head,
+      total,
+      parts,
+      raid,
+      last,
+      h(
+        "p",
+        "sx-note",
+        `Vanaf de ${ERAS[RAID_FROM_ERA].name} valt er zo'n keer per dag een vijand aan, overdag en ${durationText(RAID_WARNING_MS)} van tevoren te zien. ` +
+          "Muren (tekenen zoals paden), torens, inwoners en wachters met wapens en harnassen houden ze tegen. " +
+          "Is de vijand sterker, dan stelen ze, vallen er doden en steken ze een gebouw in brand.",
+      ),
+    );
+    return () => {
+      const w = deps.world();
+      if (!w) return;
+      const now = deps.serverNow();
+      const d = defenseOf(w);
+      total.textContent = `🛡️ ${d.total} verdediging`;
+      parts.replaceChildren(...d.parts.map((p) => h("div", "sx-happy-part", `${p.emoji} ${p.label} +${fmt(p.points)}`)));
+      raid.textContent = w.raid
+        ? `⚔️ Vijanden in aantocht: kracht ${w.raid.strength}, ${w.raid.at > now ? `over ${durationText(w.raid.at - now)}` : "ze zijn er!"}${d.total >= w.raid.strength ? " · we houden ze tegen 💪" : ` · nog ${w.raid.strength - d.total} verdediging nodig!`}`
+        : w.era < RAID_FROM_ERA
+          ? `😌 Nog geen vijanden: die komen pas in de ${ERAS[RAID_FROM_ERA].name}.`
+          : "😌 Geen vijanden te zien.";
+      raid.classList.toggle("sx-goal", !!w.raid && d.total < w.raid.strength);
+      const r = w.lastRaid;
+      last.hidden = !r;
+      if (r) {
+        const ago = durationText(Math.max(0, now - r.at));
+        last.textContent = r.won
+          ? `Vorige aanval (${ago} geleden): afgeslagen, 🛡️ ${r.defense} tegen ⚔️ ${r.strength}`
+          : `Vorige aanval (${ago} geleden): verloren, 🛡️ ${r.defense} tegen ⚔️ ${r.strength} · ${r.killed} doden${r.damaged ? ` · ${r.damaged} in brand` : ""}`;
+      }
+    };
+  }
+
   /** The campfire: who works, who gathers what, and choosing that for the whole town. */
   function workPanel(world: IdleWorld): () => void {
     const rows = gatherable(world.era).map((id) => {
@@ -1042,7 +1158,7 @@ ${menuText(world)}` : "");
     inspectEl.hidden = !b;
     if (!world || !b) return;
     const t = buildingType(b.type)!;
-    const sig = `${b.id}:${b.level}:${world.era}`;
+    const sig = `${b.id}:${b.level}:${world.era}:${!!b.damaged}`;
     if (sig !== inspectSig) {
       inspectSig = sig;
       insTitle.textContent = `${t.emoji} ${buildingName(b.type, b.level)}`;
@@ -1052,9 +1168,11 @@ ${menuText(world)}` : "");
       if (b.type === "shop_market") insLive = marketPanel(world);
       if (t.category === "center") {
         const era = eraPanel(world);
+        const defense = defensePanel(world);
         const work = workPanel(world);
         insLive = () => {
           era();
+          defense();
           work();
         };
       }
@@ -1135,6 +1253,21 @@ ${menuText(world)}` : "");
           insOffers.push(o);
         }
       }
+      if (b.damaged) {
+        const repair: ProposalAction = { kind: "repair", building: b.id };
+        const o = offer({
+          emoji: "🔧",
+          name: "Herstellen",
+          effect: "Daarna werkt het weer zoals eerst.",
+          action: "🗳️ voorstellen",
+          votes: true,
+          onClick: () => propose(repair),
+          cost: (w) => repairCost(w, b),
+          error: (w) => actionError(w, repair),
+        });
+        insActions.append(o.el);
+        insOffers.push(o);
+      }
       if (!t.noUpgrade) {
         if (b.level < world.era) {
           const o = offer({
@@ -1172,6 +1305,8 @@ ${menuText(world)}` : "");
     }
     // Live info.
     const lines: string[] = [`${ERAS[b.level].emoji} ${ERAS[b.level].name}`];
+    if (b.damaged) lines.push("🔥 In brand gestoken door vijanden: het doet niets tot het hersteld is");
+    if (t.category === "defense") lines.push(`🛡️ +${TOWER_POINTS * (1 + b.level)} verdediging tegen aanvallen`);
     if (t.category === "house") lines.push(`🛏️ ${housingOf(b.level)} bedden`);
     const made = producesOf(b);
     if (t.category === "work" && made) {

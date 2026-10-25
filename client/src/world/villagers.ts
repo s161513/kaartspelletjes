@@ -18,6 +18,7 @@ import {
   assignWorkers,
   buildingName,
   buildingType,
+  producesOf,
   gatherPatches,
   gatheringOf,
   isLand,
@@ -270,7 +271,8 @@ export class Population {
     spot = { x: b.x, y: b.y };
     const deposit = DEPOSITS.find((d) => d.resource === res);
     if (b.type.startsWith("mine_") && deposit) spot = { x: deposit.x, y: deposit.y };
-    else if (res === "wood" || res === "stone" || b.type === "hunter" || b.type === "fishery") {
+    // Miners go into the mountain through their own building.
+    else if (b.type !== "mine" && (res === "wood" || res === "stone" || b.type === "hunter" || b.type === "fishery")) {
       const want = (x: number, y: number) =>
         b.type === "fishery" ? isLand(x, y) && [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => isRiver(x + dx, y + dy))
         : terrainAt(x, y) === (res === "stone" ? "rock" : "forest");
@@ -350,7 +352,7 @@ export class Population {
     const job = v.job === null ? undefined : this.byId.get(v.job);
     v.hidden = false;
     v.action = "none";
-    const res = job ? buildingType(job.type)?.produces ?? null : v.gather?.resource ?? null;
+    const res = job ? producesOf(job) ?? null : v.gather?.resource ?? null;
     const t = v.task.kind;
     // Gatherers pick their spot each round: nature runs out.
     const spot = job ? this.workSpot(job) : res && t !== "work" && t !== "toStore" ? this.gatherSpot(v, res) : null;
@@ -468,7 +470,7 @@ export class Population {
   describe(v: Villager, now: number): VillagerInfo {
     const job = v.job === null ? undefined : this.byId.get(v.job);
     const home = this.byId.get(v.home);
-    const res = job ? buildingType(job.type)?.produces : v.gather?.resource;
+    const res = job ? producesOf(job) : v.gather?.resource;
     const emoji = (r: ResourceId | null | undefined) => (r ? resourceDef(r)?.emoji ?? "" : "");
     const task = v.task;
     let doing: string;
@@ -502,7 +504,7 @@ export class Population {
   look(v: Villager, now: number): VillagerLook {
     const walking = v.task.kind === "toWork" || v.task.kind === "toStore" || v.task.kind === "go";
     const job = v.job === null ? undefined : this.byId.get(v.job);
-    const res = job ? buildingType(job.type)?.produces : v.gather?.resource;
+    const res = job ? producesOf(job) : v.gather?.resource;
     const jumpLeft = v.jumpUntil - now;
     const sixSeven = now < v.sixSevenUntil;
     return {

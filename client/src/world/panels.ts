@@ -43,6 +43,8 @@ import {
   itemsOf,
   luckyEvent,
   multiplierAt,
+  oresOf,
+  producesOf,
   outfitCost,
   outfitError,
   outfitsFor,
@@ -148,10 +150,15 @@ function effectText(world: IdleWorld, t: BuildingType): string {
     const rate = fullRateOf({ id: 0, type: t.id, level: era, x: 0, y: 0 });
     const kind = t.foodKind ? ` (${foodKindText(t.foodKind)})` : "";
     const less = t.sparesSource ? " · minder als het bos rondom gekapt is" : "";
-    return `${resourceDef(t.produces)?.emoji} +${fmt(rate)}/s${kind} met ${slotsOf(era)} werkers${less}`;
+    const ores = t.ores ? ` · raakt nooit op · daarna stemmen jullie welk erts: ${oresOf(world, t.id).map((id) => resourceDef(id)?.emoji).join(" ")}` : "";
+    const uses = t.consumes ? ` · gebruikt per stuk ${usesText(t.consumes)}` : "";
+    return `${resourceDef(t.produces)?.emoji} +${fmt(rate)}/s${kind} met ${slotsOf(era)} werkers${less}${ores}${uses}`;
   }
   return "";
 }
+
+/** "⛓️ 1 + ⚫ 1". */
+const usesText = (uses: Amounts) => Object.entries(uses).map(([id, n]) => `${resourceDef(id)?.emoji ?? id} ${fmt(n)}`).join(" + ");
 
 const SHOP_BLURBS: Record<string, string> = {
   shop_market: "grondstoffen ruilen",
@@ -359,7 +366,7 @@ export function createPanels(deps: PanelDeps): Panels {
     for (const [id, { chip, text, fill }] of hudChips) {
       const have = world.resources[id] ?? 0;
       const rate = (rates[id] ?? 0) * multiplierAt(world, id, now);
-      text.textContent = `${resourceDef(id)!.emoji} ${fmt(have)}${rate ? ` +${fmt(rate)}/s` : ""}`;
+      text.textContent = `${resourceDef(id)!.emoji} ${fmt(have)}${rate ? ` ${rate > 0 ? "+" : "−"}${fmt(Math.abs(rate))}/s` : ""}`;
       fill.style.width = `${Math.min(100, (have / cap) * 100)}%`;
       chip.classList.toggle("sx-hud-full", have >= cap);
       chip.title =
@@ -407,7 +414,7 @@ ${menuText(world)}` : "");
     const a = p.action;
     if (a.kind === "build") return a;
     if (a.kind === "paths" || a.kind === "unpave") return a.tiles.length ? tileOf(a.tiles[0]) : null;
-    if (a.kind === "upgrade" || a.kind === "demolish" || a.kind === "wonder") return deps.world()?.buildings.find((b) => b.id === a.building) ?? null;
+    if (a.kind === "upgrade" || a.kind === "demolish" || a.kind === "wonder" || a.kind === "ore") return deps.world()?.buildings.find((b) => b.id === a.building) ?? null;
     return null;
   }
 
@@ -1056,6 +1063,27 @@ ${menuText(world)}` : "");
         insActions.append(o.el);
         insOffers.push(o);
       }
+      if (t.ores) {
+        insActions.append(h("h4", "sx-h", "⛏️ Wat delft de mijn?"), h("p", "sx-note", `Een steengroeve of een mijn bij de ertsader levert ${Math.round(1 / (t.oreShare ?? 1))}× zoveel op, maar deze mijn raakt nooit op. Omschakelen kost niets, wel een stemming.`));
+        for (const ore of oresOf(world, b.type)) {
+          const action: ProposalAction = { kind: "ore", building: b.id, ore };
+          const o = offer({
+            emoji: resourceDef(ore)!.emoji,
+            name: resourceDef(ore)!.name,
+            effect: `+${fmt(fullRateOf({ ...b, ore }))}/s met alle werkers (zonder bonussen)`,
+            action: "🗳️ voorstellen",
+            votes: true,
+            onClick: () => propose(action),
+            cost: () => ({}),
+            error: (w) => {
+              const err = actionError(w, action);
+              return err === "die delft dat al" ? "✓ die delft dit nu" : err;
+            },
+          });
+          insActions.append(o.el);
+          insOffers.push(o);
+        }
+      }
       if (b.type === "shop_tailor") {
         insActions.append(
           h("h4", "sx-h", "🧍 Jouw NPC"),
@@ -1145,13 +1173,21 @@ ${menuText(world)}` : "");
     // Live info.
     const lines: string[] = [`${ERAS[b.level].emoji} ${ERAS[b.level].name}`];
     if (t.category === "house") lines.push(`🛏️ ${housingOf(b.level)} bedden`);
-    if (t.category === "work" && t.produces) {
+    const made = producesOf(b);
+    if (t.category === "work" && made) {
       const w = assignWorkers(world).workers[b.id] ?? 0;
       const slots = slotsAt(world, b);
       lines.push(`👷 ${w}/${slots} werkers`);
       const share = t.sparesSource ? sourceShareOf(world, b) : 1;
       const kind = t.foodKind ? ` ${foodKindText(t.foodKind)}` : "";
-      lines.push(`${resourceDef(t.produces)?.emoji}${kind} ${fmt(((fullRateOf(b) * w) / slotsOf(b.level)) * share)}/s (zonder bonussen)${w < slots ? " — meer inwoners = meer werkers" : ""}`);
+      const rate = ((fullRateOf(b) * w) / slotsOf(b.level)) * share;
+      lines.push(`${resourceDef(made)?.emoji}${kind} ${fmt(rate)}/s (zonder bonussen)${w < slots ? " — meer inwoners = meer werkers" : ""}`);
+      if (t.ores) lines.push(`⛰️ in de berg: raakt nooit op`);
+      if (t.consumes) {
+        const out = Object.keys(t.consumes).filter((id) => (world.resources[id] ?? 0) < 1);
+        lines.push(`🔥 gebruikt ${Object.entries(t.consumes).map(([id, n]) => `${resourceDef(id)?.emoji ?? id} ${fmt(rate * n)}/s`).join(" + ")}`);
+        if (out.length) lines.push(`⚠️ Geen ${out.map((id) => resourceDef(id)?.name ?? id).join(" en ")} meer: bouw een mijn die dat delft.`);
+      }
       const src = sourceLeft(world, b);
       const from = t.source === undefined ? t.produces : t.source;
       if (src && t.sparesSource) {

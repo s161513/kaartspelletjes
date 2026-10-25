@@ -3,7 +3,7 @@
 // decorations, animals and the villagers (players' own NPCs included). All shapes are simple isometric boxes and polygons in code; the
 // look per era comes from ERAS[level].style (shared/idleContent.ts).
 
-import { ERAS, WONDER_PHASES, buildingType, depositAt, type PlacedBuilding, type ResourceId, type Terrain } from "@app/shared/idle";
+import { ERAS, WONDER_PHASES, buildingType, depositAt, producesOf, type PlacedBuilding, type ResourceId, type Terrain } from "@app/shared/idle";
 import { TILE_H, TILE_W, toWorld } from "./iso";
 
 type Ctx = CanvasRenderingContext2D;
@@ -34,7 +34,7 @@ export function shade(hex: string, amt: number): string {
 export const RESOURCE_COLORS: Record<ResourceId, string> = {
   food: "#e4572e", wood: "#8b5a2b", stone: "#9ca3af", bronze: "#cd7f32", iron: "#5f6b73",
   gold: "#ffd23f", wool: "#f5f5f4", knowledge: "#f1e3b5", coal: "#222222", oil: "#3b2f2f",
-  data: "#22f0ff", titanium: "#60a5fa", antimatter: "#c084fc",
+  data: "#22f0ff", titanium: "#60a5fa", antimatter: "#c084fc", weapons: "#c0c6cc", armor: "#7c8896",
 };
 
 /** Street surface per road level: sand, gravel, … asphalt, light lanes. */
@@ -444,7 +444,7 @@ function smoke(ctx: Ctx, x: number, y: number, t: number, rgba: string): void {
 
 /** Little things in the yard that show what a work building does. */
 function yard(ctx: Ctx, b: PlacedBuilding, cx: number, cy: number, t: number): void {
-  const res = buildingType(b.type)?.produces;
+  const res = producesOf(b);
   const fx = cx;
   const fy = cy + HH * 0.62;
   switch (res) {
@@ -479,6 +479,36 @@ function yard(ctx: Ctx, b: PlacedBuilding, cx: number, cy: number, t: number): v
       ctx.lineTo(fx + 6, fy - 22);
       ctx.stroke();
       ellipse(ctx, fx + 6, fy - 23, 2.5, 2.5, on ? RESOURCE_COLORS[res] : "#334155");
+      break;
+    }
+    case "weapons":
+    case "armor": {
+      // An anvil that throws sparks now and then; swords in a rack or an armor on its stand.
+      poly(ctx, [fx - 7, fy, fx + 3, fy - 1, fx + 3, fy - 5, fx - 7, fy - 4], "#3f3f46");
+      poly(ctx, [fx - 9, fy - 5, fx + 6, fy - 6, fx + 4, fy - 8, fx - 8, fy - 7], "#52525b");
+      if (Math.sin(t / 180 + b.id) > 0.6) {
+        for (let i = 0; i < 4; i++) ellipse(ctx, fx - 2 + Math.sin(t / 37 + i * 2) * 6, fy - 10 - ((t / 9 + i * 5) % 8), 0.9, 0.9, "#fbbf24");
+      }
+      if (res === "weapons") {
+        ctx.strokeStyle = RESOURCE_COLORS.weapons;
+        ctx.lineWidth = 1.4;
+        ctx.beginPath();
+        for (let i = 0; i < 3; i++) {
+          ctx.moveTo(fx + 8 + i * 3, fy + 1);
+          ctx.lineTo(fx + 10 + i * 3, fy - 13);
+        }
+        ctx.stroke();
+        poly(ctx, [fx + 6, fy - 2, fx + 18, fy - 4, fx + 18, fy - 3, fx + 6, fy - 1], "#6b4423");
+      } else {
+        ellipse(ctx, fx + 11, fy - 9, 4, 4.5, RESOURCE_COLORS.armor);
+        ellipse(ctx, fx + 11, fy - 15, 2.4, 2.2, shade(RESOURCE_COLORS.armor, 0.2));
+        ctx.strokeStyle = "#6b4423";
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.moveTo(fx + 11, fy - 4);
+        ctx.lineTo(fx + 11, fy + 1);
+        ctx.stroke();
+      }
       break;
     }
     case "wool":
@@ -660,6 +690,10 @@ export function drawBuilding(ctx: Ctx, b: PlacedBuilding, t: number, selected: b
     drawCampfire(ctx, cx, cy, t);
     return;
   }
+  if (b.type === "mine") {
+    drawMine(ctx, b, cx, cy, t);
+    return;
+  }
   if (b.type === "farm") fields(ctx, cx, cy, b.level, t);
   if (b.type === "ranch") pasture(ctx, cx, cy);
 
@@ -714,6 +748,32 @@ export function drawBuilding(ctx: Ctx, b: PlacedBuilding, t: number, selected: b
     poly(ctx, [cx - 2, cy + 12, cx + 6, cy + 8, cx + 6, cy + 2, cx - 2, cy + 6], "#8b5a2b");
   }
   if (type.category === "shop") shopSign(ctx, type.emoji, cx, by - s.h - s.roofH - 8, t + b.id * 500);
+}
+
+/** A mine: a rocky mound with a timbered entrance, rails and a cart of what it digs. */
+function drawMine(ctx: Ctx, b: PlacedBuilding, cx: number, cy: number, t: number): void {
+  const ore = RESOURCE_COLORS[producesOf(b) ?? "stone"] ?? "#999";
+  ellipse(ctx, cx, cy + 2, HW * 0.7, HH * 0.7, "rgba(0,0,0,0.2)");
+  poly(ctx, [cx - 22, cy + 2, cx - 12, cy - 14, cx + 2, cy - 20, cx + 16, cy - 12, cx + 22, cy + 2, cx, cy + 10], "#7d786d");
+  poly(ctx, [cx - 12, cy - 14, cx + 2, cy - 20, cx + 16, cy - 12, cx + 4, cy - 10], shade("#7d786d", 0.15));
+  // Steel in later eras, timber before.
+  const frame = b.level >= 6 ? "#52525b" : "#6b4423";
+  poly(ctx, [cx - 8, cy + 4, cx - 8, cy - 9, cx + 4, cy - 12, cx + 4, cy + 1], frame);
+  poly(ctx, [cx - 6, cy + 3, cx - 6, cy - 7, cx + 2, cy - 9, cx + 2, cy + 1], "#141414");
+  if (b.level >= 7) ellipse(ctx, cx - 2, cy - 10, 1.6, 1.6, Math.sin(t / 300 + b.id) > 0 ? "#fde047" : "#a16207");
+  ctx.strokeStyle = "#57534e";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(cx - 3, cy + 3);
+  ctx.lineTo(cx + 12, cy + 10);
+  ctx.moveTo(cx + 1, cy + 2);
+  ctx.lineTo(cx + 16, cy + 9);
+  ctx.stroke();
+  const roll = (Math.sin(t / 1600 + b.id) + 1) / 2;
+  const kx = cx + 2 + roll * 9;
+  const ky = cy + 2 + roll * 4.5;
+  poly(ctx, [kx - 4, ky, kx + 4, ky + 1, kx + 5, ky - 4, kx - 5, ky - 5], "#44403c");
+  ellipse(ctx, kx, ky - 5, 3.6, 1.8, ore);
 }
 
 /** A swinging sign with the shop's emoji above the roof, so shops stand out. */

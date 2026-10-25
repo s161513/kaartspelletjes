@@ -40,6 +40,7 @@ import {
   capOf,
   currentWonder,
   dropContents,
+  fullRateOf,
   eraGoals,
   classicStreets,
   foodKindsOf,
@@ -57,6 +58,8 @@ import {
   multiplierAt,
   natureAt,
   newIdleState,
+  oresOf,
+  producesOf,
   openDrop,
   patchAt,
   patches,
@@ -298,6 +301,65 @@ test("food: hunters, farms, fishers and ranches make kinds of food; hunters catc
 
   // All food buildings share the price growth per copy, so splitting them makes food no cheaper.
   assert.equal(buildCost(s, "fishery")!.wood, Math.ceil(30 * BUILD_COST_MULT * COST_GROWTH ** 2));
+});
+
+test("mines: by the mountain, never run out, dig the ore the players vote for", () => {
+  const s = noGatherers(rich(unlockEra(newIdleState(T0), 2)));
+  const spot = placeBuilding(s.buildings, "mine")!;
+  assert.equal(placeError(s.buildings, s.roads, "mine", spot.x, spot.y), null);
+  assert.equal(placeError(s.buildings, [], "mine", CENTER.x + 1, CENTER.y + 1), "moet vlak bij de berg staan");
+  assert.equal(terrainAt(spot.x, spot.y), "grass");
+
+  const { state: built, building: mine } = applyAction(s, at(s, "mine"));
+  assert.equal(producesOf(mine!), "stone", "stone until the players pick an ore");
+  assert.equal(sourcePatches(mine!), null, "the mountain never runs out");
+  assert.deepEqual(oresOf(built, "mine"), ["stone", "bronze", "iron", "coal"]);
+  assert.deepEqual(oresOf(newIdleState(T0), "mine"), ["stone"]);
+
+  // Switching ore is a vote, free; locked ores and the current one can't be picked.
+  const toIron = { kind: "ore" as const, building: mine!.id, ore: "iron" };
+  assert.equal(actionError(built, toIron), null);
+  assert.equal(actionLabel(built, toIron), "🏔️ Mijngang: ⛓️ ijzer delven");
+  assert.equal(actionError(built, { ...toIron, ore: "gold" }), "dat erts kan hier nog niet");
+  assert.equal(actionError(built, { ...toIron, ore: "stone" }), "die delft dat al");
+  const iron = applyAction(built, toIron);
+  assert.equal(iron.building!.ore, "iron");
+  assert.deepEqual(iron.state.resources, built.resources, "costs nothing");
+  // Half of what a mine at the vein makes, and it keeps going: no nature used.
+  const vein = { id: 0, type: "mine_iron", level: 2, x: 0, y: 0 };
+  assert.ok(near(fullRateOf(iron.building!), fullRateOf(vein) / 2));
+  assert.ok(advance({ ...iron.state, resources: {} }, T0 + 100_000).resources.iron > 0);
+  // Back to stone drops the field again.
+  assert.equal(applyAction(iron.state, { ...toIron, ore: "stone" }).building!.ore, undefined);
+});
+
+test("coal and smiths: coal from the Iron Age; smiths turn iron and coal into weapons and armor", () => {
+  assert.equal(DEPOSITS.find((d) => d.resource === "coal")!.era, 2);
+  assert.equal(natureAt(DEPOSITS.find((d) => d.resource === "coal")!.x, DEPOSITS.find((d) => d.resource === "coal")!.y, 2), "coal");
+  const s0 = unlockEra(newIdleState(T0), 2);
+  assert.equal(buildTypeError(s0, "mine_coal"), null);
+  assert.equal(buildTypeError(unlockEra(newIdleState(T0), 1), "weaponsmith"), "nog niet ontgrendeld");
+
+  // Only smiths work here (both full), with 100 iron and 100 coal in storage.
+  const smiths = [
+    { id: 1, type: "center", level: 2, x: CENTER.x, y: CENTER.y },
+    { id: 2, type: "weaponsmith", level: 2, x: CENTER.x + 2, y: CENTER.y },
+    { id: 3, type: "armorsmith", level: 2, x: CENTER.x - 2, y: CENTER.y },
+  ];
+  const s = { ...s0, buildings: smiths, population: 4, resources: { iron: 100, coal: 100 } };
+  const per = fullRateOf(smiths[1]) * happinessOf(s, T0).mult;
+  const rates = ratesOf(s);
+  assert.ok(near(rates.weapons, per) && near(rates.armor, per));
+  assert.ok(near(rates.iron, -2 * per) && near(rates.coal, -2 * per), "the HUD shows what's used");
+  const t = 10_000;
+  const after = advance(s, T0 + t);
+  assert.ok(near(after.resources.weapons, (per * t) / 1000));
+  assert.ok(near(after.resources.iron, 100 - (2 * per * t) / 1000));
+  // They stop when the iron runs out, and make only as much as there was.
+  const long = advance(s, T0 + 3_600_000);
+  assert.ok(near(long.resources.weapons + (long.resources.armor ?? 0), 100));
+  assert.ok(near(long.resources.iron, 0) && near(long.resources.coal, 0));
+  assert.equal(ratesOf({ ...s, resources: {} }).weapons, undefined, "nothing in stock, nothing coming in");
 });
 
 test("happiness: food variety, beds, decorations and the tavern; it sets the work speed", () => {
@@ -817,6 +879,25 @@ test("idle game: open votes wait for resources, count once per player, survive a
     assert.deepEqual(kept.map((p) => [p.id, p.myVote, p.deadline]), [[3, true, T0 + VOTE_MS]]);
     assert.deepEqual(again.tick(1, T0 + VOTE_MS - 1), []);
     assert.deepEqual(again.tick(1, T0 + VOTE_MS).map((e) => e.kind === "rejected" && e.reason), ["verlopen: minstens 2 keer ja nodig"]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("idle game: a mine keeps the ore it was switched to; unknown ores are dropped", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "idle-"));
+  try {
+    const file = path.join(dir, "idle.json");
+    const s = unlockEra(newIdleState(T0), 2);
+    const spot = placeBuilding(s.buildings, "mine")!;
+    const mines = [
+      { id: 50, type: "mine", level: 2, ...spot, ore: "iron" },
+      { id: 51, type: "mine", level: 2, x: spot.x + 1, y: spot.y + 1, ore: "flint" },
+      { id: 52, type: "wood", level: 0, x: 3, y: 3, ore: "iron" },
+    ];
+    writeFileSync(file, JSON.stringify({ ...s, buildings: [...s.buildings, ...mines] }));
+    const got = createIdleGame(file, T0).message("a", 0, 0, 1, T0).state.buildings.filter((b) => b.id >= 50);
+    assert.deepEqual(got.map((b) => [b.id, b.ore]), [[50, "iron"], [51, undefined], [52, undefined]]);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

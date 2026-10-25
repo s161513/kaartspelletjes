@@ -14,7 +14,9 @@
 // berries) but is one resource in storage. Nature runs out: gatherers and
 // work buildings use up patches of forest, rock and ore (the more valuable,
 // the longer they last), which slowly grow back; hunters catch less where the
-// forest is cut down. Building (on a tile someone
+// forest is cut down. Mines dug into the mountain never run out; the players
+// vote which ore each one digs. Smiths turn iron and coal into weapons and
+// armor. Building (on a tile someone
 // clicked), laying or removing paths (drawn tile by tile, through nature and
 // over the river as bridges), tearing down a building (for a bit of its cost
 // back), upgrading (buildings or the whole street network) and big shop
@@ -150,6 +152,8 @@ export interface PlacedBuilding {
   stage?: number;
   /** …and when the builders are ready for the next phase. */
   ready?: number;
+  /** A mine: the ore it digs, when the players picked another than its type's. */
+  ore?: ResourceId;
 }
 
 /** A crate from the counter, waiting on a tile for someone to open it. */
@@ -213,7 +217,9 @@ export type ProposalAction =
   /** Tear a building down, for a bit back. */
   | { kind: "demolish"; building: number }
   /** The next phase of the world wonder under construction. */
-  | { kind: "wonder"; building: number };
+  | { kind: "wonder"; building: number }
+  /** A mine digs another ore from now on. */
+  | { kind: "ore"; building: number; ore: ResourceId };
 
 export interface IdleProposal {
   id: number;
@@ -317,11 +323,18 @@ export function assignWorkers(s: Pick<IdleWorld, "buildings" | "perks" | "popula
   return { population, beds, homeless: Math.max(0, population - beds), workers, idle: left };
 }
 
+/** What a work building makes: a mine the ore the players picked. */
+export const producesOf = (b: Pick<PlacedBuilding, "type" | "ore">): ResourceId | undefined => b.ore ?? buildingType(b.type)?.produces;
+
+/** The ores a mine can dig now (empty for anything else). */
+export const oresOf = (s: Pick<IdleWorld, "era">, type: string): ResourceId[] =>
+  (buildingType(type)?.ores ?? []).filter((id) => (resourceDef(id)?.era ?? Infinity) <= s.era);
+
 /** Output of one work building with its level's slots filled (each extra worker adds the same). */
 export function fullRateOf(b: PlacedBuilding): number {
-  const res = buildingType(b.type)?.produces;
+  const res = producesOf(b);
   if (!res) return 0;
-  return (BASE_RATE[res] ?? SPECIAL_BASE_RATE) * scaleOf(b.level);
+  return (BASE_RATE[res] ?? SPECIAL_BASE_RATE) * scaleOf(b.level) * (buildingType(b.type)?.oreShare ?? 1);
 }
 
 /** The smith's bonus on a resource: ×1.1 per level. */
@@ -456,6 +469,8 @@ interface Output {
   rate: number;
   src: Patch[] | null;
   drain: number;
+  /** Used per unit made (the smiths). */
+  uses?: Amounts;
 }
 
 /**
@@ -468,8 +483,8 @@ function outputs(s: Pick<IdleWorld, "buildings" | "perks" | "era" | "gatherers" 
   const left = (src: Patch[] | null) => !s.nature || !src || src.some((p) => leftIn(p, s.nature!) > 0.01);
   for (const b of s.buildings) {
     const t = buildingType(b.type);
-    const res = t?.produces;
-    if (!res) continue;
+    const res = producesOf(b);
+    if (!t || !res) continue;
     const src = sourcePatches(b);
     const rate = ((fullRateOf(b) * (workers[b.id] ?? 0)) / slotsOf(b.level)) * toolsOf(s, res);
     if (t.sparesSource) {
@@ -479,7 +494,7 @@ function outputs(s: Pick<IdleWorld, "buildings" | "perks" | "era" | "gatherers" 
       continue;
     }
     if (!left(src)) continue;
-    out.push({ res, kind: t.foodKind, rate, src, drain: WORK_DRAIN });
+    out.push({ res, kind: t.foodKind, rate, src, drain: WORK_DRAIN, uses: t.consumes });
   }
   const { chosen, auto } = gatheringOf(s);
   for (const res of gatherable(s.era)) {
@@ -569,11 +584,20 @@ const autoRate = (s: Pick<IdleWorld, "perks" | "era">, res: ResourceId): number 
   0.5 * perkOf(s, "auto") * clickAmount(s.era) * toolsOf(s, res);
 
 /** Production per second without boosts, as happy as the town is at `lastTick`. */
-export function ratesOf(s: Town & Pick<IdleWorld, "lastTick">): Amounts {
+export function ratesOf(s: Town & Pick<IdleWorld, "lastTick"> & { resources?: Amounts }): Amounts {
   const rates: Amounts = {};
   const { mult } = happinessOf(s, s.lastTick);
-  for (const { res, rate } of outputs(s)) rates[res] = (rates[res] ?? 0) + rate * mult;
+  const all = outputs(s);
+  for (const { res, rate, uses } of all) if (!uses) rates[res] = (rates[res] ?? 0) + rate * mult;
   if (perkOf(s, "auto")) for (const id of unlockedResources(s.era)) rates[id] = (rates[id] ?? 0) + autoRate(s, id);
+  // The smiths: only while there's iron and coal (in stock or coming in); the HUD shows what's left of those.
+  for (const { res, rate, uses } of all) {
+    if (!uses) continue;
+    const ok = Object.keys(uses).every((id) => (s.resources?.[id] ?? 0) >= 1 || (rates[id] ?? 0) > 0);
+    if (!ok) continue;
+    rates[res] = (rates[res] ?? 0) + rate * mult;
+    for (const [id, n] of Object.entries(uses)) rates[id] = (rates[id] ?? 0) - rate * mult * n;
+  }
   return rates;
 }
 
@@ -629,9 +653,18 @@ export function advance<T extends IdleWorld>(s: T, now: number): T {
   const target = populationTarget(town, s.lastTick);
   const move = (MOVE_PER_MIN * elapsed) / 60_000;
   next.population = s.population < target ? Math.min(target, s.population + move) : Math.max(target, s.population - move);
-  for (const { res, rate, src, drain } of outputs(town)) {
+  // Smiths last, so they can use what the mines made meanwhile.
+  const all = outputs(town).sort((a, b) => Number(!!a.uses) - Number(!!b.uses));
+  if (perkOf(s, "auto")) for (const id of unlockedResources(s.era)) add(id, autoRate(s, id) * seconds(id));
+  for (const { res, rate, src, drain, uses } of all) {
     let amount = Math.min(rate * mult * seconds(res), cap - (next.resources[res] ?? 0));
     if (amount <= 0) continue;
+    if (uses) {
+      // Make only what the iron and coal in storage allow, and use that up.
+      for (const [id, n] of Object.entries(uses)) amount = Math.min(amount, (next.resources[id] ?? 0) / n);
+      if (amount <= 0) continue;
+      for (const [id, n] of Object.entries(uses)) next.resources[id] = Math.max(0, (next.resources[id] ?? 0) - amount * n);
+    }
     if (src) {
       // Take what this needs from the nearest patches; make only as much as there was.
       const need = (amount / click) * drain;
@@ -647,7 +680,6 @@ export function advance<T extends IdleWorld>(s: T, now: number): T {
     }
     add(res, amount);
   }
-  if (perkOf(s, "auto")) for (const id of unlockedResources(s.era)) add(id, autoRate(s, id) * seconds(id));
   next.nature = used;
   if (s.boosts.some((b) => b.until <= next.lastTick)) next.boosts = s.boosts.filter((b) => b.until > next.lastTick);
   const keep = 0.5 ** ((next.lastTick - s.lastTick) / MARKET_HALF_LIFE_MS);
@@ -1052,7 +1084,7 @@ export function actionCost(s: IdleWorld, action: ProposalAction): Amounts | null
   if (action.kind === "build") return buildingType(action.type)?.category === "wonder" ? wonderCost(s, 0) : buildCost(s, action.type);
   if (action.kind === "roads") return roadCost(s);
   if (action.kind === "paths") return pathCost(s, action.tiles);
-  if (action.kind === "unpave" || action.kind === "demolish") return {};
+  if (action.kind === "unpave" || action.kind === "demolish" || action.kind === "ore") return {};
   if (action.kind === "buy") {
     const item = shopItem(action.item);
     return item ? itemCost(s, item) : null;
@@ -1082,6 +1114,11 @@ export function actionError(s: IdleWorld, action: ProposalAction): string | null
     if (b.stage === undefined) return "al af";
     const wait = wonderWait(s, b);
     if (wait !== null) return `de bouwers zijn nog bezig (nog ${durationText(wait)})`;
+  } else if (action.kind === "ore") {
+    const b = s.buildings.find((x) => x.id === action.building);
+    if (!b || !buildingType(b.type)?.ores) return "onbekende mijn";
+    if (!oresOf(s, b.type).includes(action.ore)) return "dat erts kan hier nog niet";
+    if (producesOf(b) === action.ore) return "die delft dat al";
   } else if (action.kind === "roads") {
     if (s.roadLevel >= s.era) return "al up-to-date";
   } else if (action.kind === "paths") {
@@ -1115,6 +1152,11 @@ export function applyAction<T extends IdleWorld>(s: T, action: ProposalAction): 
   }
   if (action.kind === "demolish") {
     return { state: { ...receive(s, refundOf(s, action)), buildings: s.buildings.filter((b) => b.id !== action.building) } };
+  }
+  if (action.kind === "ore") {
+    const { ore: _, ...rest } = s.buildings.find((b) => b.id === action.building)!;
+    const building: PlacedBuilding = action.ore === buildingType(rest.type)?.produces ? rest : { ...rest, ore: action.ore };
+    return { state: { ...s, buildings: s.buildings.map((b) => (b.id === building.id ? building : b)) }, building };
   }
   const paid = pay(s, actionCost(s, action)!);
   if (action.kind === "build" && buildingType(action.type)?.category === "wonder") {
@@ -1156,6 +1198,10 @@ export function actionLabel(s: Pick<IdleWorld, "buildings" | "era" | "roadLevel"
   const b = s.buildings.find((x) => x.id === action.building);
   if (action.kind === "demolish") return b ? `🧨 ${buildingName(b.type, b.level)} afbreken` : "afbreken";
   if (action.kind === "wonder") return b ? `${buildingType(b.type)?.emoji ?? ""} ${buildingName(b.type, b.level)}: fase ${(b.stage ?? 0) + 1}/${WONDER_PHASES}` : "wereldwonder";
+  if (action.kind === "ore") {
+    const ore = resourceDef(action.ore);
+    return `${b ? `${buildingType(b.type)?.emoji ?? ""} ${buildingName(b.type, b.level)}` : "mijn"}: ${ore?.emoji ?? ""} ${ore?.name ?? action.ore} delven`;
+  }
   if (!b) return "upgrade";
   return `⬆️ ${buildingName(b.type, b.level)} → ${buildingName(b.type, s.era)}`;
 }

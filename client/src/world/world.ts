@@ -8,6 +8,7 @@
 import {
   CENTER,
   DEPOSITS,
+  ERAS,
   MAP_SIZE,
   goneTiles,
   patches,
@@ -36,6 +37,8 @@ import {
   drawMountain,
   drawNameTag,
   drawRoadDetail,
+  grassDetail,
+  shade,
   drawWall,
   drawRaiders,
   drawRock,
@@ -138,6 +141,24 @@ export function createWorld(opts: WorldOptions): TownWorld {
   let walls = new Set<string>();
   /** Screen shake: 0..1, decaying; the shake is its square, so small knocks barely move. */
   let trauma = 0;
+  /** Buildings that just went up, by id: when (performance.now()), for their pop. */
+  const born = new Map<number, number>();
+  const POP_MS = 450;
+
+  /** A new building pops up: squashed, then springing past its height and settling (volume kept). */
+  function popScale(id: number, t: number): { x: number; y: number } | null {
+    const at = born.get(id);
+    if (at === undefined) return null;
+    const p = (t - at) / POP_MS;
+    if (p >= 1 || reducedMotion.matches) {
+      born.delete(id);
+      return null;
+    }
+    const c1 = 1.70158;
+    const back = 1 + (c1 + 1) * (p - 1) ** 3 + c1 * (p - 1) ** 2;
+    const y = 0.3 + 0.7 * back;
+    return { x: 1 + (1 - y) * 0.5, y };
+  }
   let landCache: { key: string; canvas: HTMLCanvasElement } | null = null;
   /** Used-up nature, as "x,y" (redrawn from scratch when it changes). */
   let usedUp = new Set<string>();
@@ -385,6 +406,8 @@ export function createWorld(opts: WorldOptions): TownWorld {
   ): void {
     const paths = new Map<string, Path2D>();
     const bridges: [number, number][] = [];
+    const tufts = new Path2D();
+    const flowers = new Path2D();
     for (let y = y0; y <= y1; y++) {
       for (let x = x0; x <= x1; x++) {
         const terrain = terrainAt(x, y);
@@ -403,6 +426,7 @@ export function createWorld(opts: WorldOptions): TownWorld {
 
         const c = toWorld(x + 0.5, y + 0.5);
         const d = x + y + 1;
+        if (!paved && (terrain === "grass" || terrain === "bush")) grassDetail(tufts, flowers, x, y, era);
         // A path cleared the nature here, or crosses the river as a bridge.
         if (paved) {
           if (terrain === "water") bridges.push([c.x, c.y]);
@@ -443,6 +467,11 @@ export function createWorld(opts: WorldOptions): TownWorld {
       g.fillStyle = color;
       g.fill(path);
     }
+    g.strokeStyle = shade(ERAS[era].style.grass, -0.28);
+    g.lineWidth = 1;
+    g.stroke(tufts);
+    g.fillStyle = era <= 1 ? "#f5e9a8" : "#f9a8d4";
+    g.fill(flowers);
     if (live) {
       for (const key of roads) {
         const [x, y] = key.split(",").map(Number);
@@ -552,7 +581,20 @@ export function createWorld(opts: WorldOptions): TownWorld {
 
     for (const b of world?.buildings ?? []) {
       if (b.x < x0 - 1 || b.x > x1 || b.y < y0 - 1 || b.y > y1) continue;
-      items.push({ d: b.x + b.y + 1.01, f: () => drawBuilding(ctx, b, t, b.id === selected) });
+      items.push({
+        d: b.x + b.y + 1.01,
+        f: () => {
+          const k = popScale(b.id, t);
+          if (!k) return drawBuilding(ctx, b, t, b.id === selected);
+          const c = toWorld(b.x + 0.5, b.y + 0.5);
+          ctx.save();
+          ctx.translate(c.x, c.y);
+          ctx.scale(k.x, k.y);
+          ctx.translate(-c.x, -c.y);
+          drawBuilding(ctx, b, t, b.id === selected);
+          ctx.restore();
+        },
+      });
     }
     for (const key of walls) {
       const [x, y] = key.split(",").map(Number);
@@ -765,6 +807,7 @@ export function createWorld(opts: WorldOptions): TownWorld {
       pop.setPeople(people, me, Date.now());
     },
     built(b) {
+      born.set(b.id, performance.now());
       const p = toWorld(b.x + 0.5, b.y + 0.5);
       burst(p.x, p.y - 10, "#d6c8a8", 24, 70, 1100);
       floatText(p.x, p.y - 40, "🎉", "#ffe82e");

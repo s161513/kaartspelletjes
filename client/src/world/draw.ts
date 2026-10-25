@@ -2,6 +2,15 @@
 // wonders (with scaffolding while they go up), buildings on fire, raiders, supply drops,
 // decorations, animals and the villagers (players' own NPCs included). All shapes are simple isometric boxes and polygons in code; the
 // look per era comes from ERAS[level].style (shared/idleContent.ts).
+//
+// Art direction (keep new drawings to it):
+// - Light from the top left: left faces −12%, right faces −30%, tops lighter.
+// - No outlines; shapes read by value and a soft shadow ellipse under everything standing.
+// - Each era has its own shape language: the Stone Age is round and organic (tipis of
+//   hide, round huts of wattle under straw cones), the Bronze Age the big Celtic roundhouse,
+//   from the Iron Age on rectangular houses with gables, later flat roofs and domes.
+// - The ground is never flat: a slow value noise over the grass, tufts and the odd flower,
+//   wilder in the early eras.
 
 import { ERAS, WONDER_PHASES, buildingType, depositAt, producesOf, type PlacedBuilding, type ResourceId, type Terrain } from "@app/shared/idle";
 import { TILE_H, TILE_W, toWorld } from "./iso";
@@ -40,9 +49,26 @@ export const RESOURCE_COLORS: Record<ResourceId, string> = {
 /** Street surface per road level: sand, gravel, … asphalt, light lanes. */
 const ROAD_COLORS = ["#c9ad7a", "#b3a68c", "#a68b62", "#bdb5a3", "#9a948a", "#a3563f", "#7a746c", "#4b4f55", "#3c434d", "#d5dde6", "#2b2545"];
 
-/** Ground color for a tile (two shades for a subtle checker); `road` is the street level, or null. */
+/** Smooth value noise in 0..1 over tiles (cell `scale` tiles), for patches of lighter and darker ground. */
+function groundNoise(x: number, y: number, scale: number): number {
+  const fx = x / scale;
+  const fy = y / scale;
+  const x0 = Math.floor(fx);
+  const y0 = Math.floor(fy);
+  const sx = (fx - x0) ** 2 * (3 - 2 * (fx - x0));
+  const sy = (fy - y0) ** 2 * (3 - 2 * (fy - y0));
+  const a = rand2(x0, y0, 11);
+  const b = rand2(x0 + 1, y0, 11);
+  const c = rand2(x0, y0 + 1, 11);
+  const d = rand2(x0 + 1, y0 + 1, 11);
+  return a + (b - a) * sx + (c - a) * sy + (a - b - c + d) * sx * sy;
+}
+
+/** Ground color for a tile (a soft noise and a subtle checker); `road` is the street level, or null. */
 export function groundColor(t: Terrain, x: number, y: number, era: number, road: number | null): string {
-  const odd = (x + y) % 2 === 0 ? 0 : -0.04;
+  // Quantized, so the color cache stays small.
+  const odd = (x + y) % 2 === 0 ? 0 : -0.03;
+  const n = Math.round((groundNoise(x, y, 6) - 0.5) * 12 + (rand2(x, y, 12) - 0.5) * 3) / 100;
   const grass = ERAS[era].style.grass;
   if (road !== null) return shade(ROAD_COLORS[Math.min(road, ROAD_COLORS.length - 1)], odd / 2);
   switch (t) {
@@ -51,15 +77,41 @@ export function groundColor(t: Terrain, x: number, y: number, era: number, road:
       return "#2f6fb0";
     case "rock":
     case "mountain":
-      return shade("#8d8a80", odd);
+      return shade("#8d8a80", odd + n / 2);
     case "sand":
-      return shade("#e3cf8f", odd);
+      return shade("#e3cf8f", odd + n / 2);
     case "forest":
-      return shade(grass, -0.18 + odd);
+      return shade(grass, -0.18 + odd + n);
     case "deposit":
       return shade("#8a8274", odd);
     default:
-      return shade(grass, odd);
+      return shade(grass, odd + n);
+  }
+}
+
+/**
+ * Tufts of grass and the odd flower on a grass tile, added to `tufts` and
+ * `flowers` (batched by the caller). More of them, and wilder, in the early eras.
+ */
+export function grassDetail(tufts: Path2D, flowers: Path2D, x: number, y: number, era: number): void {
+  const wild = era <= 1 ? 3 : era <= 4 ? 2 : 1;
+  const c = { x: ((x - y) * TILE_W) / 2, y: ((x + y + 1) * TILE_H) / 2 };
+  for (let i = 0; i < wild; i++) {
+    if (rand2(x, y, 20 + i) > 0.55) continue;
+    const tx = c.x + (rand2(x, y, 30 + i) - 0.5) * HW * 1.1;
+    const ty = c.y + (rand2(x, y, 40 + i) - 0.5) * HH * 1.1;
+    tufts.moveTo(tx - 2, ty);
+    tufts.lineTo(tx - 3, ty - 3);
+    tufts.moveTo(tx, ty);
+    tufts.lineTo(tx, ty - 4);
+    tufts.moveTo(tx + 2, ty);
+    tufts.lineTo(tx + 3, ty - 3);
+  }
+  if (rand2(x, y, 50) < 0.04 * wild) {
+    const fx = c.x + (rand2(x, y, 51) - 0.5) * HW;
+    const fy = c.y + (rand2(x, y, 52) - 0.5) * HH;
+    flowers.moveTo(fx + 1.4, fy);
+    flowers.arc(fx, fy, 1.4, 0, Math.PI * 2);
   }
 }
 
@@ -698,6 +750,10 @@ export function drawBuilding(ctx: Ctx, b: PlacedBuilding, t: number, selected: b
     drawMine(ctx, b, cx, cy, t);
     return;
   }
+  if (b.level <= 1 && ["house", "work", "storage", "shop", "defense"].includes(type.category)) {
+    drawEarly(ctx, b, type.category, cx, cy, t);
+    return;
+  }
   if (b.type === "farm") fields(ctx, cx, cy, b.level, t);
   if (b.type === "ranch") pasture(ctx, cx, cy);
 
@@ -768,6 +824,133 @@ export function drawBuilding(ctx: Ctx, b: PlacedBuilding, t: number, selected: b
     poly(ctx, [cx, fy - 12, cx + 9, fy - 10 + Math.sin(t / 260 + b.id) * 1.5, cx, fy - 8], "#dc2626");
   }
   if (b.damaged) burning(ctx, cx, by - s.h, t + b.id * 777);
+}
+
+// ---------- the Stone and Bronze Age: round and organic ----------
+
+const HIDE = "#b08a5a";
+const STRAW = "#c9a65a";
+
+/** A round wall (wattle and daub) under a straw cone; returns the cone's top. */
+function roundHut(ctx: Ctx, cx: number, cy: number, rx: number, wallH: number, roofH: number, wall: string, straw: string): number {
+  const ry = rx / 2;
+  ellipse(ctx, cx, cy + 2, rx * 1.15, ry * 1.15, "rgba(0,0,0,0.2)");
+  // The wall: a short cylinder, darker on the right (light from the top left).
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI);
+  ctx.lineTo(cx - rx, cy - wallH);
+  ctx.lineTo(cx + rx, cy - wallH);
+  ctx.closePath();
+  const g = ctx.createLinearGradient(cx - rx, 0, cx + rx, 0);
+  g.addColorStop(0, shade(wall, -0.05));
+  g.addColorStop(1, shade(wall, -0.35));
+  ctx.fillStyle = g;
+  ctx.fill();
+  // The door, facing us.
+  ctx.beginPath();
+  ctx.ellipse(cx - rx * 0.25, cy + ry * 0.75 - 6, 3, 6, 0, Math.PI, 0);
+  ctx.lineTo(cx - rx * 0.25 + 3, cy + ry * 0.8);
+  ctx.lineTo(cx - rx * 0.25 - 3, cy + ry * 0.8);
+  ctx.fillStyle = "#2a1d12";
+  ctx.fill();
+  // The straw cone, overhanging, with a few strands.
+  const ey = cy - wallH;
+  const er = rx * 1.2;
+  const apex = ey - roofH;
+  ctx.beginPath();
+  ctx.ellipse(cx, ey, er, er / 2, 0, 0, Math.PI);
+  ctx.lineTo(cx, apex);
+  ctx.closePath();
+  const r = ctx.createLinearGradient(cx - er, 0, cx + er, 0);
+  r.addColorStop(0, shade(straw, 0.08));
+  r.addColorStop(1, shade(straw, -0.3));
+  ctx.fillStyle = r;
+  ctx.fill();
+  ctx.strokeStyle = shade(straw, -0.35);
+  ctx.lineWidth = 0.7;
+  ctx.beginPath();
+  for (const k of [-0.7, -0.35, 0, 0.35, 0.7]) {
+    ctx.moveTo(cx + k * 3, apex + 4);
+    ctx.lineTo(cx + k * er, ey + Math.sqrt(1 - k * k) * (er / 2));
+  }
+  ctx.stroke();
+  return apex;
+}
+
+/** A tipi of hides on poles; returns its top. */
+function tipi(ctx: Ctx, cx: number, cy: number, r: number, h: number, hide: string, seed: number): number {
+  ellipse(ctx, cx, cy + 2, r * 1.1, r * 0.55, "rgba(0,0,0,0.2)");
+  const apex = cy - h;
+  poly(ctx, [cx - r, cy, cx, apex, cx, cy + r * 0.5], shade(hide, 0.05));
+  poly(ctx, [cx, cy + r * 0.5, cx, apex, cx + r, cy], shade(hide, -0.25));
+  // A painted band and the door flap.
+  ctx.strokeStyle = seed % 2 ? "#7c2d12" : "#1e3a5f";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(cx - r * 0.62, cy - h * 0.38);
+  ctx.lineTo(cx, cy - h * 0.38 + r * 0.31);
+  ctx.lineTo(cx + r * 0.62, cy - h * 0.38);
+  ctx.stroke();
+  poly(ctx, [cx - 4, cy + r * 0.3, cx - 1, apex + h * 0.5, cx + 2, cy + r * 0.4], "#2a1d12");
+  // Poles sticking out at the top.
+  ctx.strokeStyle = "#5b3a1a";
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  for (const d of [-4, -1, 3]) {
+    ctx.moveTo(cx, apex + 3);
+    ctx.lineTo(cx + d, apex - 6);
+  }
+  ctx.stroke();
+  return apex;
+}
+
+/** A lookout on four poles with a little thatched roof. */
+function lookout(ctx: Ctx, cx: number, cy: number, level: number, t: number): number {
+  ellipse(ctx, cx, cy + 2, 12, 6, "rgba(0,0,0,0.2)");
+  ctx.strokeStyle = "#6b4423";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  for (const [dx, dy] of [[-8, 0], [8, 0], [-3, 4], [3, -4]]) {
+    ctx.moveTo(cx + dx, cy + dy);
+    ctx.lineTo(cx + dx * 0.7, cy + dy * 0.7 - 26 - level * 4);
+  }
+  ctx.stroke();
+  const py = cy - 26 - level * 4;
+  poly(ctx, [cx - 10, py, cx, py + 5, cx + 10, py, cx, py - 5], "#8b5a2b");
+  poly(ctx, [cx - 10, py, cx, py + 5, cx, py + 8, cx - 10, py + 3], "#6b4423");
+  poly(ctx, [cx, py + 5, cx + 10, py, cx + 10, py + 3, cx, py + 8], "#5b3a1a");
+  const apex = py - 14;
+  poly(ctx, [cx - 12, py - 4, cx, apex, cx + 12, py - 4, cx, py + 1], STRAW);
+  poly(ctx, [cx, py + 1, cx, apex, cx + 12, py - 4], shade(STRAW, -0.25));
+  poly(ctx, [cx, apex, cx + 8, apex + 2 + Math.sin(t / 260) * 1.5, cx, apex + 4], "#dc2626");
+  return apex;
+}
+
+/**
+ * Buildings of the first two eras. Stone Age: homes are tipis, the rest round
+ * huts; Bronze Age: everything a big roundhouse. Work, storage and shops keep
+ * their yard, crates and sign.
+ */
+function drawEarly(ctx: Ctx, b: PlacedBuilding, cat: string, cx: number, cy: number, t: number): void {
+  const bronze = b.level === 1;
+  const wall = bronze ? ERAS[1].style.wall : "#8a6a44";
+  const small = b.type === "farm" || b.type === "ranch";
+  if (b.type === "farm") fields(ctx, cx, cy, b.level, t);
+  if (b.type === "ranch") pasture(ctx, cx, cy);
+  let top: number;
+  if (small) top = roundHut(ctx, cx - 6, cy - 3, 8, 4, 11, wall, STRAW);
+  else if (cat === "defense") top = lookout(ctx, cx, cy, b.level, t);
+  else if (cat === "house" && !bronze) top = tipi(ctx, cx, cy, 13, 30, HIDE, b.id);
+  else if (cat === "storage") top = roundHut(ctx, cx, cy, bronze ? 17 : 15, bronze ? 6 : 4, bronze ? 15 : 12, wall, "#b8954f");
+  else top = roundHut(ctx, cx, cy, bronze ? 15 : 12, bronze ? 9 : 6, bronze ? 20 : 16, wall, STRAW);
+  if (cat === "work") yard(ctx, b, cx, cy, t);
+  if (cat === "storage") {
+    // Baskets and bundles by the door.
+    ellipse(ctx, cx + 12, cy + 6, 4, 3, "#a0693a");
+    ellipse(ctx, cx + 6, cy + 9, 3.5, 2.5, "#8b5a2b");
+  }
+  if (cat === "shop") shopSign(ctx, buildingType(b.type)!.emoji, cx, top - 8, t + b.id * 500);
+  if (b.damaged) burning(ctx, cx, top + 10, t + b.id * 777);
 }
 
 /** A building set on fire by raiders: flames and black smoke. */

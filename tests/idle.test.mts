@@ -40,6 +40,14 @@ import {
   capOf,
   currentWonder,
   dropContents,
+  defenseOf,
+  dutchHour,
+  nextRaidAt,
+  raidStrength,
+  repairCost,
+  stepRaid,
+  wallCost,
+  RAID_WARNING_MS,
   fullRateOf,
   eraGoals,
   classicStreets,
@@ -360,6 +368,120 @@ test("coal and smiths: coal from the Iron Age; smiths turn iron and coal into we
   assert.ok(near(long.resources.weapons + (long.resources.armor ?? 0), 100));
   assert.ok(near(long.resources.iron, 0) && near(long.resources.coal, 0));
   assert.equal(ratesOf({ ...s, resources: {} }).weapons, undefined, "nothing in stock, nothing coming in");
+});
+
+/** A Bronze Age town with 30 people and a few buildings, as of T0. */
+function raidTown(): IdleState {
+  let s = rich(unlockEra(newIdleState(T0), 1), 0);
+  for (const t of ["house", "house", "storage", "farm"]) s = build(s, t);
+  return { ...s, population: 30, resources: { food: 1000, wood: 1000, stone: 1000 } };
+}
+/** rand() that gives these numbers in turn (the last one after that). */
+const seq = (...xs: number[]) => {
+  let i = 0;
+  return () => xs[Math.min(i++, xs.length - 1)];
+};
+
+test("raids: from the Bronze Age, about a day apart, in the daytime, seen coming an hour before", () => {
+  assert.equal(stepRaid(newIdleState(T0), Math.random), null, "no raids in the Stone Age");
+  const s = raidTown();
+  const planned = stepRaid(s, () => 0)!;
+  assert.equal(planned.news, undefined);
+  const at = planned.state.nextRaid;
+  assert.ok(at >= T0 + 20 * 3_600_000 && at < T0 + 37 * 3_600_000);
+  for (let i = 0; i < 50; i++) {
+    const h = dutchHour(nextRaidAt(T0 + i * 3_917_000, Math.random));
+    assert.ok(h >= 10 && h < 22, `hour ${h}`);
+  }
+  // Nothing until an hour before; then they're seen coming, with the strength fixed.
+  const quiet = { ...planned.state, lastTick: at - RAID_WARNING_MS - 1 };
+  assert.equal(stepRaid(quiet, Math.random), null);
+  const seen = stepRaid({ ...quiet, lastTick: at - RAID_WARNING_MS }, seq(0.5, 0))!;
+  assert.equal(seen.news!.stage, "coming");
+  assert.equal(seen.state.raid!.at, at);
+  assert.equal(seen.state.raid!.strength, raidStrength(s, 0.5));
+  assert.equal(raidStrength(s, 0.5), 15 + 15 + 12);
+  assert.match(seen.news!.label, /^⚔️ Vijanden in aantocht! Over 1 u 00 vallen ze aan: ⚔️ 42 tegen onze 🛡️ \d+$/);
+  // After a long time nobody was around, there's still an hour's warning.
+  const late = stepRaid({ ...planned.state, lastTick: at + 5 * 3_600_000 }, seq(0.5, 0))!;
+  assert.equal(late.state.raid!.at, at + 6 * 3_600_000);
+});
+
+test("raids: walls, towers, villagers and armed guards defend; a lost fight steals, kills and sets a building on fire", () => {
+  const s = raidTown();
+  assert.deepEqual(defenseOf(s).parts.map((p) => [p.emoji, p.points]), [["🧍", 6]]);
+  // 10 sets of weapons (20 × 4 each in the Bronze Age), 5 of armor, 20 wall tiles, a tower.
+  const walls = Array.from({ length: 20 }, (_, i) => tileIndex(CENTER.x - 10 + i, CENTER.y + 9));
+  const tower = { id: 77, type: "tower", level: 1, x: 3, y: 3 };
+  const strong = { ...s, walls, wallLevel: 1, buildings: [...s.buildings, tower], resources: { ...s.resources, weapons: 800, armor: 400 } };
+  assert.deepEqual(defenseOf(strong).parts.map((p) => [p.emoji, p.points]), [["🧍", 6], ["🗡️", 10], ["🛡️", 2.5], ["🧱", 20], ["🗼", 20]]);
+  assert.equal(defenseOf(strong).total, 59);
+
+  const coming = (t: IdleState, strength: number) => ({ ...t, raid: { at: T0, strength, from: { x: 1, y: 1 } }, nextRaid: T0 });
+  // Won: nothing lost but a tenth of the weapons, and the town is proud for a while.
+  const won = stepRaid(coming(strong, 50), () => 0)!;
+  assert.equal(won.news!.stage, "won");
+  assert.equal(won.state.raid, null);
+  assert.ok(won.state.nextRaid > T0);
+  assert.equal(won.state.resources.weapons, 720);
+  assert.equal(won.state.resources.wood, 1000);
+  assert.ok(happinessOf(won.state, T0).parts.some((p) => p.label === "aanval afgeslagen" && p.points === 10));
+  assert.equal(won.state.lastRaid!.won, true);
+
+  // Lost with half the strength: a fifth of everything stolen, 1.5 → 2 dead, a building on fire.
+  const lost = stepRaid(coming(s, 12), () => 0)!;
+  assert.equal(lost.news!.stage, "lost");
+  assert.equal(lost.state.resources.wood, 800);
+  assert.equal(lost.state.population, 28);
+  const burnt = lost.state.buildings.find((b) => b.damaged)!;
+  assert.equal(lost.news!.damaged, burnt.id);
+  assert.match(lost.news!.label, /^🔥 Het dorp is geplunderd! 🛡️ 6 tegen ⚔️ 12: 2 doden, (een|de) .+ staat in brand, een deel van de voorraad is weg$/);
+  assert.ok(happinessOf(lost.state, T0).parts.some((p) => p.points === -15));
+  assert.deepEqual(lost.state.lastRaid!.stolen, { food: 200, wood: 200, stone: 200 });
+});
+
+test("raids: a building on fire does nothing until a vote repairs it", () => {
+  const s = raidTown();
+  const house = s.buildings.find((b) => b.type === "house")!;
+  const cutter = s.buildings.find((b) => b.type === "wood")!;
+  const storage = s.buildings.find((b) => b.type === "storage")!;
+  const fire = (ids: number[]) => ({ ...s, buildings: s.buildings.map((b) => (ids.includes(b.id) ? { ...b, damaged: true } : b)) });
+  const burnt = fire([house.id, cutter.id, storage.id]);
+  assert.equal(bedsOf(burnt), bedsOf(s) - 3);
+  assert.equal(assignWorkers(burnt).workers[cutter.id], undefined);
+  assert.ok(capOf(burnt) < capOf(s));
+  const repair = { kind: "repair" as const, building: house.id };
+  assert.equal(actionError(s, repair), "niet beschadigd");
+  assert.equal(actionError(burnt, repair), null);
+  assert.equal(actionLabel(burnt, repair), "🔧 Hut herstellen");
+  assert.deepEqual(repairCost(s, house), { wood: 14, stone: 5 });
+  assert.equal(actionError(unlockEra(burnt, 2), { kind: "upgrade", building: house.id }), "eerst herstellen");
+  const fixed = applyAction(burnt, repair);
+  assert.equal(fixed.building!.damaged, undefined);
+  assert.equal(fixed.state.resources.wood, 1000 - 14);
+});
+
+test("walls: drawn on free land near the village like paths, upgraded all at once, block paths and buildings", () => {
+  const s = raidTown();
+  const free = findTile((x, y) => isBuildableTile(x, y) && !s.buildings.some((b) => b.x === x && b.y === y) && Math.abs(x - CENTER.x) + Math.abs(y - CENTER.y) < 6 && !isRoad(s.roads, x, y));
+  const tile = tileIndex(free.x, free.y);
+  const action = { kind: "walls" as const, tiles: [tile] };
+  assert.equal(actionError(s, action), null);
+  assert.deepEqual(wallCost(s, [tile, tile + 1]), { wood: 12, stone: 8 });
+  assert.equal(actionLabel(s, action), "🧱 1 tegel palissade bouwen");
+  const walled = applyAction(s, action).state;
+  assert.deepEqual(walled.walls, [tile]);
+  assert.match(actionError(walled, action)!, /daar staat al een muur/);
+  assert.match(actionError(walled, { kind: "paths", tiles: [tile] })!, /daar staat een muur/);
+  assert.equal(actionError(walled, { kind: "build", type: "house", ...free }), "daar staat een muur");
+  assert.match(actionError(s, { kind: "walls", tiles: [tileIndex(1, 1)] })!, /een muur kan alleen op land|te ver van het dorp/);
+  // Upgrading the whole wall to the era; taking it off gives a bit back.
+  assert.equal(actionError(s, { kind: "fortify" }), "er staan nog geen muren");
+  assert.equal(actionLabel(walled, { kind: "fortify" }), "🧱 Palissade → Aarden wal");
+  assert.equal(applyAction(walled, { kind: "fortify" }).state.wallLevel, 1);
+  const off = applyAction(walled, { kind: "unwall", tiles: [tile] }).state;
+  assert.deepEqual(off.walls, []);
+  assert.equal(off.resources.wood, walled.resources.wood + 1);
 });
 
 test("happiness: food variety, beds, decorations and the tavern; it sets the work speed", () => {
@@ -898,6 +1020,38 @@ test("idle game: a mine keeps the ore it was switched to; unknown ores are dropp
     writeFileSync(file, JSON.stringify({ ...s, buildings: [...s.buildings, ...mines] }));
     const got = createIdleGame(file, T0).message("a", 0, 0, 1, T0).state.buildings.filter((b) => b.id >= 50);
     assert.deepEqual(got.map((b) => [b.id, b.ore]), [[50, "iron"], [51, undefined], [52, undefined]]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("idle game: raids come by on the tick and are saved; walls and fires survive a restart", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "idle-"));
+  try {
+    const file = path.join(dir, "idle.json");
+    const s = raidTown();
+    const walls = [tileIndex(CENTER.x + 3, CENTER.y + 5)];
+    const burnt = s.buildings.map((b, i) => (i === 1 ? { ...b, damaged: true } : b));
+    writeFileSync(file, JSON.stringify({ ...s, walls, wallLevel: 1, buildings: burnt, nextRaid: T0 + RAID_WARNING_MS, boosts: [{ item: "raid_lost", resource: null, mult: 1, until: T0 + 1000 }] }));
+    const game = createIdleGame(file, T0);
+    const first = game.message("a", 0, 0, 1, T0).state;
+    assert.deepEqual(first.walls, walls);
+    assert.equal(first.wallLevel, 1);
+    assert.equal(first.buildings[1].damaged, true);
+    assert.deepEqual(first.boosts.map((b) => b.item), ["raid_lost"]);
+
+    const seen = game.tick(1, T0 + 10, () => 0.5);
+    assert.deepEqual(seen.map((e) => [e.kind, (e as { stage: string }).stage]), [["raid", "coming"]]);
+    assert.ok(game.message("a", 0, 0, 1, T0 + 10).state.raid);
+    assert.deepEqual(game.tick(1, T0 + 20, () => 0.5), []);
+    const fought = game.tick(1, T0 + RAID_WARNING_MS + 20, () => 0.5);
+    assert.equal(fought[0].kind, "raid");
+    game.flush();
+    const saved = JSON.parse(readFileSync(file, "utf8"));
+    assert.equal(saved.raid, null);
+    assert.ok(saved.lastRaid && saved.nextRaid > T0);
+    const again = createIdleGame(file, T0 + RAID_WARNING_MS + 30).message("a", 0, 0, 1, T0 + RAID_WARNING_MS + 30).state;
+    assert.deepEqual(again.lastRaid, saved.lastRaid);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

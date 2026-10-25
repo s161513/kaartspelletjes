@@ -325,20 +325,32 @@ export const isClearable = (x: number, y: number): boolean => ["forest", "rock",
 export const canPave = (x: number, y: number): boolean => onMap(x, y) && (isLand(x, y) || isClearable(x, y) || isRiver(x, y));
 
 /** Why no path can be laid on this tile, or null if it can. */
-export function pathError(buildings: readonly Spot[], roads: readonly number[], x: number, y: number): string | null {
+export function pathError(buildings: readonly Spot[], roads: readonly number[], x: number, y: number, walls: readonly number[] = []): string | null {
   if (!onMap(x, y)) return "buiten de kaart";
   if (!canPave(x, y)) return "hier kan geen pad";
   if (buildings.some((b) => b.x === x && b.y === y)) return "daar staat al iets";
   if (isRoad(roads, x, y)) return "daar ligt al een pad";
+  if (isRoad(walls, x, y)) return "daar staat een muur";
+  return nearBuilding(buildings, x, y, VILLAGE_RANGE) ? null : "te ver van het dorp";
+}
+
+/** Why no wall can go on this tile, or null if it can: free land near the village. */
+export function wallError(buildings: readonly Spot[], roads: readonly number[], walls: readonly number[], x: number, y: number): string | null {
+  if (!onMap(x, y)) return "buiten de kaart";
+  if (!isLand(x, y)) return "een muur kan alleen op land";
+  if (buildings.some((b) => b.x === x && b.y === y)) return "daar staat al iets";
+  if (isRoad(roads, x, y)) return "daar ligt een pad";
+  if (isRoad(walls, x, y)) return "daar staat al een muur";
   return nearBuilding(buildings, x, y, VILLAGE_RANGE) ? null : "te ver van het dorp";
 }
 
 /** Why this type can't go on this tile, or null if it can. */
-export function placeError(buildings: readonly Spot[], roads: readonly number[], typeId: string, x: number, y: number): string | null {
+export function placeError(buildings: readonly Spot[], roads: readonly number[], typeId: string, x: number, y: number, walls: readonly number[] = []): string | null {
   if (!onMap(x, y)) return "buiten de kaart";
   if (!isLand(x, y)) return "hier kan je niet bouwen";
   if (buildings.some((b) => b.x === x && b.y === y)) return "daar staat al iets";
   if (isRoad(roads, x, y)) return "daar ligt een pad";
+  if (isRoad(walls, x, y)) return "daar staat een muur";
   const source = sourceOf(typeId);
   if (source) return near(x, y, source.range ?? SOURCE_RANGE, source.ok) ? null : source.hint;
   return nearBuilding(buildings, x, y, VILLAGE_RANGE) ? null : "te ver van het dorp";

@@ -114,7 +114,7 @@ export const ERAS: readonly EraDef[] = [
   },
 ];
 
-export type Category = "center" | "house" | "work" | "storage" | "shop" | "decor" | "wonder";
+export type Category = "center" | "house" | "work" | "storage" | "shop" | "decor" | "wonder" | "defense";
 
 /** How idle villagers react to a decoration. */
 export type DecorBehavior = "dance" | "photo" | "pose" | "sit";
@@ -244,6 +244,11 @@ export const BUILDING_TYPES: readonly BuildingType[] = [
     names: sameName(name),
   })),
   {
+    id: "tower", category: "defense", emoji: "🗼", minEra: 0, specialCost: 10,
+    baseCost: { wood: 60, stone: 80 },
+    names: ["Uitkijkpost", "Houten toren", "Wachttoren", "Romeinse toren", "Kasteeltoren", "Vestingtoren", "Kanonstoren", "Bunker", "Radarpost", "Lasertoren", "Schildtoren"],
+  },
+  {
     id: "storage", category: "storage", emoji: "🏚️", minEra: 0, specialCost: 15,
     baseCost: { wood: 50, stone: 30 },
     names: ["Schuur", "Graanschuur", "Voorraadhut", "Pakhuis", "Tiendschuur", "Waag", "Magazijn", "Silo", "Distributiecentrum", "Vrachthangar", "Ruimtedepot"],
@@ -365,6 +370,19 @@ export const BRIDGE_TILE_COST: Amounts = { wood: 12, stone: 6 };
 /** At most this many path tiles in one proposal. */
 export const MAX_PATH_TILES = 150;
 
+// ---------- walls ----------
+
+/** The whole wall has one level, like the streets, upgraded by vote to the current era. */
+export const WALL_NAMES: readonly string[] = [
+  "Palissade", "Aarden wal", "Stenen muur", "Romeinse muur", "Kasteelmuur", "Bastion",
+  "Vestingwerk", "Betonmuur", "Laserhek", "Krachtveld", "Schildgenerator",
+];
+/** One tile of wall, at the wall's level (×4 per level). */
+export const WALL_TILE_COST: Amounts = { wood: 6, stone: 4 };
+/** Level-0 cost of upgrading the whole wall (×4 per era, plus that era's special). */
+export const WALL_UPGRADE_COST: Amounts = { stone: 100, wood: 50 };
+export const WALL_SPECIAL_COST = 20;
+
 // ---------- players' own NPCs ----------
 
 export const SKIN_TONES: readonly string[] = ["#ffdbac", "#f1c27d", "#e0ac69", "#c68642", "#a1665e", "#8d5524"];
@@ -448,6 +466,45 @@ export const WONDER_COST: Amounts = { wood: 400, stone: 400, food: 300 };
 export const WONDER_SPECIAL_COST = 120;
 /** After a phase the builders need this long before the next one can start. */
 export const WONDER_BUILD_MS = 6 * 60 * 60_000;
+
+// ---------- enemies ----------
+
+/** Raids start in this era. */
+export const RAID_FROM_ERA = 1;
+/** The next raid comes this long after the last one, plus up to the spread… */
+export const RAID_GAP_MS = 20 * 60 * 60_000;
+export const RAID_GAP_SPREAD_MS = 16 * 60 * 60_000;
+/** …in the daytime (Dutch time, from–to hour), and is seen coming this long before. */
+export const RAID_HOURS: readonly [number, number] = [10, 22];
+export const RAID_WARNING_MS = 60 * 60_000;
+/** Attack: a base, more per era and per villager (they come for what's there), ± the spread. */
+export const RAID_BASE = 15;
+export const RAID_PER_ERA = 15;
+export const RAID_PER_PERSON = 0.4;
+export const RAID_SPREAD = 0.2;
+/** Defense: every villager a little; a guard per this many weapons (×4 per era) a lot more, armor on top. */
+export const PERSON_DEFENSE = 0.2;
+export const ARMS_PER_GUARD = 20;
+export const GUARD_POINTS = 1;
+export const ARMOR_POINTS = 0.5;
+/** Per wall tile and per tower, ×(1 + level). */
+export const WALL_POINTS = 0.5;
+export const TOWER_POINTS = 10;
+/** A lost fight, at its worst (defense 0): this share of every resource stolen, of the villagers killed. */
+export const RAID_STEAL = 0.4;
+export const RAID_KILL = 0.1;
+/** Weapons and armor lost in every fight. */
+export const RAID_WEAR = 0.1;
+/** Fixing a damaged building costs this share of building it new at its level. */
+export const REPAIR_SHARE = 0.3;
+
+export type RaidMoodId = "raid_won" | "raid_lost";
+
+/** How a fight leaves the town feeling, for a while. */
+export const RAID_MOODS: readonly { id: RaidMoodId; emoji: string; name: string; points: number; ms: number }[] = [
+  { id: "raid_won", emoji: "🛡️", name: "aanval afgeslagen", points: 10, ms: 3 * 60 * MIN },
+  { id: "raid_lost", emoji: "😢", name: "geplunderd", points: -15, ms: 6 * 60 * MIN },
+];
 
 // ---------- the 67 counter's extras ----------
 

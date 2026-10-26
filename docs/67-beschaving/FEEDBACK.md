@@ -15,9 +15,30 @@ thema (zie [ROADMAP.md](ROADMAP.md)):
 
 ## Nieuw
 
-(leeg)
-
 ## Verwerkt
+
+- 2026-10-26, feedback ingedeeld (Richard en spelers):
+  - "Ruilen moet in balans", "de resources zijn te snel", "er komen super
+    snel mensen bij", "happiness meter gaat ook te snel omhoog", "begin met
+    een hut en 1 Schuur": Update 12 (PR #39)
+  - "niks van resources samenvoegen, opslag per resource", "stoppen met
+    werken als storage vol is", "hover functie bij de HUD glitcht", "de
+    tijdperk informatie in een mooier overzicht", "geen melding dat je er
+    niet op kan klikken (2.5D)": Update 17
+  - "inwoners proberen alleen binnen te komen als er vrije slaapplaatsen
+    zijn", "nieuwe inwoners moeten geaccepteerd worden (profiel, stemmen)",
+    "huidige inwoners kunnen kinderen maken": Update 18
+  - "de golven zien er slecht uit", "retexture de bloemen en de golven",
+    "decoraties verbeteren": Update 19
+  - "dag/nacht cycle van 20 minuten, vijanden om de paar nachten, licht in
+    de nacht", "mensen moeten slapen in hun eigen huis", "poorten in de
+    muur": Update 20
+  - "de tijdperk monumenten moeten groter zijn (meerdere tegels)", "De
+    Senaat, het middelste gebouw, meerdere tegels groot": Update 21
+  - "de werkplaatsen hebben individuele tools nodig (rarity, crafting
+    minigame)": Update 22
+  - "je kan mannetjes aansturen (server-sided, iedereen ziet hetzelfde)":
+    Update 14
 
 - 2026-10-26, Richard: "voorlopig zijn het wat zeer simpele tekeningen. ik wil
   graag betere textures die bij het opstarten ingeladen worden", een

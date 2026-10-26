@@ -61,8 +61,8 @@ Daarnaast blijft gelden:
 
 | Wat | Bestand |
 | --- | --- |
-| Regels: productie (ook mijnen en smeden), geluk, kosten, stemmen, paden, muren, afbreken, doelen en wonderen, supply drops, aanvallen | `shared/idle.ts` |
-| Getallen en content: grondstoffen, tijdperken (doelen, wonderen), gebouwen, winkels, gelukjes | `shared/idleContent.ts` |
+| Regels: productie (ook mijnen en smeden), geluk (de meter), inwoners, kosten, stemmen, paden, muren, afbreken, doelen en wonderen, supply drops, aanvallen | `shared/idle.ts` |
+| Getallen en content: grondstoffen, tijdperken (doelen, wonderen), gebouwen, winkels, gelukjes; de balans (`PRICE_MULT`, `BASE_RATE`, …) onderaan | `shared/idleContent.ts` |
 | Kaart, natuur, waar gebouwen en paden mogen | `shared/idleMap.ts` |
 | Server: opslag (`data/idle.json`), invoercontrole, stemmen afhandelen | `server/src/idle.ts`, `server/src/counter.ts` |
 | Browser: wereld, panelen, NPC's, padvinden | `client/src/world/*`, `client/src/counter.ts` |
@@ -81,9 +81,10 @@ Status: gepland | bezig | in review (PR #x) | gedaan (PR #x)
 - [ ] <wat er moet gebeuren> (bron: feedback <datum>, <wie>)
 -->
 
-Volgorde: van boven naar beneden, op volgorde van belangstelling. De
-nummers volgen die volgorde, dus "doe de volgende update" is de bovenste die
-nog gepland staat. Een latere update kan steunen op een eerdere; dat staat er
+Volgorde: van boven naar beneden, op volgorde van belangstelling. "Doe de
+volgende update" is de bovenste die nog gepland staat. De nummers volgen
+die volgorde niet helemaal: updates 17–22 (feedback van 2026-10-26) staan
+vóór 13–15. Een latere update kan steunen op een eerdere; dat staat er
 dan bij. Alle bronnen zijn feedback van 2026-10-22, tenzij anders vermeld.
 
 ### Update 3: Overzicht & bediening
@@ -234,7 +235,7 @@ geeft alleen nog extra's.
       hoeft. (bron: Richard, "de game resetten na deze updates")
 
 ### Update 9: Mijnen & smeden
-Status: in review (PR #35).
+Status: gedaan (PR #35).
 
 Afgesproken met Richard (2026-10-25): één soort Mijn, tegen de berg; de
 spelers stemmen welk erts hij delft (alles wat ontgrendeld is). Kolen vanaf
@@ -258,7 +259,7 @@ en kolen, en verbruiken die.
       "armor smith")
 
 ### Update 10: Vijanden & muren
-Status: in review (PR #36). Steunt op update 9 (wapens en harnassen).
+Status: gedaan (PR #36). Steunt op update 9 (wapens en harnassen).
 
 Afgesproken met Richard (2026-10-25): af en toe een aanval, een uur van
 tevoren aangekondigd en te zien op de kaart. Verdediging: muren, torens en
@@ -287,7 +288,7 @@ tijdje minder gelukkig.
       stemming 🔧 het herstelt, voor 30% van de bouwprijs.
 
 ### Update 11: Uiterlijk
-Status: in review (PR #37).
+Status: gedaan (PR #37).
 
 Afgesproken met Richard (2026-10-25): installeer `create-game-assets`,
 `game-feel`, `procedural-gen` en `tower-defense` (die laatste voor update 10)
@@ -314,17 +315,140 @@ in `~/.claude/skills`, niet in de repo.
       (bron: "Tijdperk voelt nu niet als prehistory")
 
 ### Update 12: Balans
-Status: gepland. Bouw deze pas als er een paar dagen gespeeld is, en na
-update 4 (zonder klikken verandert het tempo).
+Status: in review (PR #39). Hierin zat ook een reset van het dorp.
 
-- [ ] Kijk hoe snel een groep door een tijdperk heen komt. Pas zo nodig
-      `BUILD_COST_MULT`, `COST_GROWTH` en de productie aan in
-      `idleContent.ts`. (bron: Richard, "het tempo ligt te hoog")
-- [ ] Grondstoffen moeilijker maken om te krijgen. (bron: "moeilijker
-      resources")
-- [ ] De kosten van het Groot dorpsfeest laten meegroeien met de bevolking,
-      niet alleen met het tijdperk. (bron: "dorpsfeest resources moeten scalen
-      met population")
+Afgesproken met Richard (2026-10-26): productie ÷2 en alles ×2 zo duur
+(optie "3–4 dagen"), maar de wonderfases blijven 24 uur uit elkaar. De
+verhoudingen blijven gelijk; later maak je veel meer, maar alles is dan ook
+evenredig duurder (×4 per tijdperk, zoals het was). Geen ruilen meer. Geluk
+1 punt per 10 minuten, 1 inwoner per half uur. Het dorp begint opnieuw met
+een Kampvuur, een Hut en een Schuur.
+
+- [x] Het tempo: grondstoffen gaan te snel, zeker in de Steentijd; gebouwen
+      moeten in het begin duurder zijn, en evenredig duurder blijven. Gedaan:
+      `BASE_RATE`, `SPECIAL_BASE_RATE`, `GATHER_RATE` en de robots ÷2. Elke
+      prijs (gebouwen, upgrades, herstel, wonderen, winkel, straten, paden,
+      muren, kleding) ×`PRICE_MULT` (2), en de opslag ×2 zodat de duurste
+      wonderfase er nog in past. Elk volgend exemplaar +30% (was +20%).
+      Wonderfases 24 uur uit elkaar (was 6). Kratten minstens 60 van elk.
+      (bron: Richard, "het tempo ligt te hoog"; "moeilijker resources";
+      2026-10-26, "de resources zijn te snel, allesinds zeker voor het eerste
+      tijdperk")
+- [x] Ruilen in balans: je kon materiaal eindeloos omzetten. Gedaan: er is
+      geen ruilen meer. De Ruilplaats, het Handelsakkoord van de bank en de
+      rondtrekkende koopman zijn weg. Het doel van de IJzertijd is nu een
+      Wapensmid in plaats van een Ruilplaats. (bron: 2026-10-26, "ruilen
+      moet in balans")
+- [x] Geluk gaat te snel omhoog. Gedaan: geluk is een meter (`happiness`)
+      die 1 punt per 10 minuten (`HAPPY_STEP_MS`) naar zijn doel kruipt,
+      omhoog en omlaag. De HUD toont ↗ of ↘ en waar hij heen gaat. Het
+      werktempo en de doelen volgen de meter. Gevolg: een feest van 10
+      minuten telt nog maar voor 1 punt. (bron: 2026-10-26, "happiness meter
+      gaat ook te snel omhoog")
+- [x] Er komen te snel mensen bij. Gedaan: 1 inwoner per 30 minuten
+      (`MOVE_MS`, was 1 per minuut), en het aantal volgt de meter, niet het
+      doel. Er vertrekt pas iemand als er een hele inwoner te veel is.
+      Toelaten via een stemming komt in update 18. (bron: 2026-10-26, "er
+      komen super snel mensen bij")
+- [x] Het Groot dorpsfeest kost meer met meer inwoners: de prijs geldt voor
+      10 inwoners (`PARTY_PEOPLE`), en groeit daarboven mee. (bron:
+      "dorpsfeest resources moeten scalen met population")
+- [x] Beginnen met een hut en een Schuur. Gedaan: een nieuw dorp heeft een
+      Kampvuur, een Hut en een Schuur, 3 inwoners zonder werk, en 150 🍖,
+      200 🪵 en 100 🪨. Via `STATE_VERSION` 7 begint het dorp opnieuw;
+      spelers houden naam en uiterlijk. (bron: 2026-10-26, "begin met een
+      hut en 1 Schuur als basisvoorziening")
+
+### Update 17: Opslag & overzicht
+Status: gepland.
+
+- [ ] Opslag per grondstof, niet één grens voor alles. Bijvoorbeeld een
+      Schuur voor hout en steen, een voorraadkuil voor voedsel. Eerst met
+      Richard afstemmen welke gebouwen wat opslaan. (bron: 2026-10-26,
+      "niks van resources samenvoegen, opslag beter beheren (per resource)")
+- [ ] Werkers stoppen met werken als de opslag van hun grondstof vol is (en
+      gaan dan iets anders doen, of zitten bij het vuur). (bron: 2026-10-26,
+      "stoppen met werken als storage vol is")
+- [ ] Het overzicht dat nu in de tooltip van de HUD staat, glitcht omdat het
+      steeds ververst wordt. Zet het bij de juiste gebouwen (de opslag bij de
+      Schuur, …) en houd de HUD kort. (bron: 2026-10-26, "hover functie bij
+      de HUD glitcht")
+- [ ] De informatie over het tijdperk in een mooier overzicht, met
+      blokken, voortgangsbalken en iconen, in plaats van tekst met emoji's
+      onder elkaar. (bron: 2026-10-26, "deel de tijdperk informatie op in
+      een mooier overzicht")
+- [ ] Klikken op een tegel achter een gebouw of boom lukt niet, omdat die
+      ervoor staat (2.5D). Kies de tegel onder de muis, of laat een melding
+      zien als er iets in de weg staat. (bron: 2026-10-26, "geen melding dat
+      je er niet op kan klikken")
+
+### Update 18: Nieuwe inwoners
+Status: gepland. Steunt op update 12. Eerst met Richard afstemmen hoe de
+stemming over een nieuwkomer gaat (wie stemt, hoe lang hij wacht).
+
+- [ ] Nieuwkomers komen alleen als er een vrij bed is. Geen bed: niemand
+      klopt aan. (bron: 2026-10-26, "inwoners proberen alleen binnen te komen
+      als er nog vrije slaapplaatsen zijn")
+- [ ] Een nieuwkomer komt langs met een profiel (naam, wat die kan, waar die
+      vandaan komt) en de spelers stemmen of die mag blijven. (bron:
+      2026-10-26, "moeten geaccepteerd worden door de samenleving (geef de
+      NPC een profiel)")
+- [ ] Inwoners kunnen kinderen krijgen: er komt meteen een volwassen
+      inwoner bij (ook alleen met een vrij bed). (bron: 2026-10-26, "huidige
+      inwoners kunnen kinderen maken")
+
+### Update 19: Water, bloemen & decoraties
+Status: gepland. Pixel-art, zoals in update 16.
+
+- [ ] Nieuwe golven op het water: die zien er slecht uit. (bron:
+      2026-10-26, "de golven zien er slecht uit", "retexture de bloemen en de
+      golven")
+- [ ] Nieuwe bloemen in het gras en een nieuw bloemperk. (bron: idem)
+- [ ] Mooiere decoraties (standbeelden, totempaal, menhir, …), als
+      pixel-sprites. (bron: 2026-10-26, "decoraties verbeteren")
+- [ ] Oevers langs het water, als er een goed pakket voor is (staat nog
+      open uit update 16).
+
+### Update 20: Dag & nacht
+Status: gepland. Eerst met Richard afstemmen wat er 's nachts verandert aan
+het werk, en hoe vaak de vijanden komen.
+
+- [ ] Een dag duurt 20 minuten. 's Nachts is alles donkerder (maanlicht);
+      vuren, fakkels en ramen geven licht, gebouwen zonder licht niet. (bron:
+      2026-10-26, "dag/nacht cycle van 20 minuten")
+- [ ] 's Nachts slaapt iedereen in zijn eigen huis. (bron: 2026-10-26,
+      "mensen moeten slapen in hun eigen huis")
+- [ ] De vijanden komen om de paar nachten, in plaats van ongeveer één keer
+      per dag overdag. (bron: 2026-10-26, "de vijanden komen om de paar
+      nachten")
+- [ ] Poorten in de muur: dorpelingen lopen alleen door een poort, en de
+      vijanden moeten erdoor of eroverheen. (bron: 2026-10-26, "poorten om in
+      de muur te kunnen zetten"; bekende beperking "muren houden niemand
+      tegen")
+
+### Update 21: Grote gebouwen
+Status: gepland. Gebouwen beslaan nu één tegel; dit raakt de kaart, het
+plaatsen en het padvinden.
+
+- [ ] Elk wereldwonder is groter, met een eigen vorm: Stonehenge 3×3, de
+      kathedraal in een kruisvorm, enzovoort. (bron: 2026-10-26, "de
+      tijdperk monumenten moeten groter zijn (meerdere tegels)")
+- [ ] Het centrum heet De Senaat en beslaat meerdere tegels; daar worden de
+      stemmen en de feedback verwerkt (zie update 13). Bij het Kampvuur is
+      het één tegel, met boomstammen eromheen waar mensen op zitten. (bron:
+      2026-10-26, "de council heeft een gebouw De Senaat")
+
+### Update 22: Gereedschap
+Status: gepland. Eerst met Richard afstemmen: welke werkplaats wat maakt,
+hoe zeldzaamheid werkt, en of er een minigame bij komt.
+
+- [ ] Elke baan heeft eigen gereedschap: een houweel voor mijnwerkers, een
+      bijl voor houthakkers, pijl en boog of een speer voor jagers, een
+      hengel voor vissers. Zonder gereedschap werken ze trager. (bron:
+      2026-10-26, "de werkplaatsen hebben individuele tools nodig")
+- [ ] Werkplaatsen maken het gereedschap; het slijt. (bron: idem)
+- [ ] Gereedschap kan zeldzaam zijn, met een bonus, misschien via een
+      crafting-minigame. (bron: idem)
 
 ### Update 13: De raad
 Status: gepland.
@@ -350,8 +474,10 @@ samen online, iets doen voor elkaar, samen werken) en of ook de gewone
 inwoners meedoen of alleen spelers.
 
 - [ ] Je eigen mannetje besturen: zeg welke baan of taak het heeft. Het loopt
-      daarheen en werkt mee zolang je online bent. (bron: Richard,
-      2026-10-25, "alleen je eigen mannetje kan besturen")
+      daarheen en werkt mee zolang je online bent. De server houdt bij waar
+      de mannetjes zijn, zodat iedereen hetzelfde ziet. (bron: Richard,
+      2026-10-25, "alleen je eigen mannetje kan besturen"; 2026-10-26, "je
+      kan mannetjes aansturen (ze worden ook server-sided)")
 - [ ] Vrienden maken: klik op een andere speler om iets samen te doen (praten,
       helpen, iets geven). Elk paar spelers heeft een relatie die groeit, en
       langzaam zakt als je elkaar niet ziet. (bron: idem, "vrienden kan maken")
@@ -374,7 +500,7 @@ voor ze iets samen beginnen.
       sterke relatie opbouwen met iemand anders zal deze trouw breken")
 
 ### Update 16: Pixel-art
-Status: in review (PR #38). Steunt op update 11 (PR #37), en dus ook op 9 en 10.
+Status: gedaan (PR #38).
 
 Afgesproken met Richard (2026-10-26): het spel wordt pixel-art. Zoveel
 mogelijk kant-en-klare sprites van internet; wat er niet is, maakt Claude zelf
@@ -446,12 +572,12 @@ een update worden opgenomen als het past.
 - **Voedselgebouwen delen hun prijsstijging:** het zoveelste voedselgebouw
   kost evenveel, welk soort het ook is (`costGroup`). Zo maakt het opsplitsen
   voedsel niet goedkoper. Voor de rest is alles even sterk als de oude
-  boerderij; de balans komt in update 12.
+  boerderij.
 - **Geluk en bevolking bij een lange afwezigheid:** `advance` rekent een
-  hele periode met het geluk en het aantal inwoners van het begin ervan. De
+  hele periode met de geluksmeter en het aantal inwoners van het begin ervan. De
   server rekent vaak door, dus dit speelt alleen na lang niemand online.
 - **Wonderfase en opslag:** de laatste fase van Stonehenge kost precies
-  800 hout en 800 steen. Dat is wat een Kampvuur met één Schuur kan opslaan.
+  1600 hout en 1600 steen. Dat is wat een Kampvuur met één Schuur kan opslaan.
   Wordt de kostenschaal veranderd, kijk dan of de opslag nog volstaat.
 - **Berichtgrootte:** `MAX_PATH_TILES` (150) en de `maxPayload` van de
   counter-socket (2048 bytes) horen bij elkaar. Verhoog je het ene, controleer
@@ -466,3 +592,7 @@ een update worden opgenomen als het past.
 - **Aanvallen alleen met iemand online:** de server rekent alleen door
   terwijl er iemand kijkt. Komt er lang niemand, dan wacht de aanval, en
   zodra iemand er is, komt er eerst een waarschuwing van een uur.
+- **Een nieuw dorp met één soort voedsel:** een nieuw dorp eet alleen
+  bessen (−20 geluk). De meter zakt dan langzaam (1 punt per 10 minuten) en
+  na een uur of twee vertrekt er iemand, tot er een jagerskamp, akker of
+  visserij staat. Dat is de bedoeling: bouw eerst voedsel.

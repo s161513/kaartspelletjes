@@ -402,19 +402,33 @@ Afgesproken met Richard (2026-10-26): één opslaggebouw per grondstof.
       2026-10-26, "geen melding dat je er niet op kan klikken")
 
 ### Update 18: Nieuwe inwoners
-Status: gepland. Steunt op update 12. Eerst met Richard afstemmen hoe de
-stemming over een nieuwkomer gaat (wie stemt, hoe lang hij wacht).
+Status: in review (PR #41). Steunt op update 12 en 17.
 
-- [ ] Nieuwkomers komen alleen als er een vrij bed is. Geen bed: niemand
-      klopt aan. (bron: 2026-10-26, "inwoners proberen alleen binnen te komen
-      als er nog vrije slaapplaatsen zijn")
-- [ ] Een nieuwkomer komt langs met een profiel (naam, wat die kan, waar die
-      vandaan komt) en de spelers stemmen of die mag blijven. (bron:
-      2026-10-26, "moeten geaccepteerd worden door de samenleving (geef de
-      NPC een profiel)")
-- [ ] Inwoners kunnen kinderen krijgen: er komt meteen een volwassen
-      inwoner bij (ook alleen met een vrij bed). (bron: 2026-10-26, "huidige
-      inwoners kunnen kinderen maken")
+Afgesproken met Richard (2026-10-26): een nieuwkomer gaat via een gewone
+stemming (24 uur, minstens 2 keer ja); het profiel is alleen voor de sfeer;
+een koppel kiest zelf wanneer het een kind krijgt.
+
+- [x] Nieuwkomers komen alleen als er een vrij bed is. Gedaan: niemand trekt
+      nog vanzelf in (`advance` laat alleen nog mensen vertrekken). Een
+      nieuwkomer klopt aan (`stepNewcomer`) als er een bed vrij is en het
+      dorp genoeg mensen trekt (`populationTarget`): één tegelijk, hoogstens
+      één per 30 minuten. Ook het geluksevent "Nieuwkomers" vult alleen nog
+      vrije bedden; zonder vrij bed wordt het een feest. (bron: 2026-10-26,
+      "inwoners proberen alleen binnen te komen als er nog vrije
+      slaapplaatsen zijn")
+- [x] Een nieuwkomer met een profiel, en de spelers stemmen. Gedaan: naam,
+      beroep (passend bij het tijdperk) en afkomst, alleen voor de sfeer. Het
+      is een gewone stemming ("🚪 Pien mag blijven") die 24 uur openstaat;
+      spelers kunnen dit zelf niet voorstellen. De nieuwkomer staat aan de
+      rand van het dorp ("mag ik hier wonen? 🧳") en is aan te klikken. Bij het
+      centrum staat wie er wacht. (bron: 2026-10-26, "moeten geaccepteerd
+      worden door de samenleving (geef de NPC een profiel)")
+- [x] Inwoners kunnen kinderen krijgen. Gedaan: elk koppel (2 inwoners)
+      krijgt er zo'n keer per 48 uur (`BIRTH_MS`) een, op een willekeurig
+      moment: het koppel kiest zelf (`stepBirth`). Dat gebeurt alleen met een
+      vrij bed en minstens 50% geluk. Er komt meteen een volwassen inwoner
+      bij, met een bericht "👶 … kregen een kind". (bron: 2026-10-26,
+      "huidige inwoners kunnen kinderen maken")
 
 ### Update 19: Water, bloemen & decoraties
 Status: gepland. Pixel-art, zoals in update 16.
@@ -617,6 +631,9 @@ een update worden opgenomen als het past.
 - **Aanvallen alleen met iemand online:** de server rekent alleen door
   terwijl er iemand kijkt. Komt er lang niemand, dan wacht de aanval, en
   zodra iemand er is, komt er eerst een waarschuwing van een uur.
+- **Alleen spelen en nieuwkomers:** een nieuwkomer heeft, zoals elke
+  stemming, minstens 2 keer ja nodig. Wie alleen speelt, krijgt er dus niemand
+  bij via de poort, alleen via kinderen.
 - **Een nieuw dorp met één soort voedsel:** een nieuw dorp eet alleen
   bessen (−20 geluk). De meter zakt dan langzaam (1 punt per 10 minuten) en
   na een uur of twee vertrekt er iemand, tot er een jagerskamp, akker of

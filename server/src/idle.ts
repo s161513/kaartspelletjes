@@ -10,6 +10,8 @@ import {
   LUCKY_GOLD_MULT,
   LUCKY_MS,
   MAX_DROPS,
+  BIRTH_MS,
+  MOVE_MS,
   RAID_MOODS,
   RAID_WARNING_MS,
   STATE_VERSION,
@@ -40,6 +42,8 @@ import {
   resourceDef,
   rollLucky,
   shopItem,
+  stepBirth,
+  stepNewcomer,
   stepRaid,
   isLand,
   voteCounts,
@@ -241,6 +245,8 @@ function parseIdle(raw: unknown, now: number): IdleState | null {
   const streets = new Set(s.roads);
   s.walls = parseRoads(r.walls, s.buildings).filter((i) => !streets.has(i) && isLand(i % MAP_SIZE, Math.floor(i / MAP_SIZE)));
   if (finite(r.nextRaid) && r.nextRaid > 0) s.nextRaid = r.nextRaid;
+  if (finite(r.nextNewcomer) && r.nextNewcomer > 0) s.nextNewcomer = Math.min(r.nextNewcomer, now + MOVE_MS);
+  if (finite(r.nextBirth) && r.nextBirth > 0) s.nextBirth = Math.min(r.nextBirth, now + BIRTH_MS * 2);
   const raid = record(r.raid);
   const from = record(raid.from);
   if (finite(raid.at) && finite(raid.strength) && raid.strength >= 0 && tileInt(from.x) && tileInt(from.y)) {
@@ -290,6 +296,12 @@ function parseAction(a: unknown): ProposalAction | null {
   if (r.kind === "ore" && Number.isInteger(r.building) && typeof r.ore === "string" && resourceDef(r.ore)) return { kind: "ore", building: r.building as number, ore: r.ore };
   if (r.kind === "fortify") return { kind: "fortify" };
   if (r.kind === "repair" && Number.isInteger(r.building)) return { kind: "repair", building: r.building as number };
+  if (r.kind === "newcomer") {
+    const who = record(r.who);
+    const text = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim().slice(0, 40) : null);
+    const [name, trade, from] = [text(who.name), text(who.trade), text(who.from)];
+    if (name && trade && from) return { kind: "newcomer", who: { name, trade, from } };
+  }
   if ((r.kind === "paths" || r.kind === "unpave" || r.kind === "walls" || r.kind === "unwall") && Array.isArray(r.tiles) && r.tiles.length <= MAX_PATH_TILES) {
     const tiles = r.tiles.filter((i): i is number => Number.isInteger(i) && i >= 0 && i < MAP_SIZE * MAP_SIZE);
     if (tiles.length === r.tiles.length) return { kind: r.kind, tiles: [...new Set(tiles)] };
@@ -430,6 +442,7 @@ export function createIdleGame(file: string, now = Date.now()): IdleGame {
       const action = parseAction(rawAction);
       if (!action) return { error: "onbekend voorstel", events: [] };
       if (action.kind === "buy" && shopItem(action.item)?.vote === false) return { error: "dat kan je meteen kopen", events: [] };
+      if (action.kind === "newcomer") return { error: "nieuwkomers kloppen zelf aan", events: [] };
       if (state.proposals.length >= MAX_PROPOSALS) return { error: "te veel open stemmingen", events: [] };
       state = advance(state, now);
       // Checked now and again when it passes: things change while it's open.
@@ -518,6 +531,15 @@ export function createIdleGame(file: string, now = Date.now()): IdleGame {
         state = done.state;
         saver.schedule();
         if (done.news) events.push({ kind: "raid", ...done.news });
+      }
+      // Someone knocks on the door, or a couple has a child.
+      const steps: ((s: IdleState) => { state: IdleState; label?: string } | null)[] = [(s) => stepNewcomer(s, rand), (s) => stepBirth(s, rand)];
+      for (const step of steps) {
+        const news = step(advance(state, now));
+        if (!news) continue;
+        state = news.state;
+        saver.schedule();
+        if (news.label) events.push({ kind: "lucky", label: news.label });
       }
       return events;
     },

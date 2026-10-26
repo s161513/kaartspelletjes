@@ -68,6 +68,8 @@ export function createTown(send: (msg: IdleClientMsg) => void): Town {
       receivedAt = Date.now();
       world.setWorld(msg.state);
       world.setPeople(msg.people, msg.me?.id ?? null);
+      const knock = msg.proposals.find((p) => p.action.kind === "newcomer")?.action;
+      world.setNewcomer(knock?.kind === "newcomer" ? knock.who.name : null);
       panels.refresh();
       avatar.refresh();
     },

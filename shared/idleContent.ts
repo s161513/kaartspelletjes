@@ -549,8 +549,34 @@ export const LUCKY_EVENTS: readonly { id: LuckyId; emoji: string; name: string }
 ];
 /** Golden hour: one resource ×this. */
 export const LUCKY_GOLD_MULT = 3;
-/** Newcomers: this share of the beds (at least 3). */
+/** Newcomers: this share of the beds (at least 3), as far as there are free beds. */
 export const LUCKY_NEWCOMERS_SHARE = 0.1;
+
+// ---------- new villagers (update 18) ----------
+
+/** A couple has a child (straight away a grown-up villager) about this often, while there's a free bed. */
+export const BIRTH_MS = 48 * 60 * 60_000;
+/** …and only while the town is at least this happy. */
+export const BIRTH_HAPPY = 50;
+
+/** Who knocks on the door: a name, a trade (from its era on) and where they come from. Only for the story. */
+export const NEWCOMER_NAMES: readonly string[] = [
+  "Aaltje", "Bram", "Cor", "Dirkje", "Evert", "Fenna", "Geert", "Hilde", "Ids", "Janna", "Klaas", "Lieke", "Maarten",
+  "Nynke", "Otto", "Pien", "Reinout", "Sietske", "Thijs", "Uma", "Victor", "Wietske", "Youri", "Zoë",
+  "Skibidi Stijn", "Rizz Rosa", "Sigma Sjoerd", "Aura Aafke", "Mewing Merel", "Sheesh Sander",
+];
+export const NEWCOMER_TRADES: readonly { name: string; era: number }[] = [
+  { name: "jager", era: 0 }, { name: "bessenplukker", era: 0 }, { name: "mandenvlechter", era: 0 }, { name: "vuursteenklopper", era: 0 },
+  { name: "verhalenverteller", era: 0 }, { name: "kruidenvrouw", era: 0 }, { name: "pottenbakker", era: 0 }, { name: "visser", era: 0 },
+  { name: "bronsgieter", era: 1 }, { name: "herder", era: 1 }, { name: "smid", era: 2 }, { name: "soldaat", era: 2 },
+  { name: "koopman", era: 3 }, { name: "schrijver", era: 3 }, { name: "monnik", era: 4 }, { name: "ridder", era: 4 },
+  { name: "schilder", era: 5 }, { name: "uitvinder", era: 5 }, { name: "fabrieksarbeider", era: 6 }, { name: "ingenieur", era: 7 },
+  { name: "programmeur", era: 8 }, { name: "influencer", era: 8 }, { name: "astronaut", era: 9 }, { name: "androïde", era: 10 },
+];
+export const NEWCOMER_ORIGINS: readonly string[] = [
+  "van over de rivier", "uit de bergen", "uit het hoge noorden", "van de kust", "uit een dorp dat is platgebrand",
+  "uit het diepe bos", "van heel ver weg", "uit Ohio", "uit het dorp hiernaast", "van een eiland",
+];
 /** A spontaneous party: this much happiness. */
 export const LUCKY_PARTY_POINTS = 20;
 

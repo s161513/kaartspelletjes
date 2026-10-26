@@ -81,6 +81,8 @@ export interface TownWorld {
   setWorld(world: IdleWorld): void;
   /** Players online, each as their own NPC; `me` gets a yellow name tag. */
   setPeople(people: IdlePerson[], me: string | null): void;
+  /** The newcomer waiting for the vote, if any. */
+  setNewcomer(name: string | null): void;
   built(b: PlacedBuilding): void;
   cheer(): void;
   celebrate(): void;
@@ -859,6 +861,9 @@ export function createWorld(opts: WorldOptions): TownWorld {
     },
     setPeople(people, me) {
       pop.setPeople(people, me, Date.now());
+    },
+    setNewcomer(name) {
+      pop.setNewcomer(name, Date.now());
     },
     built(b) {
       born.set(b.id, performance.now());

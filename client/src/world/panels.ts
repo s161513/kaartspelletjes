@@ -68,6 +68,10 @@ import {
   pathError,
   placeError,
   populationTarget,
+  profileText,
+  freeBedsOf,
+  BIRTH_HAPPY,
+  BIRTH_MS,
   ratesOf,
   refundOf,
   resourceDef,
@@ -239,11 +243,11 @@ function happyLines(world: IdleWorld, now: number): string[] {
   ];
 }
 
-/** "🏃 er komen er 2 bij" / "🧳 er vertrekken er 3" / "" while the town has as many as it draws. */
+/** "🚪 er willen er 2 komen" / "🧳 er vertrekken er 3" / "" while the town has as many as it draws. */
 function trendText(world: IdleWorld, now: number): string {
   const diff = Math.round(populationTarget(world, now) - world.population);
   const pace = `1 per ${MOVE_MS / 60_000} min`;
-  if (diff > 0) return `🏃 er ${diff === 1 ? "komt er 1" : `komen er ${diff}`} bij (${pace})`;
+  if (diff > 0) return freeBedsOf(world) ? `🚪 er ${diff === 1 ? "wil er 1" : `willen er ${diff}`} komen: ze kloppen aan (${pace})` : "🛏️ er willen mensen komen, maar er is geen bed vrij";
   if (diff < 0) return `🧳 er ${diff === -1 ? "vertrekt er 1" : `vertrekken er ${-diff}`} (${pace})`;
   return "";
 }
@@ -540,9 +544,10 @@ export function createPanels(deps: PanelDeps): Panels {
       if (voteList.children[i] !== r.el) voteList.insertBefore(r.el, voteList.children[i] ?? null);
       r.el.classList.toggle("sx-votes-picked", p.id === picked);
       r.label.textContent = p.label;
+      const who = p.action.kind === "newcomer" ? `🧳 ${profileText(p.action.who)}` : p.by;
       r.sub.textContent = p.approved
-        ? `${p.by} · ✅ aangenomen, wacht op grondstoffen · nog ${timeLeft(p.deadline - now)}`
-        : `${p.by} · nog ${timeLeft(p.deadline - now)}`;
+        ? `${who} · ✅ aangenomen, wacht op grondstoffen · nog ${timeLeft(p.deadline - now)}`
+        : `${who} · nog ${timeLeft(p.deadline - now)}`;
       r.count.textContent = `👍 ${p.yes} · 👎 ${p.no} · nodig ${p.needed}`;
       r.yes.setAttribute("aria-pressed", String(p.myVote === true));
       r.no.setAttribute("aria-pressed", String(p.myVote === false));
@@ -930,7 +935,9 @@ export function createPanels(deps: PanelDeps): Panels {
     }
     const lines = v.player
       ? [`🎮 ${v.player}`, v.doing]
-      : [
+      : v.visitor
+        ? [v.doing]
+        : [
           v.job
             ? `👷 werkt bij: ${v.job}`
             : v.gather
@@ -1171,7 +1178,13 @@ export function createPanels(deps: PanelDeps): Panels {
       h("h4", "sx-h", "📊 Bevolking"),
       census,
       mood,
-      h("p", "sx-note", `Een gelukkig dorp trekt nieuwkomers, ook als er geen bed meer vrij is; uit een ongelukkig dorp vertrekken mensen. Gelukkige mensen werken harder. Op de kaart lopen er ${NPCS_PER_PLAYER} per speler online rond.`),
+      h(
+        "p",
+        "sx-note",
+        "Is het dorp blij genoeg en is er een bed vrij, dan klopt er af en toe iemand aan; jullie stemmen of die mag blijven. " +
+          `Elk koppel krijgt zo'n keer per ${BIRTH_MS / 3_600_000} uur een kind, als er een bed vrij is en het geluk minstens ${BIRTH_HAPPY}% is. ` +
+          `Uit een ongelukkig dorp vertrekken mensen. Gelukkige mensen werken harder. Op de kaart lopen er ${NPCS_PER_PLAYER} per speler online rond.`,
+      ),
       h("h4", "sx-h", "👥 Wie doet wat"),
       summary,
       menu,
@@ -1190,6 +1203,8 @@ export function createPanels(deps: PanelDeps): Panels {
         `👥 ${wf.population} inwoners · 🛏️ ${wf.beds} bedden` +
         (wf.homeless ? ` · ⛺ ${outside(wf.homeless)}` : wf.beds > wf.population ? ` · ${wf.beds - wf.population} vrij` : "") +
         (trend ? ` · ${trend}` : "");
+      const knocking = deps.msg()?.proposals.find((p) => p.action.kind === "newcomer");
+      if (knocking?.action.kind === "newcomer") census.textContent += ` · 🚪 ${knocking.action.who.name} wacht op jullie stem (rechts)`;
       mood.replaceChildren(h("div", "", happyText(w, now)), ...happyLines(w, now).map((l) => h("div", "sx-happy-part", l)));
       summary.textContent = `👷 ${wf.population - wf.idle} met een baan · 🧺 ${wf.idle} zonder baan, die verzamelen`;
       menu.textContent = `🍽️ Op het menu: ${menuText(w)}`;

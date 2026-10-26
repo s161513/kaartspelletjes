@@ -8,7 +8,8 @@
 // online, so the town doesn't drown in people; the jobs are shared out over
 // everyone first.
 // Everyone online also has their own NPC (id "p:<player>"), dressed as they
-// chose, wandering around town with a name tag.
+// chose, wandering around town with a name tag. A newcomer who knocked waits
+// at the edge of town (id "n:<name>") until the players voted.
 
 import {
   CENTER,
@@ -53,6 +54,8 @@ export interface VillagerInfo {
   /** Without a job: what they gather, and whether the players chose it. */
   gather: Gather | null;
   doing: string;
+  /** A newcomer waiting for the vote. */
+  visitor: boolean;
 }
 
 export interface Gather {
@@ -85,6 +88,7 @@ const CHAT = {
   sit: ["gezellig hier", "🔥 warm", "marshmallows?"],
   cheer: ["67!!", "SIX SEVEN", "🤲 67 🤲", "6️⃣7️⃣", "67 67 67", "six… SEVENNN"],
   sixseven: ["🤲 67 🤲", "6️⃣7️⃣"],
+  knock: ["mag ik hier wonen? 🧳", "hallo? 👋", "ik kan hard werken!", "is er nog een bed vrij?", "stem op mij fr"],
 };
 
 type Task =
@@ -124,6 +128,8 @@ export interface Villager {
   nextChat: number;
   /** Set for a player's own NPC. */
   player?: { name: string; hat: string; pattern: string; mine: boolean };
+  /** A newcomer waiting at the edge of town for the vote. */
+  visitor?: boolean;
 }
 
 /** What a worker swings, by work building (the rest: an axe for wood, a pick for everything mined). */
@@ -229,7 +235,23 @@ export class Population {
       const clothes = ERAS[v.level].style.clothes;
       v.clothes = clothes[Math.abs(hashStr(v.id)) % clothes.length];
     });
-    for (const id of [...this.villagers.keys()]) if (!keep.has(id) && !id.startsWith("p:")) this.villagers.delete(id);
+    for (const id of [...this.villagers.keys()]) if (!keep.has(id) && !id.startsWith("p:") && !id.startsWith("n:")) this.villagers.delete(id);
+  }
+
+  /** The newcomer waiting for the vote (null: nobody), standing at the edge of town with their bundle. */
+  setNewcomer(name: string | null, now: number): void {
+    const id = name === null ? null : `n:${name}`;
+    for (const key of [...this.villagers.keys()]) if (key.startsWith("n:") && key !== id) this.villagers.delete(key);
+    if (id === null || this.villagers.has(id)) return;
+    const seed = hashStr(id);
+    const spot = nearestOpen(CENTER.x + 4, CENTER.y + 4);
+    this.villagers.set(id, {
+      id, name: name!, home: -1, job: null, gather: null, level: this.world?.era ?? 0,
+      clothes: "#8b5a2b", skin: SKINS[Math.abs(seed) % SKINS.length],
+      x: spot.x, y: spot.y, ox: 0, oy: 0, path: [], pathI: 0, task: { kind: "stay", until: Infinity, action: "none" },
+      action: "none", carry: null, hidden: false, bubble: { text: "mag ik hier wonen? 🧳", until: now + 4000 }, jumpUntil: now + 800, sixSevenUntil: 0,
+      nextChat: now + 10_000, visitor: true,
+    });
   }
 
   /** One NPC per player online, looking the way they chose. */
@@ -355,6 +377,8 @@ export class Population {
 
   /** What to do once the current task is done. */
   private next(v: Villager, now: number): void {
+    // A newcomer stays put until the vote is over.
+    if (v.visitor) return void (v.task = { kind: "stay", until: Infinity, action: "none" });
     const job = v.job === null ? undefined : this.byId.get(v.job);
     v.hidden = false;
     v.action = "none";
@@ -434,7 +458,8 @@ export class Population {
         if (bubbles < MAX_BUBBLES) {
           // Only the jobless say they're out of work.
           const pool =
-            v.task.kind === "work" ? CHAT.work
+            v.visitor ? CHAT.knock
+            : v.task.kind === "work" ? CHAT.work
             : v.job !== null || v.gather ? CHAT.walk
             : v.action !== "none" && v.action !== "work" ? CHAT[v.action]
             : CHAT.idle;
@@ -461,7 +486,7 @@ export class Population {
   /** Clicked: say who you are and what you do. */
   introduce(v: Villager, now: number): void {
     const job = v.job === null ? undefined : this.byId.get(v.job);
-    const what = v.player ? (v.player.mine ? "dat ben jij!" : "speler") : job ? buildingName(job.type, job.level).toLowerCase()
+    const what = v.player ? (v.player.mine ? "dat ben jij!" : "speler") : v.visitor ? "nieuwkomer, mag ik blijven?" : job ? buildingName(job.type, job.level).toLowerCase()
       : v.gather ? `verzamelt ${resourceDef(v.gather.resource)?.name ?? ""}`
       : "werkloos, chillt";
     v.bubble = { text: `${v.name} · ${what}`, until: now + 3500 };
@@ -486,7 +511,8 @@ export class Population {
     const emoji = (r: ResourceId | null | undefined) => (r ? resourceDef(r)?.emoji ?? "" : "");
     const task = v.task;
     let doing: string;
-    if (now < v.sixSevenUntil) doing = "🤲 doet de 67";
+    if (v.visitor) doing = "🧳 klopt aan: mag die in het dorp komen wonen? Stem rechts bij de stemmingen";
+    else if (now < v.sixSevenUntil) doing = "🤲 doet de 67";
     else if (v.hidden || task.kind === "inside") doing = "🏠 is thuis";
     else if (task.kind === "toWork") doing = job ? "🚶 loopt naar het werk" : `🚶 gaat ${emoji(res)} verzamelen`;
     else if (task.kind === "work") doing = job ? `${emoji(res)} is aan het werk` : `${emoji(res)} is aan het verzamelen`;
@@ -511,6 +537,7 @@ export class Population {
       job: job ? `${buildingType(job.type)?.emoji ?? ""} ${buildingName(job.type, job.level)}` : null,
       gather: job || v.player ? null : v.gather,
       doing,
+      visitor: !!v.visitor,
     };
   }
 

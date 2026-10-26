@@ -14,6 +14,7 @@
 
 import { ERAS, WONDER_PHASES, buildingType, depositAt, producesOf, type PlacedBuilding, type ResourceId, type Terrain } from "@app/shared/idle";
 import { TILE_H, TILE_W, toWorld } from "./iso";
+import { drawBaked, frameOf } from "./pixel";
 import { drawSprite, spriteExtent, variant } from "./sprites";
 
 type Ctx = CanvasRenderingContext2D;
@@ -360,6 +361,10 @@ export function drawUsedUp(ctx: Ctx, cx: number, cy: number, x: number, y: numbe
 }
 
 export function drawBridge(ctx: Ctx, cx: number, cy: number): void {
+  drawBaked(ctx, "bridge", cx, cy, { left: HW + 4, right: HW + 4, up: HH + 16, down: HH + 6 }, cx, cy, (g) => bridgeShapes(g, cx, cy));
+}
+
+function bridgeShapes(ctx: Ctx, cx: number, cy: number): void {
   poly(ctx, [cx - HW * 0.9, cy - 2, cx, cy + HH * 0.9 - 2, cx + HW * 0.9, cy - 2, cx, cy - HH * 0.9 - 2], "#8b6a43");
   ctx.strokeStyle = "#5b4429";
   ctx.lineWidth = 1;
@@ -373,6 +378,11 @@ export function drawBridge(ctx: Ctx, cx: number, cy: number): void {
 
 /** A special resource spot, once its era is unlocked. */
 export function drawDeposit(ctx: Ctx, cx: number, cy: number, x: number, y: number, t: number): void {
+  const f = frameOf(t);
+  drawBaked(ctx, `p${x},${y}|${f.i}`, cx, cy, { left: HW + 4, right: HW + 4, up: 60, down: HH + 4 }, cx, cy, (g) => depositShapes(g, cx, cy, x, y, f.t));
+}
+
+function depositShapes(ctx: Ctx, cx: number, cy: number, x: number, y: number, t: number): void {
   const d = depositAt(x, y);
   if (!d) return;
   const color = RESOURCE_COLORS[d.resource] ?? "#fff";
@@ -704,6 +714,12 @@ const ANIMAL_COLORS: Record<AnimalLook["kind"], { body: string; head: string }> 
 
 /** A small animal standing on (x, y): game in the forest, cattle on the ranch. */
 export function drawAnimal(ctx: Ctx, x: number, y: number, a: AnimalLook): void {
+  const f = frameOf(a.phase, 4, a.walking ? 190 : 650);
+  const look = { ...a, phase: f.t };
+  drawBaked(ctx, `a${a.kind}|${a.dir}|${a.walking}|${f.i}`, x, y, { left: 16, right: 16, up: 22, down: 6 }, x, y, (g) => animalShapes(g, x, y, look));
+}
+
+function animalShapes(ctx: Ctx, x: number, y: number, a: AnimalLook): void {
   const c = ANIMAL_COLORS[a.kind];
   const step = a.walking ? Math.sin(a.phase / 120) * 1.5 : 0;
   // Grazing: the head goes down now and then.
@@ -743,8 +759,6 @@ export function drawBuilding(ctx: Ctx, b: PlacedBuilding, t: number, selected: b
   const c = toWorld(b.x + 0.5, b.y + 0.5);
   const type = buildingType(b.type);
   if (!type) return;
-  const style = ERAS[b.level].style;
-  const s = shapeOf(b);
   const cx = c.x;
   const cy = c.y;
 
@@ -767,6 +781,30 @@ export function drawBuilding(ctx: Ctx, b: PlacedBuilding, t: number, selected: b
     if (b.damaged) burning(ctx, cx, cy - up * 0.6, t + b.id * 777);
     return;
   }
+  // Everything else is drawn as shapes and baked into pixel art, once per look and
+  // frame. Four variants per type keep the flags and flames out of step.
+  const bb = buildingBounds(b);
+  const big = type.category === "wonder" ? 40 : 0;
+  const box = {
+    left: Math.max(HW + 6, cx - bb.x1 + 12) + big,
+    right: Math.max(HW + 6, bb.x2 - cx + 12) + big,
+    up: cy - bb.y1 + 16 + big * 2,
+    down: HH + 10,
+  };
+  const f = frameOf(t);
+  const shape: PlacedBuilding = { ...b, id: b.id % 4, x: 0, y: 0 };
+  const o = toWorld(0.5, 0.5);
+  drawBaked(ctx, `b${JSON.stringify(shape)}|${f.i}`, cx, cy, box, o.x, o.y, (g) => drawShapes(g, shape, f.t));
+}
+
+/** A building drawn from shapes (the look before it is baked into pixels). */
+function drawShapes(ctx: Ctx, b: PlacedBuilding, t: number): void {
+  const c = toWorld(b.x + 0.5, b.y + 0.5);
+  const type = buildingType(b.type)!;
+  const style = ERAS[b.level].style;
+  const s = shapeOf(b);
+  const cx = c.x;
+  const cy = c.y;
   if (type.category === "decor") {
     drawDecor(ctx, b, cx, cy, t);
     return;
@@ -1011,6 +1049,12 @@ function wallStyle(level: number): { kind: "stakes" | "stone" | "energy"; color:
  * neighboring wall tile (`links`: tile steps), so the wall joins up.
  */
 export function drawWall(ctx: Ctx, cx: number, cy: number, level: number, links: readonly (readonly [number, number])[], t: number): void {
+  const f = frameOf(t);
+  const box = { left: HW + 6, right: HW + 6, up: 64, down: HH + 6 };
+  drawBaked(ctx, `w${level}|${links.join(";")}|${f.i}`, cx, cy, box, cx, cy, (g) => wallShapes(g, cx, cy, level, links, f.t));
+}
+
+function wallShapes(ctx: Ctx, cx: number, cy: number, level: number, links: readonly (readonly [number, number])[], t: number): void {
   const st = wallStyle(level);
   const ends = links.length ? links : [[0, 0] as const];
   for (const [dx, dy] of ends) {
@@ -1061,6 +1105,12 @@ const RAIDER_CLOTHES = ["#7f1d1d", "#3f3f46", "#78350f"];
 
 /** A band of raiders marching on (x, y), with a black banner. */
 export function drawRaiders(ctx: Ctx, x: number, y: number, n: number, level: number, t: number): void {
+  const f = frameOf(t);
+  const box = { left: 40, right: 40, up: 48, down: 24 };
+  drawBaked(ctx, `r${n}|${level}|${f.i}`, x, y, box, x, y, (g) => raiderShapes(g, x, y, n, level, f.t));
+}
+
+function raiderShapes(ctx: Ctx, x: number, y: number, n: number, level: number, t: number): void {
   const spots: [number, number][] = [];
   for (let i = 0; i < n; i++) spots.push([((i % 4) - 1.5) * 9 + (Math.floor(i / 4) % 2) * 4, Math.floor(i / 4) * 6 - 6]);
   spots.sort((a, b) => a[1] - b[1]);
@@ -1318,6 +1368,12 @@ function wonderShape(ctx: Ctx, shape: string, col: string, cx: number, cy: numbe
 
 /** A supply drop from the counter: a crate under a little parachute, bobbing to be clicked. */
 export function drawDrop(ctx: Ctx, x: number, y: number, t: number): void {
+  const f = frameOf(t);
+  const c = toWorld(x + 0.5, y + 0.5);
+  drawBaked(ctx, `d${f.i}`, c.x, c.y, { left: 34, right: 34, up: 90, down: 14 }, c.x, c.y, (g) => dropShapes(g, x, y, f.t));
+}
+
+function dropShapes(ctx: Ctx, x: number, y: number, t: number): void {
   const c = toWorld(x + 0.5, y + 0.5);
   const bob = Math.abs(Math.sin(t / 400)) * 3;
   ellipse(ctx, c.x, c.y + 2, 12, 5, "rgba(0,0,0,0.25)");
@@ -1487,6 +1543,14 @@ export interface VillagerLook {
 }
 
 export function drawVillager(ctx: Ctx, x: number, y: number, v: VillagerLook): void {
+  // Four frames per walk step (the legs swing over ~690 ms).
+  const f = frameOf(v.phase, 4, 173);
+  const look = { ...v, phase: f.t, jump: 0 };
+  const key = `v${JSON.stringify(look)}`;
+  drawBaked(ctx, key, x, y - v.jump, { left: 16, right: 16, up: 44, down: 6 }, x, y, (g) => villagerShapes(g, x, y, look));
+}
+
+function villagerShapes(ctx: Ctx, x: number, y: number, v: VillagerLook): void {
   const lift = v.jump + (v.action === "dance" ? Math.abs(Math.sin(v.phase / 180)) * 4 : 0);
   const sit = v.action === "sit" ? 3 : 0;
   const by = y - lift + sit;

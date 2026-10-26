@@ -18,6 +18,7 @@ import {
   assignWorkers,
   buildingName,
   buildingType,
+  capOf,
   producesOf,
   gatherPatches,
   gatheringOf,
@@ -302,12 +303,17 @@ export class Population {
     return null;
   }
 
-  /** Nearest storage or the center, where loot goes. */
-  private storeNear(p: Point): Point {
+  /** Is the storage for this resource full? Then its workers and gatherers take a break. */
+  private full(res: ResourceId | null): boolean {
+    return !!res && !!this.world && (this.world.resources[res] ?? 0) >= capOf(this.world, res);
+  }
+
+  /** Nearest storage for this resource, or the center, where loot goes. */
+  private storeNear(p: Point, res: ResourceId | null): Point {
     let best: Point = CENTER;
     let bestD = Infinity;
     for (const b of this.world?.buildings ?? []) {
-      if (b.type !== "storage" && b.type !== "center") continue;
+      if (b.type !== "center" && (!res || buildingType(b.type)?.stores !== res || b.damaged)) continue;
       const d = Math.hypot(b.x - p.x, b.y - p.y);
       if (d < bestD) {
         bestD = d;
@@ -357,13 +363,19 @@ export class Population {
     // Gatherers pick their spot each round: nature runs out.
     const spot = job ? this.workSpot(job) : res && t !== "work" && t !== "toStore" ? this.gatherSpot(v, res) : null;
     if (!job && !(res && (spot || t === "work" || t === "toStore"))) return this.chooseIdle(v, now);
-    if (t === "toWork") {
+    if (t === "toWork" && this.full(res)) {
+      // Nowhere to put it: sit by the fire until there's room again.
+      const a = Math.random() * Math.PI * 2;
+      v.task = { kind: "go", then: "sit", duration: 15_000 + Math.random() * 10_000 };
+      v.bubble = { text: "opslag vol, pauze 😴", until: now + 3000 };
+      this.walkTo(v, nearestOpen(Math.round(CENTER.x + Math.cos(a) * 1.5), Math.round(CENTER.y + Math.sin(a) * 1.5)));
+    } else if (t === "toWork") {
       v.task = { kind: "work", until: now + 3500 + Math.random() * 2500 };
       v.action = "work";
     } else if (t === "work") {
       v.carry = res;
       v.task = { kind: "toStore" };
-      this.walkTo(v, this.storeNear(v));
+      this.walkTo(v, this.storeNear(v, res));
     } else if (t === "toStore") {
       v.task = { kind: "drop", until: now + 700 };
     } else {
@@ -485,6 +497,7 @@ export class Population {
       const going = task.kind === "go";
       doing =
         what === "home" ? "🏠 gaat naar huis"
+        : what === "sit" && (job || v.gather) && this.full(res ?? null) ? `🔥 de opslag voor ${emoji(res)} is vol: pauze bij het kampvuur`
         : what === "sit" ? (going ? "🔥 gaat bij het kampvuur zitten" : "🔥 zit bij het kampvuur")
         : what === "dance" ? (going ? "💃 gaat dansen" : "💃 danst")
         : what === "photo" ? (going ? "📸 gaat foto's maken" : "📸 maakt foto's")

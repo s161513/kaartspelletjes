@@ -39,6 +39,11 @@ import {
   buyItem,
   capOf,
   capPartsOf,
+  freeBedsOf,
+  newcomerProfile,
+  stepBirth,
+  stepNewcomer,
+  BIRTH_MS,
   fullOf,
   storeTypeOf,
   RESOURCES,
@@ -551,30 +556,65 @@ test("happiness: food variety, beds, decorations and the tavern; it sets the wor
   assert.equal(happinessOf({ ...s, population: 100, gatherers: {} }, T0).level, 0, "never below 0");
 });
 
-test("population: villagers move in to a happy town, also without a bed, and leave an unhappy one", () => {
+test("population: nobody moves in by themselves, people leave an unhappy town", () => {
   const s = { ...town(T0), resources: {} };
   assert.equal(s.population, 6, "a fresh town: one per bed");
   assert.equal(populationTarget(s, T0), 6, "content: as many as there are beds");
 
-  // A happy town draws up to a quarter more than its beds, one per half hour.
+  // A happy town draws more, and a new hut has room, but newcomers knock (and wait for a vote).
   const decor = Array.from({ length: 5 }, (_, i) => ({ id: 100 + i, type: "decor_flowers", level: 0, x: i, y: 0 }));
   const happy = { ...s, buildings: [...s.buildings, ...decor, { id: 200, type: "shop_tavern", level: 0, x: 0, y: 1 }] };
   assert.equal(populationTarget(happy, T0), 6 * (1 + 30 / 200));
-  const half = advance(happy, T0 + MOVE_MS / 2);
-  assert.equal(half.population, 6.5);
-  assert.equal(assignWorkers(half).population, 6, "halfway moving in doesn't count yet");
-  const full = advance(happy, T0 + 10 * MOVE_MS);
-  assert.ok(near(full.population, 6.9));
-  assert.deepEqual([assignWorkers(full).beds, assignWorkers(full).homeless], [6, 0]);
-
-  // A new hut fills up; a miserable town loses up to half its people.
+  assert.equal(advance(happy, T0 + 10 * MOVE_MS).population, 6);
   const hut = { ...s, buildings: [...s.buildings, { id: 300, type: "house", level: 0, x: 2, y: 2 }] };
-  assert.equal(advance(hut, T0 + 3 * MOVE_MS).population, 9);
+  assert.equal(freeBedsOf(hut), 3);
+  assert.equal(advance(hut, T0 + 3 * MOVE_MS).population, 6);
+
+  // A miserable town loses up to half its people.
   const bland = { ...s, gatherers: { wood: 2 } };
   assert.equal(populationTarget(bland, T0), 6 * 0.8);
   assert.equal(advance(bland, T0 + 3 * MOVE_MS).population, 5, "only whole villagers leave");
   assert.equal(advance({ ...s, happiness: 49 }, T0 + 3 * MOVE_MS).population, 6, "a hair under content: nobody leaves");
   assert.equal(s.population, 6, "pure");
+});
+
+test("newcomers: one knocks while there's a free bed and the town is happy enough; the players vote", () => {
+  const seq = (...xs: number[]) => () => xs.shift() ?? 0;
+  const s: IdleState = { ...town(T0), resources: {} };
+  assert.equal(stepNewcomer(s, seq(0)), null, "no free bed: nobody knocks");
+  const hut = { ...s, buildings: [...s.buildings, { id: 300, type: "house", level: 0, x: 2, y: 2 }] };
+  const knock = stepNewcomer(hut, seq(0, 0, 0))!;
+  assert.equal(knock.label, "🚪 Er klopt iemand aan: Aaltje, jager, van over de rivier. Stem of die mag blijven!");
+  const p = knock.state.proposals[0];
+  assert.deepEqual([p.action, p.by, p.votes, p.deadline], [{ kind: "newcomer", who: { name: "Aaltje", trade: "jager", from: "van over de rivier" } }, "Aaltje", {}, T0 + VOTE_MS]);
+  assert.equal(actionLabel(hut, p.action), "🚪 Aaltje mag blijven");
+  assert.equal(stepNewcomer(knock.state, seq(0)), null, "one at a time");
+  assert.equal(stepNewcomer({ ...knock.state, proposals: [] }, seq(0)), null, "and at most one per half hour");
+  assert.ok(stepNewcomer({ ...knock.state, proposals: [], lastTick: T0 + MOVE_MS }, seq(0)));
+  assert.equal(stepNewcomer({ ...hut, happiness: 20 }, seq(0)), null, "an unhappy town draws nobody");
+  // Voted in: one more villager, while there's still a bed.
+  assert.equal(actionError(hut, p.action), null);
+  assert.equal(applyAction(hut, p.action).state.population, 7);
+  assert.equal(actionError(s, p.action), "geen bed vrij");
+  // Trades come with their era.
+  assert.equal(newcomerProfile(0, seq(0, 0.99, 0)).trade, "visser");
+  assert.equal(newcomerProfile(10, seq(0, 0.99, 0)).trade, "androïde");
+});
+
+test("children: a couple has one now and then, with a free bed and a happy enough town", () => {
+  const seq = (...xs: number[]) => () => xs.shift() ?? 0.5;
+  const s = { ...town(T0), resources: {}, buildings: [...town(T0).buildings, { id: 300, type: "house", level: 0, x: 2, y: 2 }] };
+  const planned = stepBirth(s, seq(0.5))!;
+  assert.equal(planned.state.nextBirth, T0 + BIRTH_MS / 3, "3 couples: three times as often");
+  assert.equal(planned.label, undefined);
+  assert.equal(stepBirth({ ...planned.state, lastTick: T0 + 1000 }, seq()), null, "not yet");
+  const later = { ...planned.state, lastTick: planned.state.nextBirth };
+  const born = stepBirth(later, seq(0.5, 0, 0.1, 0.2))!;
+  assert.equal(born.state.population, 7);
+  assert.match(born.label!, /^👶 .+ en .+ kregen een kind: welkom, .+!$/);
+  assert.ok(born.state.nextBirth > later.lastTick);
+  assert.equal(stepBirth({ ...later, buildings: town(T0).buildings }, seq())!.state.population, 6, "no free bed: no child");
+  assert.equal(stepBirth({ ...later, happiness: 40 }, seq())!.state.population, 6, "too unhappy: no child");
 });
 
 test("happiness: the meter creeps a point per 10 minutes towards what the town is worth, up and down", () => {
@@ -687,9 +727,13 @@ test("lucky events: now and then on a +1, at most once per half hour", () => {
   assert.equal(multiplierAt(gold.state, "wood", s.lastTick), 3);
   assert.equal(gold.state.lastLucky, s.lastTick);
 
-  const come = rollLucky(s, seq(0, 0.4))!;
+  const roomy = { ...s, buildings: [...s.buildings, { id: 300, type: "house", level: 0, x: 2, y: 2 }, { id: 301, type: "house", level: 0, x: 3, y: 2 }] };
+  const come = rollLucky(roomy, seq(0, 0.4))!;
   assert.equal(come.label, "🧳 Nieuwkomers: 3 mensen trekken het dorp in");
   assert.equal(come.state.population, s.population + 3);
+  const one = rollLucky({ ...roomy, population: 11 }, seq(0, 0.4))!;
+  assert.equal(one.label, "🧳 Nieuwkomers: iemand trekt het dorp in", "only as far as there are beds");
+  assert.match(rollLucky(s, seq(0, 0.4))!.label, /^🥳 Spontaan feest/, "no free bed: a party instead");
 
   const party = rollLucky(s, seq(0, 0.7))!;
   assert.equal(happinessOf(party.state, s.lastTick).level, happinessOf(s, s.lastTick).level + 20);
@@ -1027,24 +1071,28 @@ test("idle game: open votes wait for resources, count once per player, survive a
     game.assign(null, "stone", T0);
     game.assign(null, "stone", T0);
     // 57 stone short, at 0.05 stone/s each: about ten minutes.
-    assert.deepEqual(game.tick(2, T0 + 900_000).map((e) => e.kind), ["bought"], "built once there's enough");
+    // (Newcomers knock and couples have children meanwhile: "lucky" news, left out here.)
+    const news = (events: { kind: string }[]) => events.filter((e) => e.kind !== "lucky");
+    assert.deepEqual(news(game.tick(2, T0 + 900_000)).map((e) => e.kind), ["bought"], "built once there's enough");
 
     // Two tabs of one player are one voter.
     game.hello("t1", KEY, "Ann", T0);
     game.hello("t2", KEY, "Ann", T0);
     game.propose("t1", "Ann", at(game.message("t1", 0, 0, 2, T0).state as IdleState, "farm"), 2, T0);
-    assert.deepEqual(game.vote("t2", 3, true, 2, T0), [], "same player: still one yes");
-    const mine = game.message("t2", 0, 0, 2, T0).proposals[0];
+    const farm = game.message("t2", 0, 0, 2, T0).proposals.find((p) => p.action.kind === "build")!.id;
+    assert.deepEqual(game.vote("t2", farm, true, 2, T0), [], "same player: still one yes");
+    const mine = game.message("t2", 0, 0, 2, T0).proposals.find((p) => p.id === farm)!;
     assert.deepEqual([mine.yes, mine.myVote, mine.approved], [1, true, false]);
 
     // It survives a restart, votes and all, and expires a day after it was proposed.
     game.flush();
     const again = createIdleGame(file, T0 + 1000);
     again.hello("t3", KEY, "Ann", T0 + 1000);
-    const kept = again.message("t3", 0, 0, 1, T0 + 1000).proposals;
-    assert.deepEqual(kept.map((p) => [p.id, p.myVote, p.deadline]), [[3, true, T0 + VOTE_MS]]);
-    assert.deepEqual(again.tick(1, T0 + VOTE_MS - 1), []);
-    assert.deepEqual(again.tick(1, T0 + VOTE_MS).map((e) => e.kind === "rejected" && e.reason), ["verlopen: minstens 2 keer ja nodig"]);
+    const kept = again.message("t3", 0, 0, 1, T0 + 1000).proposals.filter((p) => p.action.kind !== "newcomer");
+    assert.deepEqual(kept.map((p) => [p.id, p.myVote, p.deadline]), [[farm, true, T0 + VOTE_MS]]);
+    assert.deepEqual(news(again.tick(1, T0 + VOTE_MS - 1)), []);
+    const expired = news(again.tick(1, T0 + VOTE_MS)).filter((e) => e.kind !== "rejected" || !e.label.startsWith("🚪"));
+    assert.deepEqual(expired.map((e) => e.kind === "rejected" && e.reason), ["verlopen: minstens 2 keer ja nodig"]);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

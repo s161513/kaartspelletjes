@@ -4,8 +4,11 @@
 // it meets the era's goals (people, happiness, food, certain buildings) it
 // builds that era's world wonder, phase by phase, and the last phase starts
 // the next era. The 67 counter only gives extras: every +1 a short boost,
-// every new 67 a supply drop to open, and now and then a lucky event. Villagers move in (slowly) while
-// the town is happy and leave when it isn't (the happiness meter creeps towards what the town is worth); each needs a bed in a house or
+// every new 67 a supply drop to open, and now and then a lucky event. While the town
+// is happy enough and has a free bed, a newcomer knocks now and then and the players
+// vote whether they may stay; couples have a child (a grown-up villager straight
+// away) when there's a bed for it. People leave (slowly) when the town is unhappy
+// (the happiness meter creeps towards what the town is worth); each needs a bed in a house or
 // sleeps outside, which makes everyone less happy (so does eating the same
 // thing every day; decorations and the tavern help). Villagers staff work
 // buildings, work buildings fill the storage (every resource its own: a Schuur for
@@ -36,6 +39,11 @@
 import {
   BASE_CAP,
   BASE_RATE,
+  BIRTH_HAPPY,
+  BIRTH_MS,
+  NEWCOMER_NAMES,
+  NEWCOMER_ORIGINS,
+  NEWCOMER_TRADES,
   BRIDGE_TILE_COST,
   BUILDING_TYPES,
   BUILD_COST_MULT,
@@ -259,6 +267,17 @@ export interface IdleWorld {
   /** When the next raid arrives (0: not planned yet); it's seen coming RAID_WARNING_MS before. */
   nextRaid: number;
   lastRaid: RaidReport | null;
+  /** No newcomer knocks before this (ms); one at a time. */
+  nextNewcomer: number;
+  /** When a couple may next have a child (0: not planned yet). */
+  nextBirth: number;
+}
+
+/** Who knocks on the door, for the vote: only for the story. */
+export interface NewcomerProfile {
+  name: string;
+  trade: string;
+  from: string;
 }
 
 export type ProposalAction =
@@ -282,7 +301,9 @@ export type ProposalAction =
   /** Bring the whole wall up to the current era. */
   | { kind: "fortify" }
   /** Fix a building the raiders set on fire. */
-  | { kind: "repair"; building: number };
+  | { kind: "repair"; building: number }
+  /** Someone knocked on the door: may they stay? (Only the town proposes this.) */
+  | { kind: "newcomer"; who: NewcomerProfile };
 
 export interface IdleProposal {
   id: number;
@@ -325,7 +346,7 @@ export function newIdleState(now: number): IdleState {
   let s: IdleState = {
     v: STATE_VERSION, era: 0, resources: { food: 150, wood: 200, stone: 100 }, buildings: [], nextBuildingId: 1,
     lastTick: now, boostUntil: 0, boosts: [], perks: {}, roadLevel: 0, roads: [], nature: {}, gatherers: {}, population: 0, happiness: HAPPY_BASE, drops: [], nextDropId: 1, lastLucky: 0,
-    walls: [], wallLevel: 0, raid: null, nextRaid: 0, lastRaid: null, proposals: [], nextProposalId: 1, players: {},
+    walls: [], wallLevel: 0, raid: null, nextRaid: 0, lastRaid: null, nextNewcomer: 0, nextBirth: 0, proposals: [], nextProposalId: 1, players: {},
   };
   for (const type of ["center", "house", "storage"]) s = addBuilding(s, type, 0, placeBuilding(s.buildings, type)!).state;
   return { ...s, roads: classicStreets(s.buildings), population: bedsOf(s) };
@@ -360,8 +381,11 @@ export function bedsOf(s: Pick<IdleWorld, "buildings">): number {
   return beds;
 }
 
-/** Whole villagers in town (someone halfway moving in doesn't work yet). */
+/** Whole villagers in town (someone halfway moving out still counts until they're gone). */
 const peopleOf = (s: Pick<IdleWorld, "population">): number => Math.max(0, Math.floor(s.population + 1e-9));
+
+/** Beds nobody sleeps in: only then does a newcomer knock or a couple have a child. */
+export const freeBedsOf = (s: Pick<IdleWorld, "buildings" | "population">): number => Math.max(0, bedsOf(s) - peopleOf(s));
 
 /**
  * Fill work buildings one villager at a time, round robin in build order, so
@@ -647,9 +671,9 @@ export function happinessOf(s: Town, now: number): Happiness {
 /**
  * How many villagers the town draws: its beds while content (50), down to
  * half of them when miserable, up to a quarter more than there are beds when
- * very happy (the newcomers sleep outside, which makes everyone less happy).
- * It follows the meter, so people only come or go once the town has really
- * become happier or unhappier; sleeping outside doesn't count here.
+ * very happy. Below it newcomers knock (as far as there are free beds), above
+ * it people leave. It follows the meter, so people only come or go once the
+ * town has really become happier or unhappier; sleeping outside doesn't count here.
  */
 export function populationTarget(s: Town, now: number): number {
   const h = happinessOf(s, now);
@@ -740,7 +764,7 @@ export function multiplierAt(s: IdleWorld, res: ResourceId, now: number): number
  * Produce everything from `lastTick` up to `now` (capped at MAX_OFFLINE_MS and
  * the storage limit). Work buildings and gatherers use up the nature around
  * them, and stop making more than is left; nature grows back meanwhile.
- * Villagers move in or out towards what the town draws. Happiness and the
+ * Villagers leave a town that draws fewer than it has. Happiness and the
  * number of people are taken as they were at `lastTick` for the whole stretch
  * (the server advances often; only a long absence makes that rough).
  */
@@ -764,11 +788,10 @@ export function advance<T extends IdleWorld>(s: T, now: number): T {
   const { mult } = mood;
   const step = elapsed / HAPPY_STEP_MS;
   next.happiness = mood.level < mood.target ? Math.min(mood.target, mood.level + step) : Math.max(mood.target, mood.level - step);
-  // Nobody leaves for less than a whole villager: a town just under content keeps its people.
+  // Nobody moves in by themselves any more (newcomers knock, couples have children: update 18),
+  // but people leave an unhappy town; nobody for less than a whole villager.
   const drawn = populationTarget(town, s.lastTick);
-  const target = drawn < s.population ? Math.min(s.population, Math.ceil(drawn - 1e-9)) : drawn;
-  const move = elapsed / MOVE_MS;
-  next.population = s.population < target ? Math.min(target, s.population + move) : Math.max(target, s.population - move);
+  if (drawn < s.population) next.population = Math.max(Math.min(s.population, Math.ceil(drawn - 1e-9)), s.population - elapsed / MOVE_MS);
   // Smiths last, so they can use what the mines made meanwhile.
   const all = outputs(town).sort((a, b) => Number(!!a.uses) - Number(!!b.uses));
   if (perkOf(s, "auto")) for (const id of unlockedResources(s.era)) add(id, autoRate(s, id) * seconds(id));
@@ -983,7 +1006,9 @@ export const luckyEvent = (id: string) => LUCKY_EVENTS.find((e) => e.id === id);
 export function rollLucky<T extends IdleWorld>(s: T, rand: () => number): { state: T; label: string } | null {
   const now = s.lastTick;
   if (now - s.lastLucky < LUCKY_COOLDOWN_MS || rand() >= LUCKY_CHANCE) return null;
-  const e = LUCKY_EVENTS[Math.floor(rand() * LUCKY_EVENTS.length) % LUCKY_EVENTS.length];
+  let e = LUCKY_EVENTS[Math.floor(rand() * LUCKY_EVENTS.length) % LUCKY_EVENTS.length];
+  // Newcomers only for free beds: without one, it's a party instead.
+  if (e.id === "lucky_newcomers" && !freeBedsOf(s)) e = luckyEvent("lucky_party")!;
   const next = { ...s, lastLucky: now };
   const boost = (resource: ResourceId | null, mult: number) => [...s.boosts.filter((b) => b.item !== e.id), { item: e.id, resource, mult, until: now + LUCKY_MS }];
   if (e.id === "lucky_gold") {
@@ -992,8 +1017,8 @@ export function rollLucky<T extends IdleWorld>(s: T, rand: () => number): { stat
     return { state: { ...next, boosts: boost(res, LUCKY_GOLD_MULT) }, label: `${e.emoji} ${e.name}: ${resourceDef(res)?.emoji ?? ""} ×${LUCKY_GOLD_MULT} voor 10 minuten` };
   }
   if (e.id === "lucky_newcomers") {
-    const n = Math.max(3, Math.round(bedsOf(s) * LUCKY_NEWCOMERS_SHARE));
-    return { state: { ...next, population: s.population + n }, label: `${e.emoji} ${e.name}: ${n} mensen trekken het dorp in` };
+    const n = Math.min(freeBedsOf(s), Math.max(3, Math.round(bedsOf(s) * LUCKY_NEWCOMERS_SHARE)));
+    return { state: { ...next, population: peopleOf(s) + n }, label: `${e.emoji} ${e.name}: ${n === 1 ? "iemand trekt" : `${n} mensen trekken`} het dorp in` };
   }
   return { state: { ...next, boosts: boost(null, 1) }, label: `${e.emoji} ${e.name}: +${LUCKY_PARTY_POINTS} geluk voor 10 minuten` };
 }
@@ -1264,6 +1289,56 @@ function fight<T extends IdleWorld>(s: T, raid: Raid, rand: () => number): { sta
   };
 }
 
+// ---------- new villagers ----------
+
+const pickFrom = <T>(list: readonly T[], rand: () => number): T => list[Math.floor(rand() * list.length) % list.length];
+
+/** Someone to knock on the door, with a trade from this era or before. */
+export function newcomerProfile(era: number, rand: () => number): NewcomerProfile {
+  return {
+    name: pickFrom(NEWCOMER_NAMES, rand),
+    trade: pickFrom(NEWCOMER_TRADES.filter((t) => t.era <= era), rand).name,
+    from: pickFrom(NEWCOMER_ORIGINS, rand),
+  };
+}
+
+/** "Bram, pottenbakker, uit de bergen". */
+export const profileText = (who: NewcomerProfile): string => `${who.name}, ${who.trade}, ${who.from}`;
+
+/**
+ * A newcomer knocks (at `lastTick`, advance first): one at a time, at most one
+ * per MOVE_MS, only while there's a free bed and the town draws more people
+ * than it has. They wait as a vote for VOTE_MS; the players decide.
+ */
+export function stepNewcomer<T extends IdleState>(s: T, rand: () => number): { state: T; label: string } | null {
+  const now = s.lastTick;
+  if (now < s.nextNewcomer || s.proposals.length >= MAX_PROPOSALS || s.proposals.some((p) => p.action.kind === "newcomer")) return null;
+  if (!freeBedsOf(s) || populationTarget(s, now) < peopleOf(s) + 1) return null;
+  const who = newcomerProfile(s.era, rand);
+  const proposal: IdleProposal = { id: s.nextProposalId, action: { kind: "newcomer", who }, by: who.name, votes: {}, deadline: now + VOTE_MS };
+  return {
+    state: { ...s, proposals: [...s.proposals, proposal], nextProposalId: s.nextProposalId + 1, nextNewcomer: now + MOVE_MS },
+    label: `🚪 Er klopt iemand aan: ${profileText(who)}. Stem of die mag blijven!`,
+  };
+}
+
+/**
+ * Couples have children (at `lastTick`, advance first): every couple about
+ * once per BIRTH_MS, when they choose to. A child comes only with a free bed and
+ * a town at least BIRTH_HAPPY happy, and is a grown-up villager straight away.
+ */
+export function stepBirth<T extends IdleWorld>(s: T, rand: () => number): { state: T; label?: string } | null {
+  const now = s.lastTick;
+  const couples = Math.floor(peopleOf(s) / 2);
+  const later = (from: number) => Math.round(from + (BIRTH_MS / Math.max(1, couples)) * (0.5 + rand()));
+  if (!s.nextBirth) return { state: { ...s, nextBirth: later(now) } };
+  if (now < s.nextBirth) return null;
+  const next = { ...s, nextBirth: later(now) };
+  if (!couples || !freeBedsOf(s) || happinessOf(s, now).level < BIRTH_HAPPY) return { state: next };
+  const [a, b, child] = [pickFrom(NEWCOMER_NAMES, rand), pickFrom(NEWCOMER_NAMES, rand), pickFrom(NEWCOMER_NAMES, rand)];
+  return { state: { ...next, population: peopleOf(s) + 1 }, label: `👶 ${a} en ${b} kregen een kind: welkom, ${child}!` };
+}
+
 // ---------- tearing down ----------
 
 /** What tearing down gives back: a share of what it costs at its own level. */
@@ -1321,7 +1396,7 @@ export function actionCost(s: IdleWorld, action: ProposalAction): Amounts | null
   if (action.kind === "build") return buildingType(action.type)?.category === "wonder" ? wonderCost(s, 0) : buildCost(s, action.type);
   if (action.kind === "roads") return roadCost(s);
   if (action.kind === "paths") return pathCost(s, action.tiles);
-  if (action.kind === "unpave" || action.kind === "demolish" || action.kind === "ore" || action.kind === "unwall") return {};
+  if (action.kind === "unpave" || action.kind === "demolish" || action.kind === "ore" || action.kind === "unwall" || action.kind === "newcomer") return {};
   if (action.kind === "walls") return wallCost(s, action.tiles);
   if (action.kind === "fortify") return fortifyCost(s);
   if (action.kind === "buy") {
@@ -1344,6 +1419,7 @@ export function durationText(ms: number): string {
 /** Why this can't happen now, or null if it can. */
 export function actionError(s: IdleWorld, action: ProposalAction): string | null {
   if (action.kind === "buy") return itemError(s, action.item);
+  if (action.kind === "newcomer") return freeBedsOf(s) ? null : "geen bed vrij";
   if (action.kind === "build") {
     const err = buildTypeError(s, action.type) ?? placeError(s.buildings, s.roads, action.type, action.x, action.y, s.walls);
     if (err) return err;
@@ -1401,6 +1477,7 @@ export function actionError(s: IdleWorld, action: ProposalAction): string | null
 /** Pay and do it. Call actionError first; returns the new or upgraded building, if any. */
 export function applyAction<T extends IdleWorld>(s: T, action: ProposalAction): { state: T; building?: PlacedBuilding } {
   if (action.kind === "buy") return { state: buyItem(s, action.item) };
+  if (action.kind === "newcomer") return { state: { ...s, population: peopleOf(s) + 1 } };
   if (action.kind === "unpave") {
     const gone = new Set(action.tiles);
     return { state: { ...receive(s, refundOf(s, action)), roads: s.roads.filter((i) => !gone.has(i)) } };
@@ -1458,6 +1535,7 @@ export function actionLabel(s: Pick<IdleWorld, "buildings" | "era" | "roadLevel"
     return item ? `${item.emoji} ${item.name} kopen` : "iets kopen";
   }
   if (action.kind === "roads") return `🛣️ ${roadName(s.roadLevel)} → ${roadName(s.era)}`;
+  if (action.kind === "newcomer") return `🚪 ${action.who.name} mag blijven`;
   if (action.kind === "paths") return `🛤️ ${tilesText(action.tiles.length)} pad leggen`;
   if (action.kind === "unpave") return `⛏️ ${tilesText(action.tiles.length)} pad weghalen`;
   if (action.kind === "walls") return `🧱 ${tilesText(action.tiles.length)} ${wallName(s.wallLevel).toLowerCase()} bouwen`;

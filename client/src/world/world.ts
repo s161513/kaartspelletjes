@@ -48,6 +48,7 @@ import {
   groundColor,
   rand2,
 } from "./draw";
+import { clearBaked, drawBaked } from "./pixel";
 import { drawSprite, spritesLoaded, variant } from "./sprites";
 import { Camera, TILE_H, TILE_W, toTileSpace, toWorld } from "./iso";
 import { Wildlife } from "./animals";
@@ -163,7 +164,10 @@ export function createWorld(opts: WorldOptions): TownWorld {
   }
   let landCache: { key: string; canvas: HTMLCanvasElement } | null = null;
   // The far-away picture drawn before the sprites were there is redrawn with them.
-  void spritesLoaded().then(() => (landCache = null));
+  void spritesLoaded().then(() => {
+    landCache = null;
+    clearBaked();
+  });
   /** Used-up nature, as "x,y" (redrawn from scratch when it changes). */
   let usedUp = new Set<string>();
   let usedUpKey = "";
@@ -424,7 +428,25 @@ export function createWorld(opts: WorldOptions): TownWorld {
         const tile = road || terrain === "sand" ? null
           : wet ? variant("water", live ? (Math.floor(t / 1400 + rand2(x, y, 61) * 3) % 3) / 3 : 0)
           : variant("grass", rand2(x, y, 60));
-        const sprite = tile !== null && drawSprite(g, tile, c.x, c.y);
+        let sprite = tile !== null && drawSprite(g, tile, c.x, c.y);
+        if (!sprite && live && (road || terrain === "sand")) {
+          // Streets and sand as pixel-art tiles too: the color with grain and the street's stones.
+          const v = Math.floor(rand2(x, y, 62) * 4);
+          const color = groundColor(road ? "grass" : "sand", v, 0, era, road ? roadLevel : null);
+          const o = toWorld(v + 0.5, 0.5);
+          drawBaked(g, `g${color}|${road ? roadLevel : -1}|${v}`, c.x, c.y, { left: TILE_W / 2 + 1, right: TILE_W / 2 + 1, up: TILE_H / 2 + 1, down: TILE_H / 2 + 1 }, o.x, o.y, (h) => {
+            const top = toWorld(v, 0);
+            h.fillStyle = color;
+            h.beginPath();
+            h.moveTo(top.x, top.y - 1);
+            h.lineTo(top.x + TILE_W / 2 + 1, top.y + TILE_H / 2);
+            h.lineTo(top.x, top.y + TILE_H + 1);
+            h.lineTo(top.x - TILE_W / 2 - 1, top.y + TILE_H / 2);
+            h.fill();
+            if (road) drawRoadDetail(h, v, 0, roadLevel, 0);
+          }, false);
+          sprite = true;
+        }
         let color = sprite ? (terrain === "forest" ? "rgba(20,45,15,0.22)" : null) : groundColor(terrain, x, y, era, road ? roadLevel : null);
         if (!sprite && live && wet && Math.sin(t / 900 + x * 0.8 + y * 0.5) > 0.75) color = "#3b7fc4";
         if (color) {
@@ -485,12 +507,6 @@ export function createWorld(opts: WorldOptions): TownWorld {
     g.stroke(tufts);
     g.fillStyle = era <= 1 ? "#f5e9a8" : "#f9a8d4";
     g.fill(flowers);
-    if (live) {
-      for (const key of roads) {
-        const [x, y] = key.split(",").map(Number);
-        if (x >= x0 && x <= x1 && y >= y0 && y <= y1) drawRoadDetail(g, x, y, roadLevel, t);
-      }
-    }
     for (const [bx, by] of bridges) drawBridge(g, bx, by);
   }
 

@@ -1,20 +1,23 @@
 // Everything drawn in the town: ground, streets, walls, nature, buildings, world
 // wonders (with scaffolding while they go up), buildings on fire, raiders, supply drops,
-// decorations, animals and the villagers (players' own NPCs included). All shapes are simple isometric boxes and polygons in code; the
-// look per era comes from ERAS[level].style (shared/idleContent.ts).
+// decorations, animals and the villagers (players' own NPCs included).
 //
-// Art direction (keep new drawings to it):
-// - Light from the top left: left faces −12%, right faces −30%, tops lighter.
-// - No outlines; shapes read by value and a soft shadow ellipse under everything standing.
+// The town is pixel art. Where there is a sprite (sprites.ts: packs from OpenGameArt
+// and our own pixelart.py), that is drawn. Everything else is drawn here as simple
+// isometric boxes and polygons and baked into pixel art (pixel.ts), so it sits with
+// the sprites. The look per era comes from ERAS[level].style (shared/idleContent.ts).
+//
+// Art direction (keep new drawings and sprites to it):
+// - Pixel art at one pixel per world px: hard edges, a dark rim, a bit of grain.
+// - Light from the top left: left faces lighter, right faces darker, tops lightest.
 // - Each era has its own shape language: the Stone Age is round and organic (tipis of
 //   hide, round huts of wattle under straw cones), the Bronze Age the big Celtic roundhouse,
-//   from the Iron Age on rectangular houses with gables, later flat roofs and domes.
-// - The ground is never flat: a slow value noise over the grass, tufts and the odd flower,
-//   wilder in the early eras.
+//   the Iron Age to the Renaissance a medieval town (City Sim), then brick, flats and
+//   towers (Pixel City), later flat roofs and domes.
 
 import { ERAS, WONDER_PHASES, buildingType, depositAt, producesOf, type PlacedBuilding, type ResourceId, type Terrain } from "@app/shared/idle";
 import { TILE_H, TILE_W, toWorld } from "./iso";
-import { drawBaked, frameOf } from "./pixel";
+import { FRAME_MS, drawBaked, frameOf } from "./pixel";
 import { drawSprite, spriteExtent, variant } from "./sprites";
 
 type Ctx = CanvasRenderingContext2D;
@@ -486,11 +489,27 @@ function shapeOf(b: PlacedBuilding): Shape {
   return { w: b.type === "farm" || b.type === "ranch" ? 0.4 : 0.6, h: 10 + b.level, roof: r, roofH: roofH(r), float: 0 };
 }
 
+/** One of a kind's numbered sprites, picked by the building's id. */
+function pickFor(b: PlacedBuilding, kind: string, n: number): string {
+  return `${kind}${b.id % n}`;
+}
+
 /**
- * The pixel-art sprite for a building, if it has one: for now the Iron Age up to the
- * Renaissance (City Sim's medieval town). Everything else is still drawn.
+ * The pixel-art sprite for a building, if it has one: City Sim's medieval town from
+ * the Iron Age to the Renaissance, Pixel City from the industrial era to the digital
+ * one. The Stone and Bronze Age are our own sprites (drawEarly); the rest is baked
+ * from shapes.
  */
 function buildingSprite(b: PlacedBuilding, cat: string): string | null {
+  if (b.level >= 6 && b.level <= 8 && cat !== "decor" && cat !== "wonder" && b.type !== "mine") {
+    const l = b.level;
+    if (cat === "house") return l === 6 ? pickFor(b, "pcWalkup", 3) : l === 7 ? pickFor(b, "pcFlat", 4) : pickFor(b, "pcTower", 6);
+    if (cat === "center") return l === 6 ? "pcSchool" : l === 7 ? "pcHospital" : "pcOffices";
+    if (cat === "storage") return l === 8 ? "pcBlock" : "pcStorage";
+    if (cat === "defense") return l === 6 ? "pcFireSmall" : "pcOutpost";
+    if (cat === "shop") return l === 8 ? pickFor(b, "pcShop", 4) : ["pcClinic", "pcSchoolhouse", "pcTenement0", "pcTenement1"][b.id % 4];
+    return pickFor(b, "pcIndustry", 5);
+  }
   if (b.level < 2 || b.level > 5) return null;
   if (cat === "house") return b.level === 2 ? "thatched" : b.level === 5 ? "inn" : "house";
   if (cat === "center") return b.level <= 3 ? "chapel" : "clock";
@@ -515,6 +534,11 @@ export function buildingBounds(b: PlacedBuilding): { x1: number; y1: number; x2:
 }
 
 function drawCampfire(ctx: Ctx, cx: number, cy: number, t: number): void {
+  if (drawSprite(ctx, "campfire", cx, cy)) {
+    drawSprite(ctx, `flame${Math.floor(t / FRAME_MS) % 4}`, cx, cy - 1);
+    smoke(ctx, cx, cy - 22, t, "rgba(200,200,200,");
+    return;
+  }
   for (let i = 0; i < 8; i++) {
     const a = (i / 8) * Math.PI * 2;
     ellipse(ctx, cx + Math.cos(a) * 14, cy + Math.sin(a) * 7, 3.5, 2.5, "#7c7c7c");
@@ -1009,7 +1033,15 @@ function drawEarly(ctx: Ctx, b: PlacedBuilding, cat: string, cx: number, cy: num
   if (b.type === "farm") fields(ctx, cx, cy, b.level, t);
   if (b.type === "ranch") pasture(ctx, cx, cy);
   let top: number;
-  if (small) top = roundHut(ctx, cx - 6, cy - 3, 8, 4, 11, wall, STRAW);
+  // Our pixel-art huts (sprites/pixelart.py); the shapes below until they're loaded.
+  const sprite = small ? (bronze ? "roundhouseSmall" : "hutSmall")
+    : cat === "defense" ? `lookout${b.level}`
+    : cat === "house" && !bronze ? variant("tipi", (b.id % 3) / 3)
+    : cat === "storage" ? (bronze ? "roundhouseStore" : "hutStore")
+    : bronze ? "roundhouse" : "hut";
+  const ext = spriteExtent(sprite);
+  if (ext && drawSprite(ctx, sprite, small ? cx - 6 : cx, small ? cy - 3 : cy)) top = cy - ext.up;
+  else if (small) top = roundHut(ctx, cx - 6, cy - 3, 8, 4, 11, wall, STRAW);
   else if (cat === "defense") top = lookout(ctx, cx, cy, b.level, t);
   else if (cat === "house" && !bronze) top = tipi(ctx, cx, cy, 13, 30, HIDE, b.id);
   else if (cat === "storage") top = roundHut(ctx, cx, cy, bronze ? 17 : 15, bronze ? 6 : 4, bronze ? 15 : 12, wall, "#b8954f");

@@ -33,14 +33,19 @@ const cache = new Map<string, Baked>();
 /** Least recently used first; old ones go once there are more than MAX. */
 const MAX = 4000;
 
+/** Forget everything baked (once the sprites are in, things drawn before are redone). */
+export function clearBaked(): void {
+  cache.clear();
+}
+
 function hash(x: number, y: number): number {
   let h = (x * 374761393 + y * 668265263) | 0;
   h = Math.imul(h ^ (h >>> 13), 1274126177);
   return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
 }
 
-/** Hard edges, a bit of grain, a dark rim; soft shadows stay see-through. */
-function pixelize(g: Ctx, w: number, h: number): void {
+/** Hard edges, a bit of grain, a dark rim (unless `rim` is false); soft shadows stay see-through. */
+function pixelize(g: Ctx, w: number, h: number, rim: boolean): void {
   const img = g.getImageData(0, 0, w, h);
   const d = img.data;
   for (let i = 0; i < d.length; i += 4) {
@@ -59,7 +64,7 @@ function pixelize(g: Ctx, w: number, h: number): void {
     } else d[i + 3] = 0;
   }
   const out = new Uint8ClampedArray(d);
-  for (let y = 0; y < h; y++) {
+  for (let y = 0; rim && y < h; y++) {
     for (let x = 0; x < w; x++) {
       const i = (y * w + x) * 4;
       if (d[i + 3] === 255) continue;
@@ -88,7 +93,7 @@ function pixelize(g: Ctx, w: number, h: number): void {
  */
 export function drawBaked(
   ctx: Ctx, key: string, x: number, y: number, box: Box,
-  wx: number, wy: number, draw: (g: Ctx) => void,
+  wx: number, wy: number, draw: (g: Ctx) => void, rim = true,
 ): void {
   let b = cache.get(key);
   if (b) {
@@ -102,7 +107,7 @@ export function drawBaked(
     const g = canvas.getContext("2d", { willReadFrequently: true })!;
     g.translate(Math.round(box.left - wx), Math.round(box.up - wy));
     draw(g);
-    pixelize(g, w, h);
+    pixelize(g, w, h, rim);
     b = { canvas, left: Math.round(box.left), up: Math.round(box.up) };
     if (cache.size >= MAX) cache.delete(cache.keys().next().value!);
   }

@@ -1,19 +1,24 @@
 // Everything drawn in the town: ground, streets, walls, nature, buildings, world
 // wonders (with scaffolding while they go up), buildings on fire, raiders, supply drops,
-// decorations, animals and the villagers (players' own NPCs included). All shapes are simple isometric boxes and polygons in code; the
-// look per era comes from ERAS[level].style (shared/idleContent.ts).
+// decorations, animals and the villagers (players' own NPCs included).
 //
-// Art direction (keep new drawings to it):
-// - Light from the top left: left faces −12%, right faces −30%, tops lighter.
-// - No outlines; shapes read by value and a soft shadow ellipse under everything standing.
+// The town is pixel art. Where there is a sprite (sprites.ts: packs from OpenGameArt
+// and our own pixelart.py), that is drawn. Everything else is drawn here as simple
+// isometric boxes and polygons and baked into pixel art (pixel.ts), so it sits with
+// the sprites. The look per era comes from ERAS[level].style (shared/idleContent.ts).
+//
+// Art direction (keep new drawings and sprites to it):
+// - Pixel art at one pixel per world px: hard edges, a dark rim, a bit of grain.
+// - Light from the top left: left faces lighter, right faces darker, tops lightest.
 // - Each era has its own shape language: the Stone Age is round and organic (tipis of
 //   hide, round huts of wattle under straw cones), the Bronze Age the big Celtic roundhouse,
-//   from the Iron Age on rectangular houses with gables, later flat roofs and domes.
-// - The ground is never flat: a slow value noise over the grass, tufts and the odd flower,
-//   wilder in the early eras.
+//   the Iron Age to the Renaissance a medieval town (City Sim), then brick, flats and
+//   towers (Pixel City), later flat roofs and domes.
 
 import { ERAS, WONDER_PHASES, buildingType, depositAt, producesOf, type PlacedBuilding, type ResourceId, type Terrain } from "@app/shared/idle";
 import { TILE_H, TILE_W, toWorld } from "./iso";
+import { FRAME_MS, drawBaked, frameOf } from "./pixel";
+import { drawSprite, spriteExtent, variant } from "./sprites";
 
 type Ctx = CanvasRenderingContext2D;
 
@@ -294,6 +299,7 @@ export function drawTree(ctx: Ctx, cx: number, cy: number, x: number, y: number,
   const s = 0.8 + r * 0.5;
   const px = cx + ox;
   const py = cy + oy;
+  if (era < 10 && drawSprite(ctx, variant(r > 0.45 ? "pine" : "tree", rand2(x, y, 4)), px, py, 0.55 + r * 0.25, rand2(x, y, 9) > 0.5)) return;
   const sway = Math.sin(t / 900 + x * 0.7 + y) * 1.2;
   ellipse(ctx, px, py, 9 * s, 4 * s, "rgba(0,0,0,0.18)");
   poly(ctx, [px - 1.5, py, px + 1.5, py, px + 1.5, py - 8 * s, px - 1.5, py - 8 * s], "#5b3a1e");
@@ -311,11 +317,13 @@ export function drawRock(ctx: Ctx, cx: number, cy: number, x: number, y: number)
   const ox = (rand2(x, y, 5) - 0.5) * 16;
   const s = 0.7 + rand2(x, y, 6) * 0.6;
   const px = cx + ox;
+  if (drawSprite(ctx, variant("rock", rand2(x, y, 6)), px, cy, 0.6 + rand2(x, y, 7) * 0.3, rand2(x, y, 9) > 0.5)) return;
   poly(ctx, [px - 10 * s, cy + 2, px - 6 * s, cy - 8 * s, px + 2 * s, cy - 11 * s, px + 9 * s, cy - 4 * s, px + 10 * s, cy + 2], "#8f8b83");
   poly(ctx, [px + 2 * s, cy - 11 * s, px + 9 * s, cy - 4 * s, px + 10 * s, cy + 2, px + 2 * s, cy + 3], "#76726b");
 }
 
 export function drawMountain(ctx: Ctx, cx: number, cy: number, x: number, y: number): void {
+  if (drawSprite(ctx, variant("mountain", rand2(x, y, 7)), cx, cy, 1, rand2(x, y, 9) > 0.5)) return;
   const h = 34 + rand2(x, y, 7) * 30;
   poly(ctx, [cx - HW, cy, cx, cy - h, cx, cy + HH], "#7d786f");
   poly(ctx, [cx, cy + HH, cx, cy - h, cx + HW, cy], "#625e57");
@@ -327,6 +335,7 @@ export function drawMountain(ctx: Ctx, cx: number, cy: number, x: number, y: num
 
 export function drawBush(ctx: Ctx, cx: number, cy: number, x: number, y: number, picked = false): void {
   const ox = (rand2(x, y, 8) - 0.5) * 14;
+  if (drawSprite(ctx, variant(picked ? "bushPicked" : "bush", rand2(x, y, 11)), cx + ox, cy, 0.7, rand2(x, y, 9) > 0.5)) return;
   ellipse(ctx, cx + ox, cy - 4, 9, 6, picked ? "#6b7f3a" : "#2e7d32");
   ellipse(ctx, cx + ox + 4, cy - 7, 6, 5, picked ? "#7d8f45" : "#388e3c");
   if (picked) return;
@@ -338,6 +347,7 @@ export function drawBush(ctx: Ctx, cx: number, cy: number, x: number, y: number,
 
 /** What's left of used-up nature: a stump where a tree stood, rubble where a rock was. */
 export function drawUsedUp(ctx: Ctx, cx: number, cy: number, x: number, y: number, kind: "forest" | "rock"): void {
+  if (drawSprite(ctx, variant(kind === "forest" ? "log" : "rubble", rand2(x, y, 13)), cx, cy, 0.8, rand2(x, y, 9) > 0.5)) return;
   if (kind === "forest") {
     const px = cx + (rand2(x, y, 2) - 0.5) * 18;
     const py = cy + (rand2(x, y, 3) - 0.5) * 8;
@@ -354,6 +364,10 @@ export function drawUsedUp(ctx: Ctx, cx: number, cy: number, x: number, y: numbe
 }
 
 export function drawBridge(ctx: Ctx, cx: number, cy: number): void {
+  drawBaked(ctx, "bridge", cx, cy, { left: HW + 4, right: HW + 4, up: HH + 16, down: HH + 6 }, cx, cy, (g) => bridgeShapes(g, cx, cy));
+}
+
+function bridgeShapes(ctx: Ctx, cx: number, cy: number): void {
   poly(ctx, [cx - HW * 0.9, cy - 2, cx, cy + HH * 0.9 - 2, cx + HW * 0.9, cy - 2, cx, cy - HH * 0.9 - 2], "#8b6a43");
   ctx.strokeStyle = "#5b4429";
   ctx.lineWidth = 1;
@@ -367,6 +381,11 @@ export function drawBridge(ctx: Ctx, cx: number, cy: number): void {
 
 /** A special resource spot, once its era is unlocked. */
 export function drawDeposit(ctx: Ctx, cx: number, cy: number, x: number, y: number, t: number): void {
+  const f = frameOf(t);
+  drawBaked(ctx, `p${x},${y}|${f.i}`, cx, cy, { left: HW + 4, right: HW + 4, up: 60, down: HH + 4 }, cx, cy, (g) => depositShapes(g, cx, cy, x, y, f.t));
+}
+
+function depositShapes(ctx: Ctx, cx: number, cy: number, x: number, y: number, t: number): void {
   const d = depositAt(x, y);
   if (!d) return;
   const color = RESOURCE_COLORS[d.resource] ?? "#fff";
@@ -470,15 +489,56 @@ function shapeOf(b: PlacedBuilding): Shape {
   return { w: b.type === "farm" || b.type === "ranch" ? 0.4 : 0.6, h: 10 + b.level, roof: r, roofH: roofH(r), float: 0 };
 }
 
+/** One of a kind's numbered sprites, picked by the building's id. */
+function pickFor(b: PlacedBuilding, kind: string, n: number): string {
+  return `${kind}${b.id % n}`;
+}
+
+/**
+ * The pixel-art sprite for a building, if it has one: City Sim's medieval town from
+ * the Iron Age to the Renaissance, Pixel City from the industrial era to the digital
+ * one. The Stone and Bronze Age are our own sprites (drawEarly); the rest is baked
+ * from shapes.
+ */
+function buildingSprite(b: PlacedBuilding, cat: string): string | null {
+  if (b.level >= 6 && b.level <= 8 && cat !== "decor" && cat !== "wonder" && b.type !== "mine") {
+    const l = b.level;
+    if (cat === "house") return l === 6 ? pickFor(b, "pcWalkup", 3) : l === 7 ? pickFor(b, "pcFlat", 4) : pickFor(b, "pcTower", 6);
+    if (cat === "center") return l === 6 ? "pcSchool" : l === 7 ? "pcHospital" : "pcOffices";
+    if (cat === "storage") return l === 8 ? "pcBlock" : "pcStorage";
+    if (cat === "defense") return l === 6 ? "pcFireSmall" : "pcOutpost";
+    if (cat === "shop") return l === 8 ? pickFor(b, "pcShop", 4) : ["pcClinic", "pcSchoolhouse", "pcTenement0", "pcTenement1"][b.id % 4];
+    return pickFor(b, "pcIndustry", 5);
+  }
+  if (b.level < 2 || b.level > 5) return null;
+  if (cat === "house") return b.level === 2 ? "thatched" : b.level === 5 ? "inn" : "house";
+  if (cat === "center") return b.level <= 3 ? "chapel" : "clock";
+  if (cat === "storage") return "tavern";
+  if (cat === "defense") return "watchtower";
+  if (b.type === "shop_tavern") return "inn";
+  if (cat === "shop") return b.type === "shop_tailor" || b.id % 2 ? "tailor" : "fruit";
+  if (b.type === "farm") return "crops";
+  if (b.type === "fishery") return "fish";
+  return null;
+}
+
 /** Screen-space box (world px) around a building, for clicks. */
 export function buildingBounds(b: PlacedBuilding): { x1: number; y1: number; x2: number; y2: number } {
   const c = toWorld(b.x + 0.5, b.y + 0.5);
+  const sprite = buildingSprite(b, buildingType(b.type)?.category ?? "");
+  const ext = sprite ? spriteExtent(sprite) : null;
+  if (ext) return { x1: c.x - ext.half, x2: c.x + ext.half, y1: c.y - ext.up, y2: c.y + HH };
   const s = shapeOf(b);
   const hw = HW * Math.max(s.w, 0.6);
   return { x1: c.x - hw, x2: c.x + hw, y1: c.y - s.h - s.roofH - s.float - 12, y2: c.y + HH * s.w };
 }
 
 function drawCampfire(ctx: Ctx, cx: number, cy: number, t: number): void {
+  if (drawSprite(ctx, "campfire", cx, cy)) {
+    drawSprite(ctx, `flame${Math.floor(t / FRAME_MS) % 4}`, cx, cy - 1);
+    smoke(ctx, cx, cy - 22, t, "rgba(200,200,200,");
+    return;
+  }
   for (let i = 0; i < 8; i++) {
     const a = (i / 8) * Math.PI * 2;
     ellipse(ctx, cx + Math.cos(a) * 14, cy + Math.sin(a) * 7, 3.5, 2.5, "#7c7c7c");
@@ -678,6 +738,12 @@ const ANIMAL_COLORS: Record<AnimalLook["kind"], { body: string; head: string }> 
 
 /** A small animal standing on (x, y): game in the forest, cattle on the ranch. */
 export function drawAnimal(ctx: Ctx, x: number, y: number, a: AnimalLook): void {
+  const f = frameOf(a.phase, 4, a.walking ? 190 : 650);
+  const look = { ...a, phase: f.t };
+  drawBaked(ctx, `a${a.kind}|${a.dir}|${a.walking}|${f.i}`, x, y, { left: 16, right: 16, up: 22, down: 6 }, x, y, (g) => animalShapes(g, x, y, look));
+}
+
+function animalShapes(ctx: Ctx, x: number, y: number, a: AnimalLook): void {
   const c = ANIMAL_COLORS[a.kind];
   const step = a.walking ? Math.sin(a.phase / 120) * 1.5 : 0;
   // Grazing: the head goes down now and then.
@@ -717,8 +783,6 @@ export function drawBuilding(ctx: Ctx, b: PlacedBuilding, t: number, selected: b
   const c = toWorld(b.x + 0.5, b.y + 0.5);
   const type = buildingType(b.type);
   if (!type) return;
-  const style = ERAS[b.level].style;
-  const s = shapeOf(b);
   const cx = c.x;
   const cy = c.y;
 
@@ -734,6 +798,37 @@ export function drawBuilding(ctx: Ctx, b: PlacedBuilding, t: number, selected: b
     ctx.stroke();
   }
 
+  const sprite = buildingSprite(b, type.category);
+  if (sprite && drawSprite(ctx, sprite, cx, cy)) {
+    const up = spriteExtent(sprite)?.up ?? 30;
+    if (type.category === "shop") shopSign(ctx, type.emoji, cx, cy - up - 6, t + b.id * 500);
+    if (b.damaged) burning(ctx, cx, cy - up * 0.6, t + b.id * 777);
+    return;
+  }
+  // Everything else is drawn as shapes and baked into pixel art, once per look and
+  // frame. Four variants per type keep the flags and flames out of step.
+  const bb = buildingBounds(b);
+  const big = type.category === "wonder" ? 40 : 0;
+  const box = {
+    left: Math.max(HW + 6, cx - bb.x1 + 12) + big,
+    right: Math.max(HW + 6, bb.x2 - cx + 12) + big,
+    up: cy - bb.y1 + 16 + big * 2,
+    down: HH + 10,
+  };
+  const f = frameOf(t);
+  const shape: PlacedBuilding = { ...b, id: b.id % 4, x: 0, y: 0 };
+  const o = toWorld(0.5, 0.5);
+  drawBaked(ctx, `b${JSON.stringify(shape)}|${f.i}`, cx, cy, box, o.x, o.y, (g) => drawShapes(g, shape, f.t));
+}
+
+/** A building drawn from shapes (the look before it is baked into pixels). */
+function drawShapes(ctx: Ctx, b: PlacedBuilding, t: number): void {
+  const c = toWorld(b.x + 0.5, b.y + 0.5);
+  const type = buildingType(b.type)!;
+  const style = ERAS[b.level].style;
+  const s = shapeOf(b);
+  const cx = c.x;
+  const cy = c.y;
   if (type.category === "decor") {
     drawDecor(ctx, b, cx, cy, t);
     return;
@@ -938,7 +1033,15 @@ function drawEarly(ctx: Ctx, b: PlacedBuilding, cat: string, cx: number, cy: num
   if (b.type === "farm") fields(ctx, cx, cy, b.level, t);
   if (b.type === "ranch") pasture(ctx, cx, cy);
   let top: number;
-  if (small) top = roundHut(ctx, cx - 6, cy - 3, 8, 4, 11, wall, STRAW);
+  // Our pixel-art huts (sprites/pixelart.py); the shapes below until they're loaded.
+  const sprite = small ? (bronze ? "roundhouseSmall" : "hutSmall")
+    : cat === "defense" ? `lookout${b.level}`
+    : cat === "house" && !bronze ? variant("tipi", (b.id % 3) / 3)
+    : cat === "storage" ? (bronze ? "roundhouseStore" : "hutStore")
+    : bronze ? "roundhouse" : "hut";
+  const ext = spriteExtent(sprite);
+  if (ext && drawSprite(ctx, sprite, small ? cx - 6 : cx, small ? cy - 3 : cy)) top = cy - ext.up;
+  else if (small) top = roundHut(ctx, cx - 6, cy - 3, 8, 4, 11, wall, STRAW);
   else if (cat === "defense") top = lookout(ctx, cx, cy, b.level, t);
   else if (cat === "house" && !bronze) top = tipi(ctx, cx, cy, 13, 30, HIDE, b.id);
   else if (cat === "storage") top = roundHut(ctx, cx, cy, bronze ? 17 : 15, bronze ? 6 : 4, bronze ? 15 : 12, wall, "#b8954f");
@@ -978,6 +1081,12 @@ function wallStyle(level: number): { kind: "stakes" | "stone" | "energy"; color:
  * neighboring wall tile (`links`: tile steps), so the wall joins up.
  */
 export function drawWall(ctx: Ctx, cx: number, cy: number, level: number, links: readonly (readonly [number, number])[], t: number): void {
+  const f = frameOf(t);
+  const box = { left: HW + 6, right: HW + 6, up: 64, down: HH + 6 };
+  drawBaked(ctx, `w${level}|${links.join(";")}|${f.i}`, cx, cy, box, cx, cy, (g) => wallShapes(g, cx, cy, level, links, f.t));
+}
+
+function wallShapes(ctx: Ctx, cx: number, cy: number, level: number, links: readonly (readonly [number, number])[], t: number): void {
   const st = wallStyle(level);
   const ends = links.length ? links : [[0, 0] as const];
   for (const [dx, dy] of ends) {
@@ -1028,6 +1137,12 @@ const RAIDER_CLOTHES = ["#7f1d1d", "#3f3f46", "#78350f"];
 
 /** A band of raiders marching on (x, y), with a black banner. */
 export function drawRaiders(ctx: Ctx, x: number, y: number, n: number, level: number, t: number): void {
+  const f = frameOf(t);
+  const box = { left: 40, right: 40, up: 48, down: 24 };
+  drawBaked(ctx, `r${n}|${level}|${f.i}`, x, y, box, x, y, (g) => raiderShapes(g, x, y, n, level, f.t));
+}
+
+function raiderShapes(ctx: Ctx, x: number, y: number, n: number, level: number, t: number): void {
   const spots: [number, number][] = [];
   for (let i = 0; i < n; i++) spots.push([((i % 4) - 1.5) * 9 + (Math.floor(i / 4) % 2) * 4, Math.floor(i / 4) * 6 - 6]);
   spots.sort((a, b) => a[1] - b[1]);
@@ -1285,6 +1400,12 @@ function wonderShape(ctx: Ctx, shape: string, col: string, cx: number, cy: numbe
 
 /** A supply drop from the counter: a crate under a little parachute, bobbing to be clicked. */
 export function drawDrop(ctx: Ctx, x: number, y: number, t: number): void {
+  const f = frameOf(t);
+  const c = toWorld(x + 0.5, y + 0.5);
+  drawBaked(ctx, `d${f.i}`, c.x, c.y, { left: 34, right: 34, up: 90, down: 14 }, c.x, c.y, (g) => dropShapes(g, x, y, f.t));
+}
+
+function dropShapes(ctx: Ctx, x: number, y: number, t: number): void {
   const c = toWorld(x + 0.5, y + 0.5);
   const bob = Math.abs(Math.sin(t / 400)) * 3;
   ellipse(ctx, c.x, c.y + 2, 12, 5, "rgba(0,0,0,0.25)");
@@ -1454,6 +1575,14 @@ export interface VillagerLook {
 }
 
 export function drawVillager(ctx: Ctx, x: number, y: number, v: VillagerLook): void {
+  // Four frames per walk step (the legs swing over ~690 ms).
+  const f = frameOf(v.phase, 4, 173);
+  const look = { ...v, phase: f.t, jump: 0 };
+  const key = `v${JSON.stringify(look)}`;
+  drawBaked(ctx, key, x, y - v.jump, { left: 16, right: 16, up: 44, down: 6 }, x, y, (g) => villagerShapes(g, x, y, look));
+}
+
+function villagerShapes(ctx: Ctx, x: number, y: number, v: VillagerLook): void {
   const lift = v.jump + (v.action === "dance" ? Math.abs(Math.sin(v.phase / 180)) * 4 : 0);
   const sit = v.action === "sit" ? 3 : 0;
   const by = y - lift + sit;

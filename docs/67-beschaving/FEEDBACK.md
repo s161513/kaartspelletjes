@@ -22,7 +22,7 @@ thema (zie [ROADMAP.md](ROADMAP.md)):
 - 2026-10-26, Richard: "voorlopig zijn het wat zeer simpele tekeningen. ik wil
   graag betere textures die bij het opstarten ingeladen worden", een
   pixel-art spel met kant-en-klare sprites, en zelfgemaakte pixel-sprites in
-  dezelfde stijl waar er geen zijn (ook voor het eerste tijdperk): Update 16
+  dezelfde stijl waar er geen zijn (ook voor het eerste tijdperk): Update 16 (PR #38)
 
 - 2026-10-25, Richard: stemmen over welke update er komt, met de uitslag in
   het raadhuis, waar Claude bij de volgende sessies naar kijkt: Update 13

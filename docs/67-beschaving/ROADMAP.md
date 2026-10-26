@@ -374,7 +374,7 @@ voor ze iets samen beginnen.
       sterke relatie opbouwen met iemand anders zal deze trouw breken")
 
 ### Update 16: Pixel-art
-Status: bezig. Steunt op update 11 (PR #37), en dus ook op 9 en 10.
+Status: in review (PR #38). Steunt op update 11 (PR #37), en dus ook op 9 en 10.
 
 Afgesproken met Richard (2026-10-26): het spel wordt pixel-art. Zoveel
 mogelijk kant-en-klare sprites van internet; wat er niet is, maakt Claude zelf

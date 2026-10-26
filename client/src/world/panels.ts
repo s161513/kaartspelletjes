@@ -10,7 +10,10 @@ import {
   BOOST_MULT,
   DECOR_POINTS,
   ERAS,
+  HAPPY_BASE,
+  HAPPY_STEP_MS,
   MAX_DECOR_POINTS,
+  MOVE_MS,
   WONDER_PHASES,
   MAX_PATH_TILES,
   MAX_PROPOSALS,
@@ -80,8 +83,6 @@ import {
   terrainAt,
   tileIndex,
   tileOf,
-  tradeQuote,
-  tradeRate,
   unlockedResources,
   upgradeCost,
   wonderCost,
@@ -109,6 +110,9 @@ const compact = new Intl.NumberFormat("nl-NL", { notation: "compact", maximumFra
 export function fmt(n: number): string {
   return compact.format(n < 100 ? Math.floor(n * 10) / 10 : Math.floor(n));
 }
+
+/** A rate per second: like `fmt`, but below 1 with two decimals (a gatherer makes 0,05/s). */
+const fmtRate = (n: number): string => (n > 0 && n < 1 ? String(Math.floor(n * 100) / 100).replace(".", ",") : fmt(n));
 
 export function h<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: string): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
@@ -164,7 +168,7 @@ function effectText(world: IdleWorld, t: BuildingType): string {
     const less = t.sparesSource ? " · minder als het bos rondom gekapt is" : "";
     const ores = t.ores ? ` · raakt nooit op · daarna stemmen jullie welk erts: ${oresOf(world, t.id).map((id) => resourceDef(id)?.emoji).join(" ")}` : "";
     const uses = t.consumes ? ` · gebruikt per stuk ${usesText(t.consumes)}` : "";
-    return `${resourceDef(t.produces)?.emoji} +${fmt(rate)}/s${kind} met ${slotsOf(era)} werkers${less}${ores}${uses}`;
+    return `${resourceDef(t.produces)?.emoji} +${fmtRate(rate)}/s${kind} met ${slotsOf(era)} werkers${less}${ores}${uses}`;
   }
   return "";
 }
@@ -173,11 +177,10 @@ function effectText(world: IdleWorld, t: BuildingType): string {
 const usesText = (uses: Amounts) => Object.entries(uses).map(([id, n]) => `${resourceDef(id)?.emoji ?? id} ${fmt(n)}`).join(" + ");
 
 const SHOP_BLURBS: Record<string, string> = {
-  shop_market: "grondstoffen ruilen",
   shop_sculptor: "decoraties",
   shop_tavern: "boosts",
   shop_smith: "beter gereedschap",
-  shop_bank: "kluis en handelsakkoorden",
+  shop_bank: "een grotere kluis",
   shop_university: "onderzoek",
   shop_lab: "automatisering",
   shop_spaceport: "tijdsprongen",
@@ -207,24 +210,26 @@ const foodKindText = (id: string): string => {
 /** "🌾 graan 1/s · 🥩 vlees 2/s": the food the town makes per second, by kind. */
 function menuText(world: IdleWorld): string {
   const kinds = foodKindsOf(world);
-  const parts = FOOD_KINDS.filter((k) => kinds[k.id]).map((k) => `${k.emoji} ${k.name} ${fmt(kinds[k.id]!)}/s`);
+  const parts = FOOD_KINDS.filter((k) => kinds[k.id]).map((k) => `${k.emoji} ${k.name} ${fmtRate(kinds[k.id]!)}/s`);
   return parts.length ? parts.join(" · ") : "niets: bouw een jagerskamp, akker of visserij";
 }
 
 const moodEmoji = (level: number) => (level < 35 ? "😠" : level < 50 ? "😕" : level < 70 ? "🙂" : "😄");
 const multText = (mult: number) => `×${mult.toFixed(2).replace(".", ",")}`;
 
-/** "😊 62% · werken ×1,05": how happy the town is and how hard they work for it. */
+/** "😊 62% geluk, gaat naar 70% · werken ×1,05": how happy the town is, where it's heading, and how hard they work for it. */
 function happyText(world: IdleWorld, now: number): string {
   const h = happinessOf(world, now);
-  return `${moodEmoji(h.level)} ${Math.round(h.level)}% geluk · werken ${multText(h.mult)}`;
+  const level = Math.round(h.level);
+  const heading = h.target === level ? "" : `, gaat naar ${h.target}% (1 punt per ${HAPPY_STEP_MS / 60_000} min)`;
+  return `${moodEmoji(h.level)} ${level}% geluk${heading} · werken ${multText(h.mult)}`;
 }
 
 /** What makes the town happy, one line each: "🍽️ 3 soorten voedsel +10". */
 function happyLines(world: IdleWorld, now: number): string[] {
   const h = happinessOf(world, now);
   return [
-    "🙂 basis 50",
+    `🙂 basis ${HAPPY_BASE}`,
     ...h.parts.map((p) => `${p.emoji} ${p.label} ${p.points >= 0 ? "+" : "−"}${Math.abs(p.points)}`),
   ];
 }
@@ -232,8 +237,9 @@ function happyLines(world: IdleWorld, now: number): string[] {
 /** "🏃 er komen er 2 bij" / "🧳 er vertrekken er 3" / "" while the town has as many as it draws. */
 function trendText(world: IdleWorld, now: number): string {
   const diff = Math.round(populationTarget(world, now) - world.population);
-  if (diff > 0) return `🏃 er ${diff === 1 ? "komt er 1" : `komen er ${diff}`} bij`;
-  if (diff < 0) return `🧳 er ${diff === -1 ? "vertrekt er 1" : `vertrekken er ${-diff}`}`;
+  const pace = `1 per ${MOVE_MS / 60_000} min`;
+  if (diff > 0) return `🏃 er ${diff === 1 ? "komt er 1" : `komen er ${diff}`} bij (${pace})`;
+  if (diff < 0) return `🧳 er ${diff === -1 ? "vertrekt er 1" : `vertrekken er ${-diff}`} (${pace})`;
   return "";
 }
 
@@ -379,7 +385,7 @@ export function createPanels(deps: PanelDeps): Panels {
     for (const [id, { chip, text, fill }] of hudChips) {
       const have = world.resources[id] ?? 0;
       const rate = (rates[id] ?? 0) * multiplierAt(world, id, now);
-      text.textContent = `${resourceDef(id)!.emoji} ${fmt(have)}${rate ? ` ${rate > 0 ? "+" : "−"}${fmt(Math.abs(rate))}/s` : ""}`;
+      text.textContent = `${resourceDef(id)!.emoji} ${fmt(have)}${rate ? ` ${rate > 0 ? "+" : "−"}${fmtRate(Math.abs(rate))}/s` : ""}`;
       fill.style.width = `${Math.min(100, (have / cap) * 100)}%`;
       chip.classList.toggle("sx-hud-full", have >= cap);
       chip.title =
@@ -397,7 +403,8 @@ ${menuText(world)}` : "");
       (trend ? ` · ${trend}` : "") +
       ` · op de kaart lopen er ${NPCS_PER_PLAYER} per speler online rond · meer bij het ${buildingName("center", world.era)}`;
     const mood = happinessOf(world, now);
-    happyChip.textContent = `${moodEmoji(mood.level)} ${Math.round(mood.level)}%`;
+    const arrow = mood.target > Math.round(mood.level) ? " ↗" : mood.target < Math.round(mood.level) ? " ↘" : "";
+    happyChip.textContent = `${moodEmoji(mood.level)} ${Math.round(mood.level)}%${arrow}`;
     happyChip.classList.toggle("sx-hud-full", mood.level < 35);
     happyChip.title = [happyText(world, now), ...happyLines(world, now)].join("\n");
 
@@ -842,55 +849,6 @@ ${menuText(world)}` : "");
     renderInspector();
   }
 
-  /** The market: pick what to give and what to get, trade a share of what we have. */
-  function marketPanel(world: IdleWorld): () => void {
-    const ids = unlockedResources(world.era);
-    const select = (value: string) => {
-      const s = h("select", "sx-select");
-      for (const id of ids) {
-        const o = h("option", "", `${resourceDef(id)!.emoji} ${resourceDef(id)!.name}`);
-        o.value = id;
-        s.append(o);
-      }
-      s.value = value;
-      return s;
-    };
-    const from = select("wood");
-    const to = select("stone");
-    from.setAttribute("aria-label", "geef");
-    to.setAttribute("aria-label", "krijg");
-    const row = h("div", "sx-trade");
-    row.append(from, h("span", "", "→"), to);
-    const rate = h("div", "sx-trade-rate");
-    const btns = h("div", "sx-trade-btns");
-    const shares = [0.1, 0.5, 1] as const;
-    const shareBtns = shares.map((share) =>
-      button("sx-act sx-act-now", share === 1 ? "alles" : `${share * 100}%`, () => {
-        const w = deps.world();
-        if (!w) return;
-        deps.send({ type: "trade", from: from.value, to: to.value, amount: (w.resources[from.value] ?? 0) * share, name: session.nickname });
-      }),
-    );
-    btns.append(...shareBtns);
-    insActions.append(h("h4", "sx-h", "🔁 Ruilen (meteen)"), row, rate, btns, h("p", "sx-note", "Wat veel gekocht wordt, wordt even duurder."));
-    return () => {
-      const w = deps.world();
-      if (!w) return;
-      const r = tradeRate(w, from.value, to.value);
-      const all = tradeQuote(w, from.value, to.value, w.resources[from.value] ?? 0);
-      rate.textContent =
-        from.value === to.value
-          ? "kies twee verschillende grondstoffen"
-          : `1 ${resourceDef(from.value)!.emoji} → ${r.toFixed(2).replace(".", ",")} ${resourceDef(to.value)!.emoji}` +
-            (typeof all === "string" ? ` · ${all}` : ` · alles: ${fmt(all.give)} → ${fmt(all.get)}`);
-      shares.forEach((share, i) => {
-        const q = tradeQuote(w, from.value, to.value, (w.resources[from.value] ?? 0) * share);
-        shareBtns[i].disabled = !deps.connected() || typeof q === "string";
-        shareBtns[i].title = typeof q === "string" ? q : `${fmt(q.give)} ${resourceDef(from.value)!.emoji} → ${fmt(q.get)} ${resourceDef(to.value)!.emoji}`;
-      });
-    };
-  }
-
   function itemOffer(item: ShopItem): Offer {
     const e = item.effect;
     return offer({
@@ -1165,7 +1123,6 @@ ${menuText(world)}` : "");
       insActions.replaceChildren();
       insOffers = [];
       insLive = null;
-      if (b.type === "shop_market") insLive = marketPanel(world);
       if (t.category === "center") {
         const era = eraPanel(world);
         const defense = defensePanel(world);
@@ -1188,7 +1145,7 @@ ${menuText(world)}` : "");
           const o = offer({
             emoji: resourceDef(ore)!.emoji,
             name: resourceDef(ore)!.name,
-            effect: `+${fmt(fullRateOf({ ...b, ore }))}/s met alle werkers (zonder bonussen)`,
+            effect: `+${fmtRate(fullRateOf({ ...b, ore }))}/s met alle werkers (zonder bonussen)`,
             action: "🗳️ voorstellen",
             votes: true,
             onClick: () => propose(action),
@@ -1316,11 +1273,11 @@ ${menuText(world)}` : "");
       const share = t.sparesSource ? sourceShareOf(world, b) : 1;
       const kind = t.foodKind ? ` ${foodKindText(t.foodKind)}` : "";
       const rate = ((fullRateOf(b) * w) / slotsOf(b.level)) * share;
-      lines.push(`${resourceDef(made)?.emoji}${kind} ${fmt(rate)}/s (zonder bonussen)${w < slots ? " — meer inwoners = meer werkers" : ""}`);
+      lines.push(`${resourceDef(made)?.emoji}${kind} ${fmtRate(rate)}/s (zonder bonussen)${w < slots ? " — meer inwoners = meer werkers" : ""}`);
       if (t.ores) lines.push(`⛰️ in de berg: raakt nooit op`);
       if (t.consumes) {
         const out = Object.keys(t.consumes).filter((id) => (world.resources[id] ?? 0) < 1);
-        lines.push(`🔥 gebruikt ${Object.entries(t.consumes).map(([id, n]) => `${resourceDef(id)?.emoji ?? id} ${fmt(rate * n)}/s`).join(" + ")}`);
+        lines.push(`🔥 gebruikt ${Object.entries(t.consumes).map(([id, n]) => `${resourceDef(id)?.emoji ?? id} ${fmtRate(rate * n)}/s`).join(" + ")}`);
         if (out.length) lines.push(`⚠️ Geen ${out.map((id) => resourceDef(id)?.name ?? id).join(" en ")} meer: bouw een mijn die dat delft.`);
       }
       const src = sourceLeft(world, b);

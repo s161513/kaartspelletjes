@@ -334,6 +334,14 @@ body.sx-era-10 { --sx-bg: #12002b; --sx-bg2: #2a0050; }
   background: var(--sx-red);
 }
 
+.sx-hud-click {
+  cursor: pointer;
+}
+
+.sx-hud-click:hover {
+  border-color: var(--sx-yellow);
+}
+
 .sx-hud-boost {
   background: var(--sx-yellow);
   border-color: #000;
@@ -622,6 +630,131 @@ body.sx-era-10 { --sx-bg: #12002b; --sx-bg2: #2a0050; }
 }
 
 /* What the town's happiness is made of, in the town center. */
+/* Storage bars and the era's goals: blocks with an icon and a progress bar. */
+.sx-store,
+.sx-goal,
+.sx-wonder {
+  padding: 6px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.sx-store-top,
+.sx-goal-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.sx-store-amount,
+.sx-goal-value {
+  color: var(--sx-muted);
+  font-size: 0.8rem;
+}
+
+.sx-store-bar {
+  display: block;
+  height: 6px;
+  margin: 4px 0 2px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+
+.sx-store-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--sx-cyan);
+  transition: width 0.3s;
+}
+
+.sx-store-sub {
+  color: var(--sx-muted);
+  font-size: 0.75rem;
+}
+
+.sx-store-full {
+  border-color: var(--sx-red);
+}
+
+.sx-store-full .sx-store-fill {
+  background: var(--sx-red);
+}
+
+.sx-goals {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.sx-goal {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.sx-goal-icon {
+  flex: none;
+  font-size: 1.4rem;
+  line-height: 1;
+}
+
+.sx-goal-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.sx-goal-name {
+  font-size: 0.78rem;
+}
+
+.sx-goal .sx-store-fill {
+  background: var(--sx-yellow);
+}
+
+.sx-goal-done {
+  border-color: var(--sx-lime);
+}
+
+.sx-goal-done .sx-store-fill {
+  background: var(--sx-lime);
+}
+
+.sx-wonder .sx-goal {
+  padding: 0;
+  border: 0;
+  background: none;
+}
+
+.sx-era-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 800;
+}
+
+.sx-era-arrow {
+  color: var(--sx-yellow);
+}
+
+.sx-era-count {
+  margin-left: auto;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  font-size: 0.75rem;
+}
+
+.sx-alert {
+  color: #ffb4b4;
+  font-weight: 700;
+}
+
 .sx-happy-part {
   padding-left: 1.2em;
   font-variant-numeric: tabular-nums;

@@ -61,7 +61,7 @@ Daarnaast blijft gelden:
 
 | Wat | Bestand |
 | --- | --- |
-| Regels: productie (ook mijnen en smeden), geluk (de meter), inwoners, kosten, stemmen, paden, muren, afbreken, doelen en wonderen, supply drops, aanvallen | `shared/idle.ts` |
+| Regels: productie (ook mijnen en smeden), opslag per grondstof, geluk (de meter), inwoners, kosten, stemmen, paden, muren, afbreken, doelen en wonderen, supply drops, aanvallen | `shared/idle.ts` |
 | Getallen en content: grondstoffen, tijdperken (doelen, wonderen), gebouwen, winkels, gelukjes; de balans (`PRICE_MULT`, `BASE_RATE`, …) onderaan | `shared/idleContent.ts` |
 | Kaart, natuur, waar gebouwen en paden mogen | `shared/idleMap.ts` |
 | Server: opslag (`data/idle.json`), invoercontrole, stemmen afhandelen | `server/src/idle.ts`, `server/src/counter.ts` |
@@ -360,27 +360,46 @@ een Kampvuur, een Hut en een Schuur.
       hut en 1 Schuur als basisvoorziening")
 
 ### Update 17: Opslag & overzicht
-Status: gepland.
+Status: in review (PR #40). Steunt op update 12.
 
-- [ ] Opslag per grondstof, niet één grens voor alles. Bijvoorbeeld een
-      Schuur voor hout en steen, een voorraadkuil voor voedsel. Eerst met
-      Richard afstemmen welke gebouwen wat opslaan. (bron: 2026-10-26,
-      "niks van resources samenvoegen, opslag beter beheren (per resource)")
-- [ ] Werkers stoppen met werken als de opslag van hun grondstof vol is (en
-      gaan dan iets anders doen, of zitten bij het vuur). (bron: 2026-10-26,
-      "stoppen met werken als storage vol is")
-- [ ] Het overzicht dat nu in de tooltip van de HUD staat, glitcht omdat het
-      steeds ververst wordt. Zet het bij de juiste gebouwen (de opslag bij de
-      Schuur, …) en houd de HUD kort. (bron: 2026-10-26, "hover functie bij
-      de HUD glitcht")
-- [ ] De informatie over het tijdperk in een mooier overzicht, met
-      blokken, voortgangsbalken en iconen, in plaats van tekst met emoji's
-      onder elkaar. (bron: 2026-10-26, "deel de tijdperk informatie op in
-      een mooier overzicht")
-- [ ] Klikken op een tegel achter een gebouw of boom lukt niet, omdat die
-      ervoor staat (2.5D). Kies de tegel onder de muis, of laat een melding
-      zien als er iets in de weg staat. (bron: 2026-10-26, "geen melding dat
-      je er niet op kan klikken")
+Afgesproken met Richard (2026-10-26): één opslaggebouw per grondstof.
+
+- [x] Opslag per grondstof, niet één grens voor alles. Gedaan: elke
+      grondstof heeft een eigen opslag (`stores` op het gebouwtype,
+      `capOf(s, res)`): de Schuur houdt hout (hij houdt zijn oude id
+      `storage`), de Voorraadkuil voedsel, de Steenstapel steen, en vanaf hun
+      tijdperk een eigen opslag voor brons, ijzer, kolen, wapens, harnassen,
+      goud, wol, kennis, olie, data, titanium en antimaterie. Elke grondstof
+      heeft een basis van 400 plus 400 van het centrum (×4 per tijdperk); elk
+      opslaggebouw geeft +800 voor zijn grondstof. De kratjes naast een
+      opslag hebben de kleur van wat erin ligt. (bron: 2026-10-26, "niks van
+      resources samenvoegen, opslag beter beheren (per resource)")
+- [x] Werkers stoppen met werken als de opslag van hun grondstof vol is.
+      Gedaan: ze gaan bij het kampvuur zitten ("opslag vol, pauze"), tot er
+      weer plek is. Verzamelaars die zelf kiezen, gaan iets anders verzamelen
+      dat nog niet vol is (`fullOf`, `gatheringOf`); wie door de spelers op
+      een grondstof gezet is, pauzeert ook. Het menu (soorten voedsel)
+      verandert niet door een volle voorraadkuil. (bron: 2026-10-26, "stoppen
+      met werken als storage vol is")
+- [x] De tooltips van de HUD glitchten omdat ze steeds ververst werden.
+      Gedaan: de tooltips zijn kort en veranderen alleen als er echt iets
+      verandert. Klik op een grondstof en je gaat naar zijn opslag, met een
+      balk, hoe snel hij vol is en waar de grens uit bestaat. Klik op de
+      inwoners, het geluk of een aanval en je gaat naar het centrum, dat nu
+      ook een blok 📦 Opslag heeft met alle grondstoffen. Een volle grondstof
+      zegt "vol" in de HUD; het geluk toont ook waar het heen gaat. (bron:
+      2026-10-26, "hover functie bij de HUD glitcht")
+- [x] De informatie over het tijdperk in een mooier overzicht. Gedaan: van
+      tijdperk → naar tijdperk met "2/4 doelen", elk doel een blok met een
+      icoon en een voortgangsbalk, en het wonder met een balk per fase.
+      (bron: 2026-10-26, "deel de tijdperk informatie op in een mooier
+      overzicht")
+- [x] Klikken op een tegel achter een gebouw of boom. Gedaan: de tegel onder
+      de muis telt eerst. Staat daar een gebouw of natuur, dan krijg je dat;
+      is het vrij land, dan opent het bouwmenu van díe tegel, ook als er een
+      dak of boom voor hangt. Een gestippelde rand bovenop toont welke tegel
+      je kiest. Een gebouw kies je dus op zijn eigen tegel (de voet). (bron:
+      2026-10-26, "geen melding dat je er niet op kan klikken")
 
 ### Update 18: Nieuwe inwoners
 Status: gepland. Steunt op update 12. Eerst met Richard afstemmen hoe de
@@ -577,8 +596,14 @@ een update worden opgenomen als het past.
   hele periode met de geluksmeter en het aantal inwoners van het begin ervan. De
   server rekent vaak door, dus dit speelt alleen na lang niemand online.
 - **Wonderfase en opslag:** de laatste fase van Stonehenge kost precies
-  1600 hout en 1600 steen. Dat is wat een Kampvuur met één Schuur kan opslaan.
-  Wordt de kostenschaal veranderd, kijk dan of de opslag nog volstaat.
+  1600 hout en 1600 steen (en 1200 voedsel). Dat is wat een Kampvuur met één
+  opslag voor die grondstof kan bewaren: een Schuur voor hout, een
+  Steenstapel voor steen. Wordt de kostenschaal veranderd, kijk dan of de
+  opslag nog volstaat.
+- **Volle opslag in de browser:** of een werker pauzeert, ziet de browser
+  aan de voorraad uit het laatste bericht van de server. Rond het moment dat
+  iets vol raakt, kan een dorpeling dus nog even doorwerken of te vroeg gaan
+  zitten. Op de kaart lopen er maar een paar rond, dus dat valt weinig op.
 - **Berichtgrootte:** `MAX_PATH_TILES` (150) en de `maxPayload` van de
   counter-socket (2048 bytes) horen bij elkaar. Verhoog je het ene, controleer
   dan het andere. Daar is een test voor.

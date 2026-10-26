@@ -145,6 +145,8 @@ export interface BuildingType {
   consumes?: Amounts;
   /** Food buildings: which kind of food. */
   foodKind?: FoodKind;
+  /** Storage: the one resource it holds. */
+  stores?: ResourceId;
   /** The nature it works from, if not what it makes (null: none, it grows its own). */
   source?: ResourceId | null;
   /** Doesn't use its source up, but makes less as there's less of it (game lives in the forest). */
@@ -248,11 +250,29 @@ export const BUILDING_TYPES: readonly BuildingType[] = [
     baseCost: { wood: 60, stone: 80 },
     names: ["Uitkijkpost", "Houten toren", "Wachttoren", "Romeinse toren", "Kasteeltoren", "Vestingtoren", "Kanonstoren", "Bunker", "Radarpost", "Lasertoren", "Schildtoren"],
   },
-  {
-    id: "storage", category: "storage", emoji: "🏚️", minEra: 0, specialCost: 15,
-    baseCost: { wood: 50, stone: 30 },
-    names: ["Schuur", "Graanschuur", "Voorraadhut", "Pakhuis", "Tiendschuur", "Waag", "Magazijn", "Silo", "Distributiecentrum", "Vrachthangar", "Ruimtedepot"],
-  },
+  // Storage: one kind per resource (update 17). The Schuur keeps its old id and holds wood.
+  ...(
+    [
+      ["storage", "wood", "🏚️", ["Schuur", "Houtschuur", "Houtloods", "Houtpakhuis", "Houtzolder", "Houtwerf", "Houtmagazijn", "Houtopslag", "Houtdepot", "Houtbunker", "Ruimtehoutdepot"]],
+      ["storage_food", "food", "🏺", ["Voorraadkuil", "Graanschuur", "Graanzolder", "Horreum", "Spijker", "Provisiekamer", "Koelhuis", "Vrieshuis", "Voedselsilo", "Voedseldepot", "Ruimtevoorraad"]],
+      ["storage_stone", "stone", "🧱", ["Steenstapel", "Steenhoop", "Steenloods", "Steenwerf", "Steenmagazijn", "Steendepot", "Steenopslag", "Bouwdepot", "Materiaaldepot", "Gesteentebunker", "Ruimtegesteentedepot"]],
+      ["storage_bronze", "bronze", "📦", fromEra(1, ["Bronsbergplaats", "Bronskamer", "Bronsdepot"])],
+      ["storage_iron", "iron", "📦", fromEra(2, ["IJzerloods", "IJzermagazijn", "IJzerdepot"])],
+      ["storage_coal", "coal", "📦", fromEra(2, ["Kolenhok", "Kolenkelder", "Kolenbunker"])],
+      ["storage_weapons", "weapons", "📦", fromEra(2, ["Wapenrek", "Wapenkamer", "Arsenaal"])],
+      ["storage_armor", "armor", "📦", fromEra(2, ["Harnasrek", "Harnaskamer", "Uitrustingsdepot"])],
+      ["storage_gold", "gold", "📦", fromEra(3, ["Schatkist", "Schatkamer", "Goudkluis"])],
+      ["storage_wool", "wool", "📦", fromEra(4, ["Wolzolder", "Lakenhal", "Textieldepot"])],
+      ["storage_knowledge", "knowledge", "📦", fromEra(5, ["Archief", "Rijksarchief", "Databank"])],
+      ["storage_oil", "oil", "📦", fromEra(7, ["Olietank", "Tankpark"])],
+      ["storage_data", "data", "📦", fromEra(8, ["Serverkast", "Serverhal"])],
+      ["storage_titanium", "titanium", "📦", fromEra(9, ["Titaniumdepot", "Titaniumhangar"])],
+      ["storage_antimatter", "antimatter", "📦", fromEra(10, ["Antimaterievat"])],
+    ] as const
+  ).map(([id, res, emoji, names]): BuildingType => ({
+    id, category: "storage", emoji, minEra: RESOURCES.find((r) => r.id === res)!.era, stores: res, specialCost: 15,
+    baseCost: { wood: 50, stone: 30 }, names,
+  })),
   ...(
     [
       ["sculptor", "🎨", 0, { stone: 60, wood: 20 }, ["Beeldhouwer", "Beeldhouwer", "Beeldensmidse", "Atelier", "Steenhouwersgilde", "Kunstatelier", "Gieterij", "Designstudio", "3D-kunstlab", "Holostudio", "Kosmisch atelier"]],

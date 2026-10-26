@@ -175,6 +175,8 @@ export function createWorld(opts: WorldOptions): TownWorld {
   let selectedVillager: string | null = null;
   let placing: ((x: number, y: number) => boolean) | null = null;
   let hover: { x: number; y: number } | null = null;
+  /** The hovered tile is free land: a click opens the build popup there (outlined on top, also behind buildings). */
+  let hoverLand = false;
   let marked: { x: number; y: number } | null = null;
   let ghost: ProposalAction | null = null;
   let painting: ((x: number, y: number) => boolean) | null = null;
@@ -272,7 +274,9 @@ export function createWorld(opts: WorldOptions): TownWorld {
     const prev = pointers.get(e.pointerId);
     if (!prev) {
       hover = tileAt(p.x, p.y);
-      canvas.style.cursor = placing || painting ? "crosshair" : (hit(p.x, p.y)?.kind ?? "nature") !== "nature" ? "pointer" : "grab";
+      const h = placing || painting ? undefined : hit(p.x, p.y);
+      hoverLand = h === null && isFreeLand(hover.x, hover.y);
+      canvas.style.cursor = placing || painting ? "crosshair" : h && h.kind !== "nature" ? "pointer" : "grab";
       return;
     }
     pointers.set(e.pointerId, p);
@@ -313,7 +317,10 @@ export function createWorld(opts: WorldOptions): TownWorld {
     }
   };
   canvas.addEventListener("pointerup", end);
-  canvas.addEventListener("pointerleave", () => (hover = null));
+  canvas.addEventListener("pointerleave", () => {
+    hover = null;
+    hoverLand = false;
+  });
   canvas.addEventListener("pointercancel", (e) => {
     pointers.delete(e.pointerId);
     moved = true;
@@ -355,23 +362,31 @@ export function createWorld(opts: WorldOptions): TownWorld {
       if (d < 8 && (!best || d < best.d)) best = { id: v.id, d };
     }
     if (best) return { kind: "villager", id: best.id };
-    // Buildings, front-most first.
+    // What stands on the tile under the pointer comes first…
+    const t = toTileSpace(w.x, w.y);
+    const tx = Math.floor(t.x);
+    const ty = Math.floor(t.y);
+    const own = world?.buildings.find((b) => b.x === tx && b.y === ty);
+    if (own) return { kind: "building", b: own };
+    const natureHit = (x: number, y: number): Hit | null => {
+      const res = roads.has(`${x},${y}`) ? null : natureAt(x, y, world?.era ?? 0, world?.nature);
+      return res ? { kind: "nature", resource: res, x, y } : null;
+    };
+    const here = natureHit(tx, ty);
+    if (here) return here;
+    // …then free land, even behind a building or a tree that sticks up over it (2.5D): that tile gets the click.
+    if (isFreeLand(tx, ty)) return null;
+    // Anything else (water, the mountain): the building or tree drawn over it, front-most first.
     const bs = [...(world?.buildings ?? [])].sort((a, b) => b.x + b.y - (a.x + a.y));
     for (const b of bs) {
       const r = buildingBounds(b);
       if (w.x >= r.x1 && w.x <= r.x2 && w.y >= r.y1 && w.y <= r.y2) return { kind: "building", b };
     }
-    // Nature: the tile under the pointer, or the one in front (trees stick up into this one).
-    const t = toTileSpace(w.x, w.y);
-    const tx = Math.floor(t.x);
-    const ty = Math.floor(t.y);
-    for (const [x, y] of [[tx + 1, ty + 1], [tx, ty]]) {
-      if (roads.has(`${x},${y}`)) continue;
-      const res = natureAt(x, y, world?.era ?? 0, world?.nature);
-      if (res) return { kind: "nature", resource: res, x, y };
-    }
-    return null;
+    return natureHit(tx + 1, ty + 1);
   }
+
+  /** Land the build popup opens for: grass, sand, or a street or bridge. */
+  const isFreeLand = (x: number, y: number) => ["grass", "sand"].includes(terrainAt(x, y)) || roads.has(`${x},${y}`);
 
   function click(px: number, py: number): void {
     if (painting) return;
@@ -521,6 +536,11 @@ export function createWorld(opts: WorldOptions): TownWorld {
     drawLand(g, 0, MAP_SIZE - 1, 0, MAP_SIZE - 1, era, 0, items, false);
     items.sort((a, b) => a.d - b.d);
     for (const it of items) it.f();
+    if (hover && hoverLand && !placing && !painting && !draft) {
+      ctx.setLineDash([4 / cam.zoom, 3 / cam.zoom]);
+      outline(hover.x, hover.y, "#ffffff");
+      ctx.setLineDash([]);
+    }
     return { key, canvas: c };
   }
 
@@ -703,6 +723,11 @@ export function createWorld(opts: WorldOptions): TownWorld {
     }
     items.sort((a, b) => a.d - b.d);
     for (const it of items) it.f();
+    if (hover && hoverLand && !placing && !painting && !draft) {
+      ctx.setLineDash([4 / cam.zoom, 3 / cam.zoom]);
+      outline(hover.x, hover.y, "#ffffff");
+      ctx.setLineDash([]);
+    }
 
     for (const [x, y, name, mine] of tags) drawNameTag(ctx, x, y, name, mine);
     for (const [x, y, text] of bubbles) drawBubble(ctx, x, y, text);

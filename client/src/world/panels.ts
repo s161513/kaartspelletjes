@@ -19,7 +19,6 @@ import {
   MAX_PROPOSALS,
   RAID_MOODS,
   RESOURCES,
-  STORAGE_CAP,
   TAVERN_POINTS,
   actionError,
   assignWorkers,
@@ -30,6 +29,7 @@ import {
   buildingType,
   canAfford,
   capOf,
+  capPartsOf,
   currentWonder,
   decorTypes,
   defenseOf,
@@ -73,13 +73,14 @@ import {
   resourceDef,
   roadCost,
   roadName,
-  scaleOf,
   shopItem,
   shortfall,
   slotsAt,
   slotsOf,
   sourceLeft,
   sourceShareOf,
+  storeCap,
+  storeTypeOf,
   terrainAt,
   tileIndex,
   tileOf,
@@ -90,6 +91,7 @@ import {
   wonderWait,
   type Amounts,
   type BuildingType,
+  type GoalStatus,
   type DecorBehavior,
   type IdleClientMsg,
   type IdleProposalView,
@@ -158,7 +160,7 @@ function missingText(world: IdleWorld, cost: Amounts): string {
 function effectText(world: IdleWorld, t: BuildingType): string {
   const era = world.era;
   if (t.category === "house") return `🛏️ +${housingOf(era)} bedden: wie geen bed heeft, slaapt buiten en is ongelukkig`;
-  if (t.category === "storage") return `📦 +${fmt(STORAGE_CAP * scaleOf(era))} opslag per grondstof`;
+  if (t.category === "storage" && t.stores) return `📦 +${fmt(storeCap(era))} opslag voor ${resText(t.stores)}`;
   if (t.category === "decor") return `😊 +${DECOR_POINTS} geluk (alle decoraties samen tot +${MAX_DECOR_POINTS})`;
   if (t.category === "defense") return `🛡️ +${TOWER_POINTS * (1 + era)} verdediging tegen aanvallen`;
   if (t.category === "shop") return `🛒 winkel: ${shopBlurb(t.id)}${t.id === "shop_tavern" ? ` · 😊 +${TAVERN_POINTS} geluk` : ""}`;
@@ -172,6 +174,9 @@ function effectText(world: IdleWorld, t: BuildingType): string {
   }
   return "";
 }
+
+/** "🪵 hout". */
+const resText = (id: string) => `${resourceDef(id)?.emoji ?? ""} ${resourceDef(id)?.name ?? id}`;
 
 /** "⛓️ 1 + ⚫ 1". */
 const usesText = (uses: Amounts) => Object.entries(uses).map(([id, n]) => `${resourceDef(id)?.emoji ?? id} ${fmt(n)}`).join(" + ");
@@ -357,11 +362,28 @@ export function createPanels(deps: PanelDeps): Panels {
   let hudEra = -1;
   /** Per resource: the chip, its text and the bar showing how full storage is. */
   const hudChips = new Map<string, { chip: HTMLSpanElement; text: HTMLSpanElement; fill: HTMLSpanElement }>();
-  const popChip = h("span", "sx-hud-chip sx-hud-pop");
-  const happyChip = h("span", "sx-hud-chip sx-hud-pop");
+  const popChip = h("span", "sx-hud-chip sx-hud-pop sx-hud-click");
+  const happyChip = h("span", "sx-hud-chip sx-hud-pop sx-hud-click");
   const boostBox = h("span");
   boostBox.style.display = "contents";
-  const raidChip = h("span", "sx-hud-chip sx-hud-raid");
+  const raidChip = h("span", "sx-hud-chip sx-hud-raid sx-hud-click");
+
+  /** Tooltips that change every tick flicker away under the mouse: only set them when the text really changes. */
+  const setTitle = (el: HTMLElement, text: string) => {
+    if (el.title !== text) el.title = text;
+  };
+  /** Click a HUD chip: the building with the details (the storage of that resource, else the center). */
+  const showAt = (pick: (w: IdleWorld) => PlacedBuilding | undefined) => () => {
+    const w = deps.world();
+    const b = w && (pick(w) ?? w.buildings.find((x) => x.type === "center"));
+    if (!b) return;
+    inspect(b);
+    deps.lookAt(b.x, b.y);
+  };
+  const centerOf = (w: IdleWorld) => w.buildings.find((b) => b.type === "center");
+  popChip.addEventListener("click", showAt(centerOf));
+  happyChip.addEventListener("click", showAt(centerOf));
+  raidChip.addEventListener("click", showAt(centerOf));
 
   function renderHud(world: IdleWorld, now: number): void {
     if (hudEra !== world.era) {
@@ -369,44 +391,40 @@ export function createPanels(deps: PanelDeps): Panels {
       hud.replaceChildren();
       hudChips.clear();
       for (const r of RESOURCES.filter((r) => r.era <= world.era)) {
-        const chip = h("span", "sx-hud-chip sx-hud-res");
+        const chip = h("span", "sx-hud-chip sx-hud-res sx-hud-click");
         const text = h("span");
         const bar = h("span", "sx-hud-bar");
         const fill = h("span", "sx-hud-fill");
         bar.append(fill);
         chip.append(text, bar);
+        chip.addEventListener("click", showAt((w) => w.buildings.find((b) => buildingType(b.type)?.stores === r.id && !b.damaged)));
         hud.append(chip);
         hudChips.set(r.id, { chip, text, fill });
       }
       hud.append(popChip, happyChip, raidChip, boostBox);
     }
-    const cap = capOf(world);
     const rates = ratesOf(world);
+    const center = buildingName("center", world.era);
     for (const [id, { chip, text, fill }] of hudChips) {
       const have = world.resources[id] ?? 0;
+      const cap = capOf(world, id);
+      const full = have >= cap;
       const rate = (rates[id] ?? 0) * multiplierAt(world, id, now);
-      text.textContent = `${resourceDef(id)!.emoji} ${fmt(have)}${rate ? ` ${rate > 0 ? "+" : "−"}${fmtRate(Math.abs(rate))}/s` : ""}`;
+      text.textContent = `${resourceDef(id)!.emoji} ${fmt(have)}${full ? " vol" : rate ? ` ${rate > 0 ? "+" : "−"}${fmtRate(Math.abs(rate))}/s` : ""}`;
       fill.style.width = `${Math.min(100, (have / cap) * 100)}%`;
-      chip.classList.toggle("sx-hud-full", have >= cap);
-      chip.title =
-        `${resourceDef(id)!.name}: ${fmt(have)} van max ${fmt(cap)}${have >= cap ? " — vol! bouw opslag" : ""}` +
-        (id === "food" ? `
-${menuText(world)}` : "");
+      chip.classList.toggle("sx-hud-full", full);
+      const store = buildingName(storeTypeOf(id) ?? "storage", world.era);
+      setTitle(chip, `${resourceDef(id)!.name}${full ? ": vol, bouw een " + store : ""} · klik voor de opslag`);
     }
     const wf = assignWorkers(world);
     popChip.textContent = `👥 ${wf.population} · 🛏️ ${wf.beds}${wf.homeless ? ` · ⛺ ${wf.homeless}` : ""}`;
     popChip.classList.toggle("sx-hud-full", wf.homeless > 0);
-    const trend = trendText(world, now);
-    popChip.title =
-      `${wf.population} inwoners, ${wf.population - wf.idle} met werk, ${wf.idle} zonder werk · ${wf.beds} bedden` +
-      (wf.homeless ? ` · ${outside(wf.homeless)}: bouw huizen` : "") +
-      (trend ? ` · ${trend}` : "") +
-      ` · op de kaart lopen er ${NPCS_PER_PLAYER} per speler online rond · meer bij het ${buildingName("center", world.era)}`;
+    setTitle(popChip, `inwoners · bedden${wf.homeless ? " · slapen buiten: bouw huizen" : ""} · klik voor het overzicht bij het ${center}`);
     const mood = happinessOf(world, now);
     const arrow = mood.target > Math.round(mood.level) ? " ↗" : mood.target < Math.round(mood.level) ? " ↘" : "";
-    happyChip.textContent = `${moodEmoji(mood.level)} ${Math.round(mood.level)}%${arrow}`;
+    happyChip.textContent = `${moodEmoji(mood.level)} ${Math.round(mood.level)}%${arrow}${arrow ? ` ${mood.target}%` : ""}`;
     happyChip.classList.toggle("sx-hud-full", mood.level < 35);
-    happyChip.title = [happyText(world, now), ...happyLines(world, now)].join("\n");
+    setTitle(happyChip, `geluk${arrow ? ", en waar het heen gaat" : ""} · klik voor wat het dorp blij maakt, bij het ${center}`);
 
     const raid = world.raid;
     raidChip.hidden = !raid;
@@ -414,7 +432,7 @@ ${menuText(world)}` : "");
       const def = defenseOf(world).total;
       raidChip.textContent = raid.at > now ? `⚔️ aanval over ${timeLeft(raid.at - now)} · ⚔️ ${raid.strength} vs 🛡️ ${def}` : "⚔️ de aanval is bezig!";
       raidChip.classList.toggle("sx-hud-full", def < raid.strength);
-      raidChip.title = `Vijanden in aantocht. Verdediging: ${defenseOf(world).parts.map((p) => `${p.emoji} ${p.label} ${fmt(p.points)}`).join(" · ")}. Meer bij het ${buildingName("center", world.era)}.`;
+      setTitle(raidChip, `vijanden in aantocht: hun kracht tegen onze verdediging · klik voor de verdediging bij het ${center}`);
     }
 
     const boosts: string[] = [];
@@ -959,6 +977,27 @@ ${menuText(world)}` : "");
     return `🚧 fase ${b.stage}/${WONDER_PHASES} af · ${wait === null ? "de bouwers zijn klaar voor de volgende fase" : `de bouwers zijn klaar over ${durationText(wait)}`}`;
   }
 
+  /** A block with an icon, a name, a value and a bar: a goal, or the wonder's phases. */
+  function meter(icon: string, name: string, value: string, share: number, done: boolean): HTMLElement {
+    const el = h("div", done ? "sx-goal sx-goal-done" : "sx-goal");
+    const text = h("div", "sx-goal-text");
+    const top = h("div", "sx-goal-top");
+    top.append(h("span", "sx-goal-name", name), h("span", "sx-goal-value", done ? "✅" : value));
+    const bar = h("span", "sx-store-bar");
+    const fill = h("span", "sx-store-fill");
+    fill.style.width = `${Math.max(0, Math.min(1, share)) * 100}%`;
+    bar.append(fill);
+    text.append(top, bar);
+    el.append(h("span", "sx-goal-icon", icon), text);
+    return el;
+  }
+
+  /** "👥 15 inwoners" → a block with 👥, the text and how far the town is. */
+  function goalCard(g: GoalStatus): HTMLElement {
+    const [icon, ...rest] = g.label.split(" ");
+    return meter(icon, rest.join(" "), g.need > 1 ? `${fmt(g.have)}/${fmt(g.need)}` : "nog niet", g.need ? g.have / g.need : 1, g.done);
+  }
+
   /** The town center: the goals for the next era and its world wonder. */
   function eraPanel(world: IdleWorld): () => void {
     const next = ERAS[world.era + 1];
@@ -969,7 +1008,8 @@ ${menuText(world)}` : "");
     }
     const t = buildingType(typeId)!;
     const goals = h("div", "sx-goals");
-    const progress = h("div", "sx-note");
+    const count = h("span", "sx-era-count");
+    const progress = h("div", "sx-wonder");
     const start = offer({
       emoji: t.emoji,
       name: `${buildingName(typeId, world.era)} bouwen`,
@@ -982,8 +1022,16 @@ ${menuText(world)}` : "");
         !eraGoals(w).every((g) => g.done) ? "eerst de doelen van dit tijdperk halen" : canAfford(w, wonderCost(w, 0)) ? null : "te duur",
     });
     const phase = wonderPhaseOffer();
+    const head = h("div", "sx-era-head");
+    head.append(
+      h("span", "sx-era-from", `${ERAS[world.era].emoji} ${ERAS[world.era].name}`),
+      h("span", "sx-era-arrow", "→"),
+      h("span", "sx-era-to", `${next.emoji} ${next.name}`),
+      count,
+    );
     insActions.append(
-      h("h4", "sx-h", `🏛️ Op weg naar ${next.emoji} ${next.name}`),
+      h("h4", "sx-h", "🏛️ Het volgende tijdperk"),
+      head,
       h("p", "sx-note", "Haal deze doelen en bouw het wereldwonder: dan begint het volgende tijdperk."),
       goals,
       progress,
@@ -994,11 +1042,17 @@ ${menuText(world)}` : "");
     return () => {
       const w = deps.world();
       if (!w) return;
-      goals.replaceChildren(
-        ...eraGoals(w).map((g) => h("div", g.done ? "sx-goal sx-goal-done" : "sx-goal", `${g.done ? "✅" : "⬜"} ${g.label}${g.need > 1 ? ` (${fmt(g.have)}/${fmt(g.need)})` : ""}`)),
-      );
+      const all = eraGoals(w);
+      count.textContent = `${all.filter((g) => g.done).length}/${all.length} doelen`;
+      goals.replaceChildren(...all.map(goalCard));
       const b = currentWonder(w);
-      progress.textContent = b ? `${t.emoji} ${buildingName(typeId, w.era)}: ${wonderProgress(w, b)}` : "";
+      if (b) {
+        const wait = wonderWait(w, b);
+        progress.replaceChildren(
+          meter(t.emoji, buildingName(typeId, w.era), `fase ${b.stage ?? WONDER_PHASES}/${WONDER_PHASES}`, (b.stage ?? WONDER_PHASES) / WONDER_PHASES, b.stage === undefined),
+          h("div", "sx-store-sub", wait === null ? "🔨 de bouwers zijn klaar voor de volgende fase" : `⏳ de bouwers zijn klaar over ${durationText(wait)}`),
+        );
+      }
       progress.hidden = !b;
       start.el.hidden = !!b;
       phase.el.hidden = !b;
@@ -1038,7 +1092,7 @@ ${menuText(world)}` : "");
         : w.era < RAID_FROM_ERA
           ? `😌 Nog geen vijanden: die komen pas in de ${ERAS[RAID_FROM_ERA].name}.`
           : "😌 Geen vijanden te zien.";
-      raid.classList.toggle("sx-goal", !!w.raid && d.total < w.raid.strength);
+      raid.classList.toggle("sx-alert", !!w.raid && d.total < w.raid.strength);
       const r = w.lastRaid;
       last.hidden = !r;
       if (r) {
@@ -1047,6 +1101,53 @@ ${menuText(world)}` : "");
           ? `Vorige aanval (${ago} geleden): afgeslagen, 🛡️ ${r.defense} tegen ⚔️ ${r.strength}`
           : `Vorige aanval (${ago} geleden): verloren, 🛡️ ${r.defense} tegen ⚔️ ${r.strength} · ${r.killed} doden${r.damaged ? ` · ${r.damaged} in brand` : ""}`;
       }
+    };
+  }
+
+  /**
+   * Storage, one bar per resource: how full, how fast it fills, and what the
+   * limit is made of. The center shows every resource, a storage building its own.
+   */
+  function storagePanel(world: IdleWorld, only?: string): () => void {
+    const ids = only ? [only] : unlockedResources(world.era);
+    const rows = ids.map((id) => {
+      const fill = h("span", "sx-store-fill");
+      const bar = h("span", "sx-store-bar");
+      bar.append(fill);
+      const amount = h("span", "sx-store-amount");
+      const sub = h("div", "sx-store-sub");
+      const el = h("div", "sx-store");
+      const top = h("div", "sx-store-top");
+      top.append(h("span", "sx-store-name", resText(id)), amount);
+      el.append(top, bar, sub);
+      return { id, el, fill, amount, sub };
+    });
+    const parts = h("div", "sx-note");
+    insActions.append(
+      h("h4", "sx-h", only ? `📦 Opslag voor ${resText(only)}` : "📦 Opslag"),
+      ...rows.map((r) => r.el),
+      ...(only ? [parts] : [h("p", "sx-note", "Elke grondstof heeft een eigen opslag. Is die vol, dan stoppen de werkers ervan en gaan ze bij het vuur zitten. Klik op een grondstof bovenaan om naar de opslag te gaan.")]),
+    );
+    return () => {
+      const w = deps.world();
+      if (!w) return;
+      const now = deps.serverNow();
+      const rates = ratesOf(w);
+      for (const r of rows) {
+        const have = w.resources[r.id] ?? 0;
+        const cap = capOf(w, r.id);
+        const rate = (rates[r.id] ?? 0) * multiplierAt(w, r.id, now);
+        const full = have >= cap;
+        r.fill.style.width = `${Math.min(100, (have / cap) * 100)}%`;
+        r.el.classList.toggle("sx-store-full", full);
+        r.amount.textContent = `${fmt(have)} / ${fmt(cap)}`;
+        r.sub.textContent = full
+          ? `⚠️ vol: de werkers stoppen · bouw een ${buildingName(storeTypeOf(r.id) ?? "storage", w.era)}`
+          : rate > 0 ? `+${fmtRate(rate)}/s · vol over ${durationText(((cap - have) / rate) * 1000)}`
+          : rate < 0 ? `−${fmtRate(-rate)}/s · op over ${durationText((have / -rate) * 1000)}`
+          : "komt er nu niet bij";
+      }
+      if (only) parts.replaceChildren(...capPartsOf(w, only).map((p) => h("div", "sx-happy-part", `${p.emoji} ${p.label} +${fmt(p.amount)}`)));
     };
   }
 
@@ -1070,7 +1171,7 @@ ${menuText(world)}` : "");
       h("h4", "sx-h", "📊 Bevolking"),
       census,
       mood,
-      h("p", "sx-note", "Een gelukkig dorp trekt nieuwkomers, ook als er geen bed meer vrij is; uit een ongelukkig dorp vertrekken mensen. Gelukkige mensen werken harder."),
+      h("p", "sx-note", `Een gelukkig dorp trekt nieuwkomers, ook als er geen bed meer vrij is; uit een ongelukkig dorp vertrekken mensen. Gelukkige mensen werken harder. Op de kaart lopen er ${NPCS_PER_PLAYER} per speler online rond.`),
       h("h4", "sx-h", "👥 Wie doet wat"),
       summary,
       menu,
@@ -1125,14 +1226,17 @@ ${menuText(world)}` : "");
       insLive = null;
       if (t.category === "center") {
         const era = eraPanel(world);
-        const defense = defensePanel(world);
         const work = workPanel(world);
+        const store = storagePanel(world);
+        const defense = defensePanel(world);
         insLive = () => {
           era();
-          defense();
           work();
+          store();
+          defense();
         };
       }
+      if (t.category === "storage" && t.stores) insLive = storagePanel(world, t.stores);
       if (t.category === "wonder" && b.stage !== undefined && b.type === wonderType(world.era)) {
         const o = wonderPhaseOffer();
         insActions.append(o.el);
@@ -1274,6 +1378,9 @@ ${menuText(world)}` : "");
       const kind = t.foodKind ? ` ${foodKindText(t.foodKind)}` : "";
       const rate = ((fullRateOf(b) * w) / slotsOf(b.level)) * share;
       lines.push(`${resourceDef(made)?.emoji}${kind} ${fmtRate(rate)}/s (zonder bonussen)${w < slots ? " — meer inwoners = meer werkers" : ""}`);
+      if ((world.resources[made] ?? 0) >= capOf(world, made)) {
+        lines.push(`⚠️ De opslag voor ${resText(made)} is vol: de werkers zitten bij het vuur. Bouw een ${buildingName(storeTypeOf(made) ?? "storage", world.era)}.`);
+      }
       if (t.ores) lines.push(`⛰️ in de berg: raakt nooit op`);
       if (t.consumes) {
         const out = Object.keys(t.consumes).filter((id) => (world.resources[id] ?? 0) < 1);
@@ -1293,8 +1400,7 @@ ${menuText(world)}` : "");
         lines.push(src.left > 0.01 ? `${SOURCE_NAMES[from ?? ""] ?? "⛏️ Ertsader"} in de buurt: nog ${pct}%` : "⚠️ Niets meer in de buurt: wacht tot het teruggroeit, of bouw er een bij een andere plek.");
       }
     }
-    if (t.category === "storage") lines.push(`📦 +${fmt(STORAGE_CAP * scaleOf(b.level))} opslag`);
-    if (t.category === "center") lines.push(`📦 opslag max ${fmt(capOf(world))} per grondstof`);
+    if (t.category === "storage" && t.stores) lines.push(`📦 +${fmt(storeCap(b.level))} opslag voor ${resText(t.stores)}`);
     if (t.category === "shop") lines.push(`🛒 ${shopBlurb(t.id)}`);
     if (b.type === "shop_tavern") lines.push(`😊 +${TAVERN_POINTS} geluk voor het hele dorp, en een dorpsfeest geeft er tijdelijk nog meer bij`);
     if (t.category === "wonder") lines.push(`🏛️ Wereldwonder van de ${ERAS[b.level].name}`, wonderProgress(world, b));

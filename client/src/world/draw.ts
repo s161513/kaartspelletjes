@@ -899,8 +899,10 @@ function drawShapes(ctx: Ctx, b: PlacedBuilding, t: number): void {
   }
   if (type.category === "work") yard(ctx, b, cx, cy, t);
   if (type.category === "storage") {
-    poly(ctx, [cx + 6, cy + 9, cx + 14, cy + 5, cx + 14, cy - 1, cx + 6, cy + 3], "#a0693a");
-    poly(ctx, [cx - 2, cy + 12, cx + 6, cy + 8, cx + 6, cy + 2, cx - 2, cy + 6], "#8b5a2b");
+    // Crates in the color of what it holds.
+    const goods = RESOURCE_COLORS[type.stores ?? "wood"] ?? "#a0693a";
+    poly(ctx, [cx + 6, cy + 9, cx + 14, cy + 5, cx + 14, cy - 1, cx + 6, cy + 3], goods);
+    poly(ctx, [cx - 2, cy + 12, cx + 6, cy + 8, cx + 6, cy + 2, cx - 2, cy + 6], shade(goods, -0.2));
   }
   if (type.category === "shop") shopSign(ctx, type.emoji, cx, by - s.h - s.roofH - 8, t + b.id * 500);
   if (type.category === "defense") {
@@ -1048,9 +1050,10 @@ function drawEarly(ctx: Ctx, b: PlacedBuilding, cat: string, cx: number, cy: num
   else top = roundHut(ctx, cx, cy, bronze ? 15 : 12, bronze ? 9 : 6, bronze ? 20 : 16, wall, STRAW);
   if (cat === "work") yard(ctx, b, cx, cy, t);
   if (cat === "storage") {
-    // Baskets and bundles by the door.
-    ellipse(ctx, cx + 12, cy + 6, 4, 3, "#a0693a");
-    ellipse(ctx, cx + 6, cy + 9, 3.5, 2.5, "#8b5a2b");
+    // Baskets and bundles by the door, in the color of what it holds.
+    const goods = RESOURCE_COLORS[buildingType(b.type)?.stores ?? "wood"] ?? "#a0693a";
+    ellipse(ctx, cx + 12, cy + 6, 4, 3, goods);
+    ellipse(ctx, cx + 6, cy + 9, 3.5, 2.5, shade(goods, -0.2));
   }
   if (cat === "shop") shopSign(ctx, buildingType(b.type)!.emoji, cx, top - 8, t + b.id * 500);
   if (b.damaged) burning(ctx, cx, top + 10, t + b.id * 777);

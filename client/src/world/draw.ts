@@ -14,6 +14,7 @@
 
 import { ERAS, WONDER_PHASES, buildingType, depositAt, producesOf, type PlacedBuilding, type ResourceId, type Terrain } from "@app/shared/idle";
 import { TILE_H, TILE_W, toWorld } from "./iso";
+import { drawSprite, spriteExtent, variant } from "./sprites";
 
 type Ctx = CanvasRenderingContext2D;
 
@@ -294,6 +295,7 @@ export function drawTree(ctx: Ctx, cx: number, cy: number, x: number, y: number,
   const s = 0.8 + r * 0.5;
   const px = cx + ox;
   const py = cy + oy;
+  if (era < 10 && drawSprite(ctx, variant(r > 0.45 ? "pine" : "tree", rand2(x, y, 4)), px, py, 0.55 + r * 0.25, rand2(x, y, 9) > 0.5)) return;
   const sway = Math.sin(t / 900 + x * 0.7 + y) * 1.2;
   ellipse(ctx, px, py, 9 * s, 4 * s, "rgba(0,0,0,0.18)");
   poly(ctx, [px - 1.5, py, px + 1.5, py, px + 1.5, py - 8 * s, px - 1.5, py - 8 * s], "#5b3a1e");
@@ -311,11 +313,13 @@ export function drawRock(ctx: Ctx, cx: number, cy: number, x: number, y: number)
   const ox = (rand2(x, y, 5) - 0.5) * 16;
   const s = 0.7 + rand2(x, y, 6) * 0.6;
   const px = cx + ox;
+  if (drawSprite(ctx, variant("rock", rand2(x, y, 6)), px, cy, 0.6 + rand2(x, y, 7) * 0.3, rand2(x, y, 9) > 0.5)) return;
   poly(ctx, [px - 10 * s, cy + 2, px - 6 * s, cy - 8 * s, px + 2 * s, cy - 11 * s, px + 9 * s, cy - 4 * s, px + 10 * s, cy + 2], "#8f8b83");
   poly(ctx, [px + 2 * s, cy - 11 * s, px + 9 * s, cy - 4 * s, px + 10 * s, cy + 2, px + 2 * s, cy + 3], "#76726b");
 }
 
 export function drawMountain(ctx: Ctx, cx: number, cy: number, x: number, y: number): void {
+  if (drawSprite(ctx, variant("mountain", rand2(x, y, 7)), cx, cy, 1, rand2(x, y, 9) > 0.5)) return;
   const h = 34 + rand2(x, y, 7) * 30;
   poly(ctx, [cx - HW, cy, cx, cy - h, cx, cy + HH], "#7d786f");
   poly(ctx, [cx, cy + HH, cx, cy - h, cx + HW, cy], "#625e57");
@@ -327,6 +331,7 @@ export function drawMountain(ctx: Ctx, cx: number, cy: number, x: number, y: num
 
 export function drawBush(ctx: Ctx, cx: number, cy: number, x: number, y: number, picked = false): void {
   const ox = (rand2(x, y, 8) - 0.5) * 14;
+  if (drawSprite(ctx, variant(picked ? "bushPicked" : "bush", rand2(x, y, 11)), cx + ox, cy, 0.7, rand2(x, y, 9) > 0.5)) return;
   ellipse(ctx, cx + ox, cy - 4, 9, 6, picked ? "#6b7f3a" : "#2e7d32");
   ellipse(ctx, cx + ox + 4, cy - 7, 6, 5, picked ? "#7d8f45" : "#388e3c");
   if (picked) return;
@@ -338,6 +343,7 @@ export function drawBush(ctx: Ctx, cx: number, cy: number, x: number, y: number,
 
 /** What's left of used-up nature: a stump where a tree stood, rubble where a rock was. */
 export function drawUsedUp(ctx: Ctx, cx: number, cy: number, x: number, y: number, kind: "forest" | "rock"): void {
+  if (drawSprite(ctx, variant(kind === "forest" ? "log" : "rubble", rand2(x, y, 13)), cx, cy, 0.8, rand2(x, y, 9) > 0.5)) return;
   if (kind === "forest") {
     const px = cx + (rand2(x, y, 2) - 0.5) * 18;
     const py = cy + (rand2(x, y, 3) - 0.5) * 8;
@@ -470,9 +476,29 @@ function shapeOf(b: PlacedBuilding): Shape {
   return { w: b.type === "farm" || b.type === "ranch" ? 0.4 : 0.6, h: 10 + b.level, roof: r, roofH: roofH(r), float: 0 };
 }
 
+/**
+ * The pixel-art sprite for a building, if it has one: for now the Iron Age up to the
+ * Renaissance (City Sim's medieval town). Everything else is still drawn.
+ */
+function buildingSprite(b: PlacedBuilding, cat: string): string | null {
+  if (b.level < 2 || b.level > 5) return null;
+  if (cat === "house") return b.level === 2 ? "thatched" : b.level === 5 ? "inn" : "house";
+  if (cat === "center") return b.level <= 3 ? "chapel" : "clock";
+  if (cat === "storage") return "tavern";
+  if (cat === "defense") return "watchtower";
+  if (b.type === "shop_tavern") return "inn";
+  if (cat === "shop") return b.type === "shop_tailor" || b.id % 2 ? "tailor" : "fruit";
+  if (b.type === "farm") return "crops";
+  if (b.type === "fishery") return "fish";
+  return null;
+}
+
 /** Screen-space box (world px) around a building, for clicks. */
 export function buildingBounds(b: PlacedBuilding): { x1: number; y1: number; x2: number; y2: number } {
   const c = toWorld(b.x + 0.5, b.y + 0.5);
+  const sprite = buildingSprite(b, buildingType(b.type)?.category ?? "");
+  const ext = sprite ? spriteExtent(sprite) : null;
+  if (ext) return { x1: c.x - ext.half, x2: c.x + ext.half, y1: c.y - ext.up, y2: c.y + HH };
   const s = shapeOf(b);
   const hw = HW * Math.max(s.w, 0.6);
   return { x1: c.x - hw, x2: c.x + hw, y1: c.y - s.h - s.roofH - s.float - 12, y2: c.y + HH * s.w };
@@ -734,6 +760,13 @@ export function drawBuilding(ctx: Ctx, b: PlacedBuilding, t: number, selected: b
     ctx.stroke();
   }
 
+  const sprite = buildingSprite(b, type.category);
+  if (sprite && drawSprite(ctx, sprite, cx, cy)) {
+    const up = spriteExtent(sprite)?.up ?? 30;
+    if (type.category === "shop") shopSign(ctx, type.emoji, cx, cy - up - 6, t + b.id * 500);
+    if (b.damaged) burning(ctx, cx, cy - up * 0.6, t + b.id * 777);
+    return;
+  }
   if (type.category === "decor") {
     drawDecor(ctx, b, cx, cy, t);
     return;

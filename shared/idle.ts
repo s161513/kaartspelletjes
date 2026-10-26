@@ -4,8 +4,8 @@
 // it meets the era's goals (people, happiness, food, certain buildings) it
 // builds that era's world wonder, phase by phase, and the last phase starts
 // the next era. The 67 counter only gives extras: every +1 a short boost,
-// every new 67 a supply drop to open, and now and then a lucky event. Villagers move in while
-// the town is happy and leave when it isn't; each needs a bed in a house or
+// every new 67 a supply drop to open, and now and then a lucky event. Villagers move in (slowly) while
+// the town is happy and leave when it isn't (the happiness meter creeps towards what the town is worth); each needs a bed in a house or
 // sleeps outside, which makes everyone less happy (so does eating the same
 // thing every day; decorations and the tavern help). Villagers staff work
 // buildings, work buildings fill the storage, and unhappy ones work less. Villagers
@@ -24,8 +24,8 @@
 // over the river as bridges), tearing down a building (for a bit of its cost
 // back), upgrading (buildings or the whole street network) and big shop
 // purchases go through a vote: everything proposed stays open side by side
-// for a day, and happens as soon as enough people said yes; trading on the market and small shop
-// items happen right away. Everyone has their own NPC walking around while
+// for a day, and happens as soon as enough people said yes; small shop items happen right
+// away. There is no trading: what the town needs, it makes. Everyone has their own NPC walking around while
 // they're online, dressed in what they bought at the tailor.
 //
 // The rules here are pure and shared: the server is authoritative, the browser
@@ -50,7 +50,6 @@ import {
   LUCKY_COOLDOWN_MS,
   LUCKY_EVENTS,
   LUCKY_GOLD_MULT,
-  LUCKY_MERCHANT_MULT,
   LUCKY_MS,
   LUCKY_NEWCOMERS_SHARE,
   LUCKY_PARTY_POINTS,
@@ -85,15 +84,16 @@ import {
   WALL_TILE_COST,
   WALL_UPGRADE_COST,
   MAX_DECOR_POINTS,
-  MOVE_PER_MIN,
+  MOVE_MS,
+  HAPPY_STEP_MS,
+  PARTY_PEOPLE,
+  PRICE_MULT,
   PARTY_POINTS,
   TAVERN_POINTS,
   VARIETY_POINTS,
   GATHER_RANGE,
   GATHER_RATE,
   ERAS,
-  MARKET_FEE,
-  MARKET_HALF_LIFE_MS,
   MAX_ITEM_BOOST_MS,
   MAX_PATH_TILES,
   OUTFITS,
@@ -112,7 +112,6 @@ import {
   UPGRADE_SHARE,
   WORK_DRAIN,
   WORK_RANGE,
-  WORTH,
   buildingName,
   buildingType,
   housingOf,
@@ -121,11 +120,9 @@ import {
   scaleOf,
   shopItem,
   slotsOf,
-  worthOf,
   type Amounts,
   type EraGoal,
   type FoodKind,
-  type LuckyId,
   type NpcLook,
   type Outfit,
   type ResourceId,
@@ -165,7 +162,7 @@ export const MAX_OFFLINE_MS = 7 * 24 * 60 * 60_000;
 export const VOTE_MS = 24 * 60 * 60_000;
 /** Open proposals at once, at most. */
 export const MAX_PROPOSALS = 20;
-export const STATE_VERSION = 6;
+export const STATE_VERSION = 7;
 export const MAX_NAME_LENGTH = 20;
 
 // ---------- state ----------
@@ -236,8 +233,6 @@ export interface IdleWorld {
   boosts: ActiveBoost[];
   /** Shop perk id → levels bought. */
   perks: Record<string, number>;
-  /** Market pressure per resource bought (it gets pricier), as of `lastTick`. */
-  market: Amounts;
   /** Level (era) of the whole street network. */
   roadLevel: number;
   /** Street tiles (y × MAP_SIZE + x), sorted. */
@@ -248,6 +243,8 @@ export interface IdleWorld {
   gatherers: Amounts;
   /** Villagers living in town, as of `lastTick` (fractional while someone is moving in or out). */
   population: number;
+  /** The happiness meter (0–100) as of `lastTick`; it creeps towards what the town is worth. */
+  happiness: number;
   /** Crates from the counter, not opened yet. */
   drops: SupplyDrop[];
   nextDropId: number;
@@ -322,14 +319,14 @@ function addBuilding<T extends IdleWorld>(s: T, type: string, level: number, spo
   return { state: { ...s, buildings: [...s.buildings, building], nextBuildingId: s.nextBuildingId + 1 }, building };
 }
 
-/** A fresh town: a campfire, two huts, a hunters' camp and a woodcutter. */
+/** A fresh town: a campfire, one hut and a barn; the rest the players vote for. */
 export function newIdleState(now: number): IdleState {
   let s: IdleState = {
-    v: STATE_VERSION, era: 0, resources: { food: 50, wood: 60, stone: 40 }, buildings: [], nextBuildingId: 1,
-    lastTick: now, boostUntil: 0, boosts: [], perks: {}, market: {}, roadLevel: 0, roads: [], nature: {}, gatherers: {}, population: 0, drops: [], nextDropId: 1, lastLucky: 0,
+    v: STATE_VERSION, era: 0, resources: { food: 150, wood: 200, stone: 100 }, buildings: [], nextBuildingId: 1,
+    lastTick: now, boostUntil: 0, boosts: [], perks: {}, roadLevel: 0, roads: [], nature: {}, gatherers: {}, population: 0, happiness: HAPPY_BASE, drops: [], nextDropId: 1, lastLucky: 0,
     walls: [], wallLevel: 0, raid: null, nextRaid: 0, lastRaid: null, proposals: [], nextProposalId: 1, players: {},
   };
-  for (const type of ["center", "house", "house", "hunter", "wood"]) s = addBuilding(s, type, 0, placeBuilding(s.buildings, type)!).state;
+  for (const type of ["center", "house", "storage"]) s = addBuilding(s, type, 0, placeBuilding(s.buildings, type)!).state;
   return { ...s, roads: classicStreets(s.buildings), population: bedsOf(s) };
 }
 
@@ -405,7 +402,7 @@ export function fullRateOf(b: PlacedBuilding): number {
 
 /** The smith's bonus on a resource: ×1.1 per level. */
 const toolsOf = (s: Pick<IdleWorld, "perks">, res: ResourceId): number =>
-  1 + 0.1 * perkOf(s, res in WORTH ? `tools_${res}` : "tools_special");
+  1 + 0.1 * perkOf(s, res in BASE_RATE ? `tools_${res}` : "tools_special");
 
 // ---------- nature running out ----------
 
@@ -590,7 +587,7 @@ export function foodKindsOf(s: Pick<IdleWorld, "buildings" | "perks" | "era" | "
 
 // ---------- happiness ----------
 
-type Town = Pick<IdleWorld, "buildings" | "perks" | "era" | "gatherers" | "population" | "boosts"> & { nature?: Used };
+type Town = Pick<IdleWorld, "buildings" | "perks" | "era" | "gatherers" | "population" | "boosts"> & { nature?: Used; happiness?: number };
 
 /** One thing that makes the town happier or unhappier, for the overview. */
 export interface HappinessPart {
@@ -600,9 +597,11 @@ export interface HappinessPart {
 }
 
 export interface Happiness {
-  /** 0–100; 50 is content. */
+  /** The meter, 0–100; 50 is content. */
   level: number;
-  /** What it's made of (the base not included). */
+  /** Where the meter is heading: the base plus the parts. */
+  target: number;
+  /** What the target is made of (the base not included). */
   parts: HappinessPart[];
   /** Work speed of workers and gatherers: ×0.5 (0) to ×1 (50) to ×1.2 (100). */
   mult: number;
@@ -627,28 +626,36 @@ function moodParts(s: Town, now: number): HappinessPart[] {
 
 const sumParts = (parts: readonly HappinessPart[]) => clampHappy(HAPPY_BASE + parts.reduce((a, p) => a + p.points, 0));
 
-/** How happy the town is at `now`: food variety, beds, decorations, the tavern. */
+/**
+ * How happy the town is: the meter (without one, straight at the target), and
+ * the target it creeps to from food variety, beds, decorations, the tavern.
+ */
 export function happinessOf(s: Town, now: number): Happiness {
   const parts = moodParts(s, now);
   const { population, homeless } = assignWorkers(s);
   if (homeless > 0) parts.push({ emoji: "⛺", label: `${homeless} zonder bed`, points: -Math.round((HOMELESS_POINTS * homeless) / population) });
-  const level = sumParts(parts);
-  return { level, parts, mult: level < 50 ? 0.5 + level / 100 : 1 + (0.2 * (level - 50)) / 50 };
+  const target = sumParts(parts);
+  const level = clampHappy(s.happiness ?? target);
+  return { level, target, parts, mult: level < 50 ? 0.5 + level / 100 : 1 + (0.2 * (level - 50)) / 50 };
 }
 
 /**
  * How many villagers the town draws: its beds while content (50), down to
  * half of them when miserable, up to a quarter more than there are beds when
  * very happy (the newcomers sleep outside, which makes everyone less happy).
+ * It follows the meter, so people only come or go once the town has really
+ * become happier or unhappier; sleeping outside doesn't count here.
  */
 export function populationTarget(s: Town, now: number): number {
-  const mood = sumParts(moodParts(s, now));
+  const h = happinessOf(s, now);
+  const outside = h.parts.find((p) => p.emoji === "⛺")?.points ?? 0;
+  const mood = clampHappy(h.level - outside);
   return bedsOf(s) * (mood < 50 ? 0.5 + mood / 100 : 1 + (mood - 50) / 200);
 }
 
 /** The lab's robots: gathering every unlocked resource, from nowhere in particular. */
 const autoRate = (s: Pick<IdleWorld, "perks" | "era">, res: ResourceId): number =>
-  0.5 * perkOf(s, "auto") * clickAmount(s.era) * toolsOf(s, res);
+  0.25 * perkOf(s, "auto") * clickAmount(s.era) * toolsOf(s, res);
 
 /** Production per second without boosts, as happy as the town is at `lastTick`. */
 export function ratesOf(s: Town & Pick<IdleWorld, "lastTick"> & { resources?: Amounts }): Amounts {
@@ -717,9 +724,14 @@ export function advance<T extends IdleWorld>(s: T, now: number): T {
     return got;
   };
   const town = { ...s, nature: used };
-  const { mult } = happinessOf(town, s.lastTick);
-  const target = populationTarget(town, s.lastTick);
-  const move = (MOVE_PER_MIN * elapsed) / 60_000;
+  const mood = happinessOf(town, s.lastTick);
+  const { mult } = mood;
+  const step = elapsed / HAPPY_STEP_MS;
+  next.happiness = mood.level < mood.target ? Math.min(mood.target, mood.level + step) : Math.max(mood.target, mood.level - step);
+  // Nobody leaves for less than a whole villager: a town just under content keeps its people.
+  const drawn = populationTarget(town, s.lastTick);
+  const target = drawn < s.population ? Math.min(s.population, Math.ceil(drawn - 1e-9)) : drawn;
+  const move = elapsed / MOVE_MS;
   next.population = s.population < target ? Math.min(target, s.population + move) : Math.max(target, s.population - move);
   // Smiths last, so they can use what the mines made meanwhile.
   const all = outputs(town).sort((a, b) => Number(!!a.uses) - Number(!!b.uses));
@@ -750,9 +762,6 @@ export function advance<T extends IdleWorld>(s: T, now: number): T {
   }
   next.nature = used;
   if (s.boosts.some((b) => b.until <= next.lastTick)) next.boosts = s.boosts.filter((b) => b.until > next.lastTick);
-  const keep = 0.5 ** ((next.lastTick - s.lastTick) / MARKET_HALF_LIFE_MS);
-  next.market = {};
-  for (const [id, p] of Object.entries(s.market)) if (p * keep > 0.001) next.market[id] = p * keep;
   return next;
 }
 
@@ -777,10 +786,11 @@ function levelCost(typeId: string, level: number): Amounts {
   return cost;
 }
 
-const scaled = (a: Amounts, f: number): Amounts => Object.fromEntries(Object.entries(a).map(([k, n]) => [k, Math.ceil(n * f)]));
+/** A price: the amounts in idleContent × `f` × PRICE_MULT, rounded up. */
+const scaled = (a: Amounts, f: number): Amounts => Object.fromEntries(Object.entries(a).map(([k, n]) => [k, Math.ceil(n * f * PRICE_MULT)]));
 /** Like `scaled`, rounded down and without the zeros: for what you get back. */
 const refunded = (a: Amounts, f: number): Amounts =>
-  Object.fromEntries(Object.entries(a).map(([k, n]): [string, number] => [k, Math.floor(n * f)]).filter(([, n]) => n > 0));
+  Object.fromEntries(Object.entries(a).map(([k, n]): [string, number] => [k, Math.floor(n * f * PRICE_MULT)]).filter(([, n]) => n > 0));
 /** The university's architecture perk: −10% per level. */
 const discountOf = (s: Pick<IdleWorld, "perks">): number => 1 - 0.1 * perkOf(s, "architecture");
 
@@ -928,7 +938,6 @@ export function openDrop<T extends IdleWorld>(s: T, id: number): { state: T; got
 }
 
 export const luckyEvent = (id: string) => LUCKY_EVENTS.find((e) => e.id === id);
-const luckyActive = (s: Pick<IdleWorld, "boosts" | "lastTick">, id: LuckyId) => s.boosts.some((b) => b.item === id && b.until > s.lastTick);
 
 /**
  * A +1 on the counter may bring luck: LUCKY_CHANCE, at most once per
@@ -938,8 +947,7 @@ const luckyActive = (s: Pick<IdleWorld, "boosts" | "lastTick">, id: LuckyId) => 
 export function rollLucky<T extends IdleWorld>(s: T, rand: () => number): { state: T; label: string } | null {
   const now = s.lastTick;
   if (now - s.lastLucky < LUCKY_COOLDOWN_MS || rand() >= LUCKY_CHANCE) return null;
-  const options = LUCKY_EVENTS.filter((e) => e.id !== "lucky_merchant" || hasBuilding(s, "shop_market"));
-  const e = options[Math.floor(rand() * options.length) % options.length];
+  const e = LUCKY_EVENTS[Math.floor(rand() * LUCKY_EVENTS.length) % LUCKY_EVENTS.length];
   const next = { ...s, lastLucky: now };
   const boost = (resource: ResourceId | null, mult: number) => [...s.boosts.filter((b) => b.item !== e.id), { item: e.id, resource, mult, until: now + LUCKY_MS }];
   if (e.id === "lucky_gold") {
@@ -951,8 +959,7 @@ export function rollLucky<T extends IdleWorld>(s: T, rand: () => number): { stat
     const n = Math.max(3, Math.round(bedsOf(s) * LUCKY_NEWCOMERS_SHARE));
     return { state: { ...next, population: s.population + n }, label: `${e.emoji} ${e.name}: ${n} mensen trekken het dorp in` };
   }
-  if (e.id === "lucky_party") return { state: { ...next, boosts: boost(null, 1) }, label: `${e.emoji} ${e.name}: +${LUCKY_PARTY_POINTS} geluk voor 10 minuten` };
-  return { state: { ...next, boosts: boost(null, 1) }, label: `${e.emoji} ${e.name}: betere koersen op de markt voor 10 minuten` };
+  return { state: { ...next, boosts: boost(null, 1) }, label: `${e.emoji} ${e.name}: +${LUCKY_PARTY_POINTS} geluk voor 10 minuten` };
 }
 
 // ---------- shop items ----------
@@ -962,8 +969,9 @@ export const itemsOf = (shop: string, era: number): ShopItem[] =>
 
 export const itemLevel = (s: Pick<IdleWorld, "perks">, item: ShopItem): number => (item.effect.kind === "perk" ? perkOf(s, item.id) : 0);
 
-export function itemCost(s: Pick<IdleWorld, "era" | "perks">, item: ShopItem): Amounts {
-  return scaled(item.cost, scaleOf(s.era) * PERK_GROWTH ** itemLevel(s, item));
+export function itemCost(s: Pick<IdleWorld, "era" | "perks" | "population">, item: ShopItem): Amounts {
+  const people = item.perPerson ? Math.max(1, peopleOf(s) / PARTY_PEOPLE) : 1;
+  return scaled(item.cost, scaleOf(s.era) * PERK_GROWTH ** itemLevel(s, item) * people);
 }
 
 /** Why this item can't be bought now, or null. */
@@ -1006,47 +1014,6 @@ export function buyItem<T extends IdleWorld>(s: T, itemId: string): T {
   const resources = { ...paid.resources };
   for (const [id, rate] of Object.entries(ratesOf(paid))) resources[id] = Math.max(resources[id] ?? 0, Math.min(cap, (resources[id] ?? 0) + rate * e.seconds));
   return { ...paid, resources };
-}
-
-// ---------- market ----------
-
-/** How much of `to` one `from` buys right now. */
-export function tradeRate(s: Pick<IdleWorld, "buildings" | "perks" | "market" | "boosts" | "lastTick">, from: ResourceId, to: ResourceId): number {
-  const level = s.buildings.find((b) => b.type === "shop_market")?.level ?? 0;
-  const fee = MARKET_FEE + 0.02 * level + 0.05 * perkOf(s, "tradeDeal");
-  const merchant = luckyActive(s, "lucky_merchant") ? LUCKY_MERCHANT_MULT : 1;
-  return ((worthOf(from) / worthOf(to)) * fee * merchant) / (1 + (s.market[to] ?? 0));
-}
-
-/**
- * Trade up to `amount` of `from` for `to`: as much as there is, and no more
- * than fits in storage. Returns what changes hands, or why it can't.
- */
-export function tradeQuote(s: IdleWorld, from: ResourceId, to: ResourceId, amount: number): { give: number; get: number } | string {
-  if (!hasBuilding(s, "shop_market")) return needShop(s, "shop_market");
-  const unlocked = unlockedResources(s.era);
-  if (!unlocked.includes(from) || !unlocked.includes(to) || from === to) return "onbekende ruil";
-  if (!Number.isFinite(amount) || amount <= 0) return "niets om te ruilen";
-  let give = Math.min(amount, s.resources[from] ?? 0);
-  if (give < 1) return "niets om te ruilen";
-  const rate = tradeRate(s, from, to);
-  const room = capOf(s) - (s.resources[to] ?? 0);
-  if (room < 1) return "opslag vol";
-  let get = give * rate;
-  if (get > room) {
-    get = room;
-    give = room / rate;
-  }
-  return { give, get };
-}
-
-/** Do a trade (see tradeQuote); buying something makes it pricier for a while. */
-export function trade<T extends IdleWorld>(s: T, from: ResourceId, to: ResourceId, amount: number): { state: T; give: number; get: number } | string {
-  const q = tradeQuote(s, from, to, amount);
-  if (typeof q === "string") return q;
-  const resources = { ...s.resources, [from]: Math.max(0, (s.resources[from] ?? 0) - q.give), [to]: (s.resources[to] ?? 0) + q.get };
-  const market = { ...s.market, [to]: (s.market[to] ?? 0) + (0.5 * q.get) / capOf(s) };
-  return { state: { ...s, resources, market }, ...q };
 }
 
 // ---------- streets ----------
@@ -1549,7 +1516,7 @@ export type IdleEvent =
   /** A vote passed; `building` when something was built or upgraded. */
   | { kind: "bought"; label: string; by: string; building?: PlacedBuilding }
   | { kind: "rejected"; label: string; by: string; reason: string }
-  /** A trade or a small shop item, no vote needed; or a supply drop opened. */
+  /** A small shop item, no vote needed; or a supply drop opened. */
   | { kind: "deal"; label: string; by: string }
   /** From the counter: a supply drop landed, or a lucky event. */
   | { kind: "lucky"; label: string }
@@ -1574,7 +1541,6 @@ export type IdleClientMsg =
   | { type: "assign"; from: ResourceId | null; to: ResourceId | null }
   | { type: "propose"; action: ProposalAction; name?: string }
   | { type: "vote"; id: number; yes: boolean }
-  | { type: "trade"; from: ResourceId; to: ResourceId; amount: number; name?: string }
   /** A small shop item (vote: false). */
   | { type: "buy"; item: string; name?: string }
   /** Open a supply drop. */

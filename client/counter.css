@@ -851,39 +851,6 @@ body.sx-era-10 { --sx-bg: #12002b; --sx-bg2: #2a0050; }
   font-size: 0.95rem;
 }
 
-/* Market */
-.sx-trade {
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  align-items: center;
-  gap: 6px;
-}
-
-.sx-select {
-  width: 100%;
-  padding: 6px;
-  border: 2px solid #000;
-  border-radius: 10px;
-  background: #fff;
-  color: #000;
-  font: 700 0.85rem system-ui, sans-serif;
-}
-
-.sx-trade-rate {
-  margin: 6px 0;
-  font-size: 0.82rem;
-  font-variant-numeric: tabular-nums;
-}
-
-.sx-trade-btns {
-  display: flex;
-  gap: 6px;
-}
-
-.sx-trade-btns .sx-act {
-  flex: 1;
-}
-
 .sx-fab:focus-visible,
 .sx-me:focus-visible,
 .sx-swatch:focus-visible,

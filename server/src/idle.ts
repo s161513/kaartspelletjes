@@ -42,7 +42,6 @@ import {
   shopItem,
   stepRaid,
   isLand,
-  trade,
   voteCounts,
   voteOutcome,
   votesNeeded,
@@ -85,8 +84,6 @@ export interface IdleGame {
   /** `error` goes back to the proposer only; `events` to everyone. */
   propose(clientId: string, name: unknown, action: unknown, online: number, now: number): { error?: string; events: IdleEvent[] };
   vote(clientId: string, id: unknown, yes: unknown, online: number, now: number): IdleEvent[];
-  /** Market trade, right away. */
-  trade(clientId: string, name: unknown, from: unknown, to: unknown, amount: unknown, now: number): { error?: string; events: IdleEvent[] };
   /** A small shop item, right away. */
   buy(clientId: string, name: unknown, item: unknown, now: number): { error?: string; events: IdleEvent[] };
   /** This connection is the player with this secret key (created if new). */
@@ -175,8 +172,9 @@ function parseProposals(raw: unknown, now: number): IdleProposal[] {
 
 /**
  * Keep only known, sane fields. A file from an older version means the town
- * starts over (update 8: eras come from the town now, not the counter): only
- * the players stay, with their names and looks, but nothing they bought.
+ * starts over (update 8: eras come from the town now, not the counter; update
+ * 12: a new balance and a new start): only the players stay, with their
+ * names and looks, but nothing they bought.
  */
 function parseIdle(raw: unknown, now: number): IdleState | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
@@ -231,9 +229,6 @@ function parseIdle(raw: unknown, now: number): IdleState | null {
   for (const [id, n] of Object.entries(record(r.gatherers))) {
     if (resourceDef(id) && Number.isInteger(n) && (n as number) > 0) s.gatherers[id] = n as number;
   }
-  for (const [id, n] of Object.entries(record(r.market))) {
-    if (resourceDef(id) && finite(n) && n > 0) s.market[id] = Math.min(n, 100);
-  }
   const all = patches();
   for (const [id, n] of Object.entries(record(r.nature))) {
     const p = all[Number(id)];
@@ -262,6 +257,7 @@ function parseIdle(raw: unknown, now: number): IdleState | null {
   }
   s.proposals = parseProposals(r.proposals, now);
   s.population = finite(r.population) && r.population >= 0 ? Math.min(r.population, 100_000) : bedsOf(s);
+  if (finite(r.happiness)) s.happiness = Math.max(0, Math.min(100, r.happiness));
   if (Array.isArray(r.drops)) {
     for (const d of r.drops.map(record)) {
       if (Number.isInteger(d.id) && tileInt(d.x) && tileInt(d.y) && s.drops.length < MAX_DROPS) s.drops.push({ id: d.id as number, x: d.x as number, y: d.y as number });
@@ -452,16 +448,6 @@ export function createIdleGame(file: string, now = Date.now()): IdleGame {
       state = { ...state, proposals: state.proposals.map((p) => (p.id === id ? { ...p, votes: { ...p.votes, [voter]: yes } } : p)) };
       saver.schedule();
       return settle(online, now);
-    },
-
-    trade(clientId, name, from, to, amount, now) {
-      if (typeof from !== "string" || typeof to !== "string" || !finite(amount)) return { error: "onbekende ruil", events: [] };
-      const done = trade(advance(state, now), from, to, amount);
-      if (typeof done === "string") return { error: done, events: [] };
-      state = done.state;
-      saver.schedule();
-      const label = `${amountText(done.give)} ${resourceDef(from)!.emoji} → ${amountText(done.get)} ${resourceDef(to)!.emoji}`;
-      return { events: [{ kind: "deal", label, by: nameOf(clientId, name) }] };
     },
 
     buy(clientId, name, itemId, now) {

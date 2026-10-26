@@ -76,6 +76,8 @@ export function createTown(send: (msg: IdleClientMsg) => void): Town {
         world.built(ev.building);
       } else if (ev.kind === "era") {
         world.celebrate();
+      } else if (ev.kind === "raid") {
+        world.raid(ev.stage, ev.damaged);
       }
     },
     setConnected(open) {

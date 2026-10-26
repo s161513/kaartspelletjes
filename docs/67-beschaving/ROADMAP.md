@@ -61,7 +61,7 @@ Daarnaast blijft gelden:
 
 | Wat | Bestand |
 | --- | --- |
-| Regels: productie (ook mijnen en smeden), geluk, kosten, stemmen, paden, afbreken, doelen en wonderen, supply drops | `shared/idle.ts` |
+| Regels: productie (ook mijnen en smeden), geluk, kosten, stemmen, paden, muren, afbreken, doelen en wonderen, supply drops, aanvallen | `shared/idle.ts` |
 | Getallen en content: grondstoffen, tijdperken (doelen, wonderen), gebouwen, winkels, gelukjes | `shared/idleContent.ts` |
 | Kaart, natuur, waar gebouwen en paden mogen | `shared/idleMap.ts` |
 | Server: opslag (`data/idle.json`), invoercontrole, stemmen afhandelen | `server/src/idle.ts`, `server/src/counter.ts` |
@@ -257,7 +257,7 @@ en kolen, en verbruiken die.
       "armor smith")
 
 ### Update 10: Vijanden & muren
-Status: gepland. Steunt op update 9.
+Status: in review (PR #36). Steunt op update 9 (wapens en harnassen).
 
 Afgesproken met Richard (2026-10-25): af en toe een aanval, een uur van
 tevoren aangekondigd en te zien op de kaart. Verdediging: muren, torens en
@@ -266,9 +266,24 @@ van de voorraad, gaan er een paar inwoners dood, raakt een gebouw beschadigd
 (het werkt niet tot het via een stemming hersteld is) en is het dorp een
 tijdje minder gelukkig.
 
-- [ ] Vijanden die het dorp af en toe aanvallen. (bron: "enemies")
-- [ ] Muren en verdediging, die je bouwt via de gewone stemmingen. (bron:
-      "Walls")
+- [x] Vijanden die het dorp af en toe aanvallen. Gedaan: vanaf de Bronstijd
+      (`RAID_FROM_ERA`), 20 tot 36 uur na de vorige, alleen tussen 10 en 22
+      uur Nederlandse tijd. Een uur van tevoren (ook na lange afwezigheid)
+      verschijnt een bende met een zwarte vlag aan de rand van het dorp, en
+      een chip in de HUD. Kracht: 15 + 15 per tijdperk + 0,4 per inwoner,
+      ±20%. Verloren: tot 40% van elke grondstof weg, tot 10% van de inwoners
+      dood (minstens 1), een werkgebouw, huis of schuur in brand en
+      6 uur −15 geluk. Gewonnen: 3 uur +10 geluk. Elk gevecht kost 10% van
+      de wapens en harnassen. (bron: "enemies")
+- [x] Muren en verdediging, die je bouwt via de gewone stemmingen. Gedaan:
+      muren teken je zoals paden (🧱 in de tekenbalk), op vrij land bij het
+      dorp; de hele muur gaat samen omhoog per tijdperk (Palissade, Aarden
+      wal, Stenen muur, …). Een 🗼 toren is een gebouw. Verdediging: 0,2 per
+      inwoner, 1 per gewapende wachter (20 wapens × 4^tijdperk), 0,5 per
+      harnas, 0,5 × (1 + niveau) per muurtegel, 10 × (1 + niveau) per toren.
+      Het overzicht staat bij het centrum. (bron: "Walls")
+- [x] Een gebouw in brand doet niets (geen werkers, bedden of opslag) tot een
+      stemming 🔧 het herstelt, voor 30% van de bouwprijs.
 
 ### Update 11: Uiterlijk
 Status: gepland.
@@ -397,3 +412,10 @@ een update worden opgenomen als het past.
 - **Smeden in de browser:** de smeden gebruiken ijzer en kolen uit de opslag.
   De browser rekent dat na met dezelfde `advance`. Tussen twee berichten van
   de server kan de HUD dus even een andere voorraad tonen dan de server.
+- **Muren houden niemand tegen op de kaart:** dorpelingen lopen er gewoon
+  door (alsof er overal poorten zitten), en de vijanden lopen er in beeld
+  overheen. Voor het gevecht telt alleen hoeveel muur er staat, niet of het
+  dorp helemaal dicht is.
+- **Aanvallen alleen met iemand online:** de server rekent alleen door
+  terwijl er iemand kijkt. Komt er lang niemand, dan wacht de aanval, en
+  zodra iemand er is, komt er eerst een waarschuwing van een uur.

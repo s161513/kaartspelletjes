@@ -16,7 +16,10 @@
 // the longer they last), which slowly grow back; hunters catch less where the
 // forest is cut down. Mines dug into the mountain never run out; the players
 // vote which ore each one digs. Smiths turn iron and coal into weapons and
-// armor. Building (on a tile someone
+// armor. From the Bronze Age on, enemies raid the town about once a day,
+// seen coming an hour before: walls, towers, villagers and guards with
+// weapons and armor hold them off, or they steal, kill and set a building on
+// fire (it does nothing until the players vote to repair it). Building (on a tile someone
 // clicked), laying or removing paths (drawn tile by tile, through nature and
 // over the river as bridges), tearing down a building (for a bit of its cost
 // back), upgrading (buildings or the whole street network) and big shop
@@ -57,6 +60,30 @@ import {
   WONDER_PHASES,
   WONDER_SPECIAL_COST,
   HOMELESS_POINTS,
+  ARMOR_POINTS,
+  ARMS_PER_GUARD,
+  GUARD_POINTS,
+  PERSON_DEFENSE,
+  RAID_BASE,
+  RAID_FROM_ERA,
+  RAID_GAP_MS,
+  RAID_GAP_SPREAD_MS,
+  RAID_HOURS,
+  RAID_KILL,
+  RAID_MOODS,
+  RAID_PER_ERA,
+  RAID_PER_PERSON,
+  RAID_SPREAD,
+  RAID_STEAL,
+  RAID_WARNING_MS,
+  RAID_WEAR,
+  REPAIR_SHARE,
+  TOWER_POINTS,
+  WALL_NAMES,
+  WALL_POINTS,
+  WALL_SPECIAL_COST,
+  WALL_TILE_COST,
+  WALL_UPGRADE_COST,
   MAX_DECOR_POINTS,
   MOVE_PER_MIN,
   PARTY_POINTS,
@@ -118,6 +145,8 @@ import {
   placeError,
   tileIndex,
   tileOf,
+  wallError,
+  MAP_SIZE,
   type Patch,
 } from "./idleMap.js";
 
@@ -154,6 +183,27 @@ export interface PlacedBuilding {
   ready?: number;
   /** A mine: the ore it digs, when the players picked another than its type's. */
   ore?: ResourceId;
+  /** Set on fire by raiders: does nothing until it's repaired. */
+  damaged?: boolean;
+}
+
+/** Enemies on their way: they arrive at `at`, from `from`. */
+export interface Raid {
+  at: number;
+  strength: number;
+  from: { x: number; y: number };
+}
+
+/** How the last fight went. */
+export interface RaidReport {
+  at: number;
+  won: boolean;
+  strength: number;
+  defense: number;
+  stolen: Amounts;
+  killed: number;
+  /** Name of the building set on fire. */
+  damaged: string | null;
 }
 
 /** A crate from the counter, waiting on a tile for someone to open it. */
@@ -203,6 +253,14 @@ export interface IdleWorld {
   nextDropId: number;
   /** When the last lucky event happened (ms). */
   lastLucky: number;
+  /** Wall tiles (y × MAP_SIZE + x), sorted, and the level of the whole wall. */
+  walls: number[];
+  wallLevel: number;
+  /** Enemies seen coming, if any. */
+  raid: Raid | null;
+  /** When the next raid arrives (0: not planned yet); it's seen coming RAID_WARNING_MS before. */
+  nextRaid: number;
+  lastRaid: RaidReport | null;
 }
 
 export type ProposalAction =
@@ -219,7 +277,14 @@ export type ProposalAction =
   /** The next phase of the world wonder under construction. */
   | { kind: "wonder"; building: number }
   /** A mine digs another ore from now on. */
-  | { kind: "ore"; building: number; ore: ResourceId };
+  | { kind: "ore"; building: number; ore: ResourceId }
+  /** Put a wall on these tiles, or take it off for a bit back. */
+  | { kind: "walls"; tiles: number[] }
+  | { kind: "unwall"; tiles: number[] }
+  /** Bring the whole wall up to the current era. */
+  | { kind: "fortify" }
+  /** Fix a building the raiders set on fire. */
+  | { kind: "repair"; building: number };
 
 export interface IdleProposal {
   id: number;
@@ -261,7 +326,8 @@ function addBuilding<T extends IdleWorld>(s: T, type: string, level: number, spo
 export function newIdleState(now: number): IdleState {
   let s: IdleState = {
     v: STATE_VERSION, era: 0, resources: { food: 50, wood: 60, stone: 40 }, buildings: [], nextBuildingId: 1,
-    lastTick: now, boostUntil: 0, boosts: [], perks: {}, market: {}, roadLevel: 0, roads: [], nature: {}, gatherers: {}, population: 0, drops: [], nextDropId: 1, lastLucky: 0, proposals: [], nextProposalId: 1, players: {},
+    lastTick: now, boostUntil: 0, boosts: [], perks: {}, market: {}, roadLevel: 0, roads: [], nature: {}, gatherers: {}, population: 0, drops: [], nextDropId: 1, lastLucky: 0,
+    walls: [], wallLevel: 0, raid: null, nextRaid: 0, lastRaid: null, proposals: [], nextProposalId: 1, players: {},
   };
   for (const type of ["center", "house", "house", "hunter", "wood"]) s = addBuilding(s, type, 0, placeBuilding(s.buildings, type)!).state;
   return { ...s, roads: classicStreets(s.buildings), population: bedsOf(s) };
@@ -289,10 +355,10 @@ export interface Workforce {
 /** Workers one work building can take: its level's slots plus the university's perk. */
 export const slotsAt = (s: Pick<IdleWorld, "perks">, b: PlacedBuilding): number => slotsOf(b.level) + perkOf(s, "workplace");
 
-/** Beds in all houses together. */
+/** Beds in all houses together (not in the ones on fire). */
 export function bedsOf(s: Pick<IdleWorld, "buildings">): number {
   let beds = 0;
-  for (const b of s.buildings) if (buildingType(b.type)?.category === "house") beds += housingOf(b.level);
+  for (const b of s.buildings) if (buildingType(b.type)?.category === "house" && !b.damaged) beds += housingOf(b.level);
   return beds;
 }
 
@@ -306,7 +372,7 @@ const peopleOf = (s: Pick<IdleWorld, "population">): number => Math.max(0, Math.
 export function assignWorkers(s: Pick<IdleWorld, "buildings" | "perks" | "population">): Workforce {
   const population = peopleOf(s);
   const beds = bedsOf(s);
-  const jobs = s.buildings.filter((b) => buildingType(b.type)?.category === "work");
+  const jobs = s.buildings.filter((b) => buildingType(b.type)?.category === "work" && !b.damaged);
   const workers: Record<number, number> = Object.fromEntries(jobs.map((b) => [b.id, 0]));
   let left = population;
   let open = true;
@@ -555,6 +621,7 @@ function moodParts(s: Town, now: number): HappinessPart[] {
   if (hasBuilding(s, "shop_tavern")) parts.push({ emoji: "🍺", label: buildingName("shop_tavern", s.era), points: TAVERN_POINTS });
   if (s.boosts.some((b) => b.item === "party" && b.until > now)) parts.push({ emoji: "🎉", label: "dorpsfeest", points: PARTY_POINTS });
   if (s.boosts.some((b) => b.item === "lucky_party" && b.until > now)) parts.push({ emoji: "🥳", label: "spontaan feest", points: LUCKY_PARTY_POINTS });
+  for (const m of RAID_MOODS) if (s.boosts.some((b) => b.item === m.id && b.until > now)) parts.push({ emoji: m.emoji, label: m.name, points: m.points });
   return parts;
 }
 
@@ -605,6 +672,7 @@ export function ratesOf(s: Town & Pick<IdleWorld, "lastTick"> & { resources?: Am
 export function capOf(s: Pick<IdleWorld, "buildings" | "era" | "perks">): number {
   let cap = BASE_CAP * scaleOf(s.era);
   for (const b of s.buildings) {
+    if (b.damaged) continue;
     if (b.type === "storage") cap += STORAGE_CAP * scaleOf(b.level);
     else if (b.type === "center") cap += CENTER_CAP * scaleOf(b.level);
   }
@@ -834,7 +902,7 @@ export function addDrop<T extends IdleWorld>(s: T, rand: () => number): T {
     const x = CENTER.x + Math.round((rand() - 0.5) * 12);
     const y = CENTER.y + Math.round((rand() - 0.5) * 12);
     const taken = s.buildings.some((b) => b.x === x && b.y === y) || s.drops.some((d) => d.x === x && d.y === y);
-    if (!isLand(x, y) || isRoad(s.roads, x, y) || taken) continue;
+    if (!isLand(x, y) || isRoad(s.roads, x, y) || isRoad(s.walls, x, y) || taken) continue;
     return { ...s, drops: [...s.drops, { id: s.nextDropId, x, y }], nextDropId: s.nextDropId + 1 };
   }
   return s;
@@ -1017,22 +1085,192 @@ function tilesError(tiles: readonly number[]): string | null {
 }
 
 /** Why a path can't go on all of these tiles, or null. */
-export function pathsError(s: Pick<IdleWorld, "buildings" | "roads">, tiles: readonly number[]): string | null {
+export function pathsError(s: Pick<IdleWorld, "buildings" | "roads" | "walls">, tiles: readonly number[]): string | null {
   const err = tilesError(tiles);
   if (err) return err;
   for (const i of tiles) {
     const { x, y } = tileOf(i);
-    const e = pathError(s.buildings, s.roads, x, y);
+    const e = pathError(s.buildings, s.roads, x, y, s.walls);
     if (e) return `(${x}, ${y}): ${e}`;
   }
   return null;
 }
 
+// ---------- walls ----------
+
+export const wallName = (level: number): string => WALL_NAMES[Math.min(level, WALL_NAMES.length - 1)];
+
+const wallBase = (n: number): Amounts => Object.fromEntries(Object.entries(WALL_TILE_COST).map(([id, a]) => [id, a * n]));
+
+/** Building a wall on these tiles, at the wall's level. */
+export function wallCost(s: Pick<IdleWorld, "wallLevel" | "perks">, tiles: readonly number[]): Amounts {
+  return scaled(wallBase(tiles.length), scaleOf(s.wallLevel) * discountOf(s));
+}
+
+/** Bringing the whole wall up to the current era. */
+export function fortifyCost(s: Pick<IdleWorld, "era" | "perks">): Amounts {
+  const cost: Amounts = { ...WALL_UPGRADE_COST };
+  const special = ERAS[s.era].special;
+  if (special) cost[special] = WALL_SPECIAL_COST;
+  return scaled(cost, scaleOf(s.era) * discountOf(s));
+}
+
+/** Why a wall can't go on all of these tiles, or null. */
+export function wallsError(s: Pick<IdleWorld, "buildings" | "roads" | "walls">, tiles: readonly number[]): string | null {
+  const err = tilesError(tiles);
+  if (err) return err;
+  for (const i of tiles) {
+    const { x, y } = tileOf(i);
+    const e = wallError(s.buildings, s.roads, s.walls, x, y);
+    if (e) return `(${x}, ${y}): ${e}`;
+  }
+  return null;
+}
+
+/** Fixing a building the raiders set on fire. */
+export function repairCost(s: Pick<IdleWorld, "perks">, b: PlacedBuilding): Amounts {
+  return scaled(levelCost(b.type, b.level), BUILD_COST_MULT * REPAIR_SHARE * discountOf(s));
+}
+
+// ---------- enemies ----------
+
+export interface DefensePart {
+  emoji: string;
+  label: string;
+  points: number;
+}
+
+/** What holds raiders off: villagers, guards with weapons and armor, the wall and towers. */
+export function defenseOf(s: Pick<IdleWorld, "buildings" | "population" | "resources" | "era" | "walls" | "wallLevel">): { total: number; parts: DefensePart[] } {
+  const people = peopleOf(s);
+  const sets = (id: ResourceId) => Math.floor((s.resources[id] ?? 0) / (ARMS_PER_GUARD * scaleOf(s.era)) + 1e-9);
+  const armed = Math.min(people, sets("weapons"));
+  const armored = Math.min(people, sets("armor"));
+  const towers = s.buildings.filter((b) => buildingType(b.type)?.category === "defense" && !b.damaged);
+  const parts: DefensePart[] = [{ emoji: "🧍", label: `${people} inwoners`, points: people * PERSON_DEFENSE }];
+  if (armed) parts.push({ emoji: "🗡️", label: `${armed} gewapend`, points: armed * GUARD_POINTS });
+  if (armored) parts.push({ emoji: "🛡️", label: `${armored} met harnas`, points: armored * ARMOR_POINTS });
+  if (s.walls.length) parts.push({ emoji: "🧱", label: `${tilesText(s.walls.length)} ${wallName(s.wallLevel).toLowerCase()}`, points: s.walls.length * WALL_POINTS * (1 + s.wallLevel) });
+  if (towers.length) parts.push({ emoji: "🗼", label: towers.length === 1 ? "1 toren" : `${towers.length} torens`, points: towers.reduce((a, b) => a + TOWER_POINTS * (1 + b.level), 0) });
+  for (const p of parts) p.points = Math.round(p.points * 10) / 10;
+  return { total: Math.round(parts.reduce((a, p) => a + p.points, 0)), parts };
+}
+
+/** How strong a raid on this town would be (`r` in 0..1 picks within the spread). */
+export function raidStrength(s: Pick<IdleWorld, "era" | "population">, r: number): number {
+  return Math.round((RAID_BASE + RAID_PER_ERA * s.era + RAID_PER_PERSON * peopleOf(s)) * (1 - RAID_SPREAD + 2 * RAID_SPREAD * r));
+}
+
+let hourFormat: Intl.DateTimeFormat | null = null;
+/** The hour (0–23) in the Netherlands at `ms`. */
+export function dutchHour(ms: number): number {
+  hourFormat ??= new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Amsterdam", hour: "numeric", hourCycle: "h23" });
+  return Number(hourFormat.format(ms));
+}
+
+/** When the raid after `from` arrives: about a day later, in the daytime. */
+export function nextRaidAt(from: number, rand: () => number): number {
+  let at = Math.round(from + RAID_GAP_MS + rand() * RAID_GAP_SPREAD_MS);
+  for (let i = 0; i < 24; i++) {
+    const h = dutchHour(at);
+    if (h >= RAID_HOURS[0] && h < RAID_HOURS[1]) break;
+    at += 60 * 60_000;
+  }
+  return at;
+}
+
+/** Where raiders come from: land at the edge of the town, in a random direction. */
+function raidOrigin(rand: () => number): { x: number; y: number } {
+  for (let i = 0; i < 40; i++) {
+    const a = rand() * Math.PI * 2;
+    const x = Math.round(CENTER.x + Math.cos(a) * 20);
+    const y = Math.round(CENTER.y + Math.sin(a) * 20);
+    if (x >= 0 && y >= 0 && x < MAP_SIZE && y < MAP_SIZE && isLand(x, y)) return { x, y };
+  }
+  return { x: CENTER.x - 20, y: CENTER.y };
+}
+
+const mood = (id: string, now: number): ActiveBoost => ({ item: id, resource: null, mult: 1, until: now + RAID_MOODS.find((m) => m.id === id)!.ms });
+
+export type RaidStage = "coming" | "won" | "lost";
+
+/**
+ * Move the raids along at `lastTick` (advance first): plan the next one, see it
+ * coming an hour before (never with less warning, also after a long time
+ * nobody was around), and fight it when it arrives. `rand` (0..1) decides;
+ * the server passes Math.random. Returns what happened, if anything.
+ */
+export interface RaidNews {
+  stage: RaidStage;
+  label: string;
+  /** The building set on fire. */
+  damaged?: number;
+}
+
+export function stepRaid<T extends IdleWorld>(s: T, rand: () => number): { state: T; news?: RaidNews } | null {
+  const now = s.lastTick;
+  if (s.era < RAID_FROM_ERA) return null;
+  if (!s.raid && !s.nextRaid) return { state: { ...s, nextRaid: nextRaidAt(now, rand) } };
+  if (!s.raid) {
+    if (now < s.nextRaid - RAID_WARNING_MS) return null;
+    const raid: Raid = { at: Math.max(s.nextRaid, now + RAID_WARNING_MS), strength: raidStrength(s, rand()), from: raidOrigin(rand) };
+    const label = `⚔️ Vijanden in aantocht! Over ${durationText(raid.at - now)} vallen ze aan: ⚔️ ${raid.strength} tegen onze 🛡️ ${defenseOf(s).total}`;
+    return { state: { ...s, raid }, news: { stage: "coming", label } };
+  }
+  if (now < s.raid.at) return null;
+  return fight(s, s.raid, rand);
+}
+
+function fight<T extends IdleWorld>(s: T, raid: Raid, rand: () => number): { state: T; news: RaidNews } {
+  const now = s.lastTick;
+  const defense = defenseOf(s).total;
+  const resources = { ...s.resources };
+  for (const id of ["weapons", "armor"]) if (resources[id]) resources[id] *= 1 - RAID_WEAR;
+  const after = { ...s, resources, raid: null, nextRaid: nextRaidAt(now, rand) };
+  const boosts = (id: string) => [...s.boosts.filter((b) => !RAID_MOODS.some((m) => m.id === b.item)), mood(id, now)];
+  const report = { at: now, strength: raid.strength, defense };
+  if (defense >= raid.strength) {
+    return {
+      state: { ...after, boosts: boosts("raid_won"), lastRaid: { ...report, won: true, stolen: {}, killed: 0, damaged: null } },
+      news: { stage: "won", label: `🛡️ Aanval afgeslagen! 🛡️ ${defense} tegen ⚔️ ${raid.strength}` },
+    };
+  }
+  const loss = 1 - defense / raid.strength;
+  const stolen: Amounts = {};
+  for (const [id, n] of Object.entries(s.resources)) {
+    const take = Math.floor(n * RAID_STEAL * loss);
+    if (take > 0) {
+      stolen[id] = take;
+      resources[id] = Math.max(0, (resources[id] ?? 0) - take);
+    }
+  }
+  const people = peopleOf(s);
+  const killed = Math.min(people, Math.max(1, Math.round(people * RAID_KILL * loss)));
+  const targets = s.buildings.filter((b) => ["work", "house", "storage"].includes(buildingType(b.type)?.category ?? "") && !b.damaged);
+  const target = targets.length ? targets[Math.floor(rand() * targets.length) % targets.length] : null;
+  const name = target ? buildingName(target.type, target.level) : null;
+  const buildings = target ? s.buildings.map((b) => (b.id === target.id ? { ...b, damaged: true } : b)) : s.buildings;
+  const label =
+    `🔥 Het dorp is geplunderd! 🛡️ ${defense} tegen ⚔️ ${raid.strength}: ` +
+    [killed === 1 ? "1 dode" : `${killed} doden`, ...(name ? [`${target!.type === "house" ? "een" : "de"} ${name} staat in brand`] : []), "een deel van de voorraad is weg"].join(", ");
+  return {
+    state: {
+      ...after,
+      buildings,
+      population: Math.max(0, s.population - killed),
+      boosts: boosts("raid_lost"),
+      lastRaid: { ...report, won: false, stolen, killed, damaged: name },
+    },
+    news: { stage: "lost", label, ...(target ? { damaged: target.id } : {}) },
+  };
+}
+
 // ---------- tearing down ----------
 
 /** What tearing down gives back: a share of what it costs at its own level. */
-export function refundOf(s: Pick<IdleWorld, "buildings" | "roadLevel">, action: ProposalAction): Amounts {
+export function refundOf(s: Pick<IdleWorld, "buildings" | "roadLevel" | "wallLevel">, action: ProposalAction): Amounts {
   if (action.kind === "unpave") return refunded(pathBase(action.tiles), scaleOf(s.roadLevel) * REFUND_SHARE);
+  if (action.kind === "unwall") return refunded(wallBase(action.tiles.length), scaleOf(s.wallLevel) * REFUND_SHARE);
   if (action.kind !== "demolish") return {};
   const b = s.buildings.find((x) => x.id === action.building);
   return b ? refunded(levelCost(b.type, b.level), BUILD_COST_MULT * REFUND_SHARE) : {};
@@ -1084,13 +1322,16 @@ export function actionCost(s: IdleWorld, action: ProposalAction): Amounts | null
   if (action.kind === "build") return buildingType(action.type)?.category === "wonder" ? wonderCost(s, 0) : buildCost(s, action.type);
   if (action.kind === "roads") return roadCost(s);
   if (action.kind === "paths") return pathCost(s, action.tiles);
-  if (action.kind === "unpave" || action.kind === "demolish" || action.kind === "ore") return {};
+  if (action.kind === "unpave" || action.kind === "demolish" || action.kind === "ore" || action.kind === "unwall") return {};
+  if (action.kind === "walls") return wallCost(s, action.tiles);
+  if (action.kind === "fortify") return fortifyCost(s);
   if (action.kind === "buy") {
     const item = shopItem(action.item);
     return item ? itemCost(s, item) : null;
   }
   const b = s.buildings.find((x) => x.id === action.building);
   if (action.kind === "wonder") return b ? wonderCost(s, b.stage ?? 0) : null;
+  if (action.kind === "repair") return b ? repairCost(s, b) : null;
   return b ? upgradeCost(s, b) : null;
 }
 
@@ -1105,7 +1346,7 @@ export function durationText(ms: number): string {
 export function actionError(s: IdleWorld, action: ProposalAction): string | null {
   if (action.kind === "buy") return itemError(s, action.item);
   if (action.kind === "build") {
-    const err = buildTypeError(s, action.type) ?? placeError(s.buildings, s.roads, action.type, action.x, action.y);
+    const err = buildTypeError(s, action.type) ?? placeError(s.buildings, s.roads, action.type, action.x, action.y, s.walls);
     if (err) return err;
     if (buildingType(action.type)!.category === "wonder" && !eraGoals(s).every((g) => g.done)) return "eerst de doelen van dit tijdperk halen";
   } else if (action.kind === "wonder") {
@@ -1119,6 +1360,20 @@ export function actionError(s: IdleWorld, action: ProposalAction): string | null
     if (!b || !buildingType(b.type)?.ores) return "onbekende mijn";
     if (!oresOf(s, b.type).includes(action.ore)) return "dat erts kan hier nog niet";
     if (producesOf(b) === action.ore) return "die delft dat al";
+  } else if (action.kind === "walls") {
+    const err = wallsError(s, action.tiles);
+    if (err) return err;
+  } else if (action.kind === "unwall") {
+    const err = tilesError(action.tiles);
+    if (err) return err;
+    if (!action.tiles.every((i) => s.walls.includes(i))) return "daar staat geen muur";
+  } else if (action.kind === "fortify") {
+    if (!s.walls.length) return "er staan nog geen muren";
+    if (s.wallLevel >= s.era) return "al up-to-date";
+  } else if (action.kind === "repair") {
+    const b = s.buildings.find((x) => x.id === action.building);
+    if (!b) return "onbekend gebouw";
+    if (!b.damaged) return "niet beschadigd";
   } else if (action.kind === "roads") {
     if (s.roadLevel >= s.era) return "al up-to-date";
   } else if (action.kind === "paths") {
@@ -1138,6 +1393,7 @@ export function actionError(s: IdleWorld, action: ProposalAction): string | null
     if (!b) return "onbekend gebouw";
     if (buildingType(b.type)?.noUpgrade) return "kan niet upgraden";
     if (b.level >= s.era) return "al up-to-date";
+    if (b.damaged) return "eerst herstellen";
   }
   if (!canAfford(s, actionCost(s, action)!)) return "te duur";
   return null;
@@ -1153,6 +1409,10 @@ export function applyAction<T extends IdleWorld>(s: T, action: ProposalAction): 
   if (action.kind === "demolish") {
     return { state: { ...receive(s, refundOf(s, action)), buildings: s.buildings.filter((b) => b.id !== action.building) } };
   }
+  if (action.kind === "unwall") {
+    const gone = new Set(action.tiles);
+    return { state: { ...receive(s, refundOf(s, action)), walls: s.walls.filter((i) => !gone.has(i)) } };
+  }
   if (action.kind === "ore") {
     const { ore: _, ...rest } = s.buildings.find((b) => b.id === action.building)!;
     const building: PlacedBuilding = action.ore === buildingType(rest.type)?.produces ? rest : { ...rest, ore: action.ore };
@@ -1167,6 +1427,12 @@ export function applyAction<T extends IdleWorld>(s: T, action: ProposalAction): 
   if (action.kind === "build") return addBuilding(paid, action.type, s.era, action);
   if (action.kind === "roads") return { state: { ...paid, roadLevel: s.era } };
   if (action.kind === "paths") return { state: { ...paid, roads: [...s.roads, ...action.tiles].sort((a, b) => a - b) } };
+  if (action.kind === "walls") return { state: { ...paid, walls: [...s.walls, ...action.tiles].sort((a, b) => a - b) } };
+  if (action.kind === "fortify") return { state: { ...paid, wallLevel: s.era } };
+  if (action.kind === "repair") {
+    const { damaged: _, ...building } = s.buildings.find((b) => b.id === action.building)!;
+    return { state: { ...paid, buildings: paid.buildings.map((b) => (b.id === building.id ? building : b)) }, building };
+  }
   const building = { ...s.buildings.find((b) => b.id === action.building)!, level: s.era };
   return { state: { ...paid, buildings: paid.buildings.map((b) => (b.id === building.id ? building : b)) }, building };
 }
@@ -1183,7 +1449,7 @@ function wonderPhase<T extends IdleWorld>(s: T, b: PlacedBuilding): { state: T; 
 const tilesText = (n: number) => (n === 1 ? "1 tegel" : `${n} tegels`);
 
 /** "🛖 Hut bouwen" / "⬆️ Hut → Lemen huis" / "🎉 Groot dorpsfeest kopen" / "🛤️ 12 tegels pad leggen". */
-export function actionLabel(s: Pick<IdleWorld, "buildings" | "era" | "roadLevel">, action: ProposalAction): string {
+export function actionLabel(s: Pick<IdleWorld, "buildings" | "era" | "roadLevel" | "wallLevel">, action: ProposalAction): string {
   if (action.kind === "build") {
     const phase = buildingType(action.type)?.category === "wonder" ? ` (fase 1/${WONDER_PHASES})` : "";
     return `${buildingType(action.type)?.emoji ?? ""} ${buildingName(action.type, s.era)} bouwen${phase}`.trim();
@@ -1195,9 +1461,13 @@ export function actionLabel(s: Pick<IdleWorld, "buildings" | "era" | "roadLevel"
   if (action.kind === "roads") return `🛣️ ${roadName(s.roadLevel)} → ${roadName(s.era)}`;
   if (action.kind === "paths") return `🛤️ ${tilesText(action.tiles.length)} pad leggen`;
   if (action.kind === "unpave") return `⛏️ ${tilesText(action.tiles.length)} pad weghalen`;
+  if (action.kind === "walls") return `🧱 ${tilesText(action.tiles.length)} ${wallName(s.wallLevel).toLowerCase()} bouwen`;
+  if (action.kind === "unwall") return `⛏️ ${tilesText(action.tiles.length)} muur weghalen`;
+  if (action.kind === "fortify") return `🧱 ${wallName(s.wallLevel)} → ${wallName(s.era)}`;
   const b = s.buildings.find((x) => x.id === action.building);
   if (action.kind === "demolish") return b ? `🧨 ${buildingName(b.type, b.level)} afbreken` : "afbreken";
   if (action.kind === "wonder") return b ? `${buildingType(b.type)?.emoji ?? ""} ${buildingName(b.type, b.level)}: fase ${(b.stage ?? 0) + 1}/${WONDER_PHASES}` : "wereldwonder";
+  if (action.kind === "repair") return b ? `🔧 ${buildingName(b.type, b.level)} herstellen` : "herstellen";
   if (action.kind === "ore") {
     const ore = resourceDef(action.ore);
     return `${b ? `${buildingType(b.type)?.emoji ?? ""} ${buildingName(b.type, b.level)}` : "mijn"}: ${ore?.emoji ?? ""} ${ore?.name ?? action.ore} delven`;
@@ -1283,6 +1553,8 @@ export type IdleEvent =
   | { kind: "deal"; label: string; by: string }
   /** From the counter: a supply drop landed, or a lucky event. */
   | { kind: "lucky"; label: string }
+  /** Enemies: seen coming, or how the fight went (`damaged`: the building set on fire). */
+  | { kind: "raid"; stage: RaidStage; label: string; damaged?: number }
   /** Only to the one connection whose request failed. */
   | { kind: "error"; message: string };
 

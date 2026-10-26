@@ -10,6 +10,8 @@ import {
   LUCKY_GOLD_MULT,
   LUCKY_MS,
   MAX_DROPS,
+  RAID_MOODS,
+  RAID_WARNING_MS,
   STATE_VERSION,
   VOTE_MS,
   WONDER_BUILD_MS,
@@ -38,6 +40,8 @@ import {
   resourceDef,
   rollLucky,
   shopItem,
+  stepRaid,
+  isLand,
   trade,
   voteCounts,
   voteOutcome,
@@ -93,8 +97,8 @@ export interface IdleGame {
   outfit(clientId: string, item: unknown, now: number): { error?: string; events: IdleEvent[] };
   /** The connection closed: its NPC leaves (unless the player has another tab open). */
   leave(clientId: string, now: number): void;
-  /** Settle votes whose outcome became clear (deadline, people leaving, resources arriving). */
-  tick(online: number, now: number): IdleEvent[];
+  /** Settle votes whose outcome became clear (deadline, people leaving, resources arriving), and move raids along (`rand`: 0..1). */
+  tick(online: number, now: number, rand?: () => number): IdleEvent[];
   flush(): void;
 }
 
@@ -108,6 +112,12 @@ function parseBoosts(raw: unknown, now: number): ActiveBoost[] {
   const out: ActiveBoost[] = [];
   for (const b of raw.map(record)) {
     // Lucky events from the counter: they bring their own resource and multiplier.
+    // How the town feels after a fight.
+    const mood = RAID_MOODS.find((m) => m.id === b.item);
+    if (mood && finite(b.until) && !out.some((o) => o.item === mood.id)) {
+      out.push({ item: mood.id, resource: null, mult: 1, until: Math.min(b.until, now + mood.ms) });
+      continue;
+    }
     const lucky = typeof b.item === "string" ? luckyEvent(b.item) : undefined;
     if (lucky && finite(b.until) && finite(b.mult) && (b.resource === null || (typeof b.resource === "string" && !!resourceDef(b.resource)))) {
       out.push({ item: lucky.id, resource: b.resource as string | null, mult: Math.min(Math.max(b.mult, 1), LUCKY_GOLD_MULT), until: Math.min(b.until, now + LUCKY_MS) });
@@ -199,6 +209,7 @@ function parseIdle(raw: unknown, now: number): IdleState | null {
         building.stage = b.stage as number;
         building.ready = finite(b.ready) ? Math.min(b.ready, now + WONDER_BUILD_MS) : now;
       }
+      if (b.damaged === true) building.damaged = true;
       // A mine digging another ore than its type's.
       if (typeof b.ore === "string" && buildingType(b.type)!.ores?.includes(b.ore) && b.ore !== buildingType(b.type)!.produces) building.ore = b.ore;
       buildings.push(building);
@@ -230,6 +241,25 @@ function parseIdle(raw: unknown, now: number): IdleState | null {
   }
   if (Number.isInteger(r.roadLevel)) s.roadLevel = Math.max(0, Math.min(s.era, r.roadLevel as number));
   s.roads = parseRoads(r.roads, s.buildings);
+  if (Number.isInteger(r.wallLevel)) s.wallLevel = Math.max(0, Math.min(s.era, r.wallLevel as number));
+  // Walls on free land, not on a street.
+  const streets = new Set(s.roads);
+  s.walls = parseRoads(r.walls, s.buildings).filter((i) => !streets.has(i) && isLand(i % MAP_SIZE, Math.floor(i / MAP_SIZE)));
+  if (finite(r.nextRaid) && r.nextRaid > 0) s.nextRaid = r.nextRaid;
+  const raid = record(r.raid);
+  const from = record(raid.from);
+  if (finite(raid.at) && finite(raid.strength) && raid.strength >= 0 && tileInt(from.x) && tileInt(from.y)) {
+    s.raid = { at: Math.min(raid.at, now + RAID_WARNING_MS), strength: Math.round(raid.strength), from: { x: from.x, y: from.y } };
+  }
+  const last = record(r.lastRaid);
+  if (finite(last.at) && typeof last.won === "boolean" && finite(last.strength) && finite(last.defense) && finite(last.killed)) {
+    const stolen: Record<string, number> = {};
+    for (const [id, n] of Object.entries(record(last.stolen))) if (resourceDef(id) && finite(n) && n > 0) stolen[id] = n;
+    s.lastRaid = {
+      at: last.at, won: last.won, strength: last.strength, defense: last.defense, stolen, killed: Math.max(0, Math.round(last.killed)),
+      damaged: typeof last.damaged === "string" ? last.damaged.slice(0, 40) : null,
+    };
+  }
   s.proposals = parseProposals(r.proposals, now);
   s.population = finite(r.population) && r.population >= 0 ? Math.min(r.population, 100_000) : bedsOf(s);
   if (Array.isArray(r.drops)) {
@@ -262,7 +292,9 @@ function parseAction(a: unknown): ProposalAction | null {
   if (r.kind === "buy" && typeof r.item === "string") return { kind: "buy", item: r.item };
   if (r.kind === "demolish" && Number.isInteger(r.building)) return { kind: "demolish", building: r.building as number };
   if (r.kind === "ore" && Number.isInteger(r.building) && typeof r.ore === "string" && resourceDef(r.ore)) return { kind: "ore", building: r.building as number, ore: r.ore };
-  if ((r.kind === "paths" || r.kind === "unpave") && Array.isArray(r.tiles) && r.tiles.length <= MAX_PATH_TILES) {
+  if (r.kind === "fortify") return { kind: "fortify" };
+  if (r.kind === "repair" && Number.isInteger(r.building)) return { kind: "repair", building: r.building as number };
+  if ((r.kind === "paths" || r.kind === "unpave" || r.kind === "walls" || r.kind === "unwall") && Array.isArray(r.tiles) && r.tiles.length <= MAX_PATH_TILES) {
     const tiles = r.tiles.filter((i): i is number => Number.isInteger(i) && i >= 0 && i < MAP_SIZE * MAP_SIZE);
     if (tiles.length === r.tiles.length) return { kind: r.kind, tiles: [...new Set(tiles)] };
   }
@@ -493,8 +525,15 @@ export function createIdleGame(file: string, now = Date.now()): IdleGame {
       if (mine) setPlayer(mine[0], { ...mine[1], seen: now });
     },
 
-    tick(online, now) {
-      return settle(online, now);
+    tick(online, now, rand = Math.random) {
+      const events = settle(online, now);
+      const done = stepRaid(advance(state, now), rand);
+      if (done) {
+        state = done.state;
+        saver.schedule();
+        if (done.news) events.push({ kind: "raid", ...done.news });
+      }
+      return events;
     },
 
     flush() {

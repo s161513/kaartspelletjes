@@ -13,17 +13,23 @@ export interface ResourceDef {
   era: number;
 }
 
-/** The three base resources exist from the start; every later era adds one special. */
+/**
+ * The three base resources exist from the start; every later era adds one
+ * special. The Iron Age also brings coal (the Industrial Revolution's special,
+ * mined long before) and what the smiths make of iron and coal.
+ */
 export const RESOURCES: readonly ResourceDef[] = [
   { id: "food", name: "voedsel", emoji: "🍖", era: 0 },
   { id: "wood", name: "hout", emoji: "🪵", era: 0 },
   { id: "stone", name: "steen", emoji: "🪨", era: 0 },
   { id: "bronze", name: "brons", emoji: "🥉", era: 1 },
   { id: "iron", name: "ijzer", emoji: "⛓️", era: 2 },
+  { id: "coal", name: "kolen", emoji: "⚫", era: 2 },
+  { id: "weapons", name: "wapens", emoji: "🗡️", era: 2 },
+  { id: "armor", name: "harnassen", emoji: "🛡️", era: 2 },
   { id: "gold", name: "goud", emoji: "🪙", era: 3 },
   { id: "wool", name: "wol", emoji: "🧶", era: 4 },
   { id: "knowledge", name: "kennis", emoji: "📜", era: 5 },
-  { id: "coal", name: "kolen", emoji: "⚫", era: 6 },
   { id: "oil", name: "olie", emoji: "🛢️", era: 7 },
   { id: "data", name: "data", emoji: "💾", era: 8 },
   { id: "titanium", name: "titanium", emoji: "🔷", era: 9 },
@@ -129,8 +135,14 @@ export interface BuildingType {
   emoji: string;
   /** First era it can be built in. */
   minEra: number;
-  /** Work buildings: what they make. */
+  /** Work buildings: what they make (a mine: what it makes until the players pick another ore). */
   produces?: ResourceId;
+  /** A mine: the ores it can dig, as far as they're unlocked (the players vote which). */
+  ores?: readonly ResourceId[];
+  /** …and the share it digs of what a quarry or a mine at the vein would make. */
+  oreShare?: number;
+  /** Uses this much of each per unit it makes, and makes nothing without it (the smiths). */
+  consumes?: Amounts;
   /** Food buildings: which kind of food. */
   foodKind?: FoodKind;
   /** The nature it works from, if not what it makes (null: none, it grows its own). */
@@ -196,6 +208,23 @@ export const BUILDING_TYPES: readonly BuildingType[] = [
     baseCost: { wood: 30, food: 10 },
     names: ["Steengroeve", "Steenhouwerij", "Groeve", "Marmergroeve", "Steenbakkerij", "Metselwerkplaats", "Steenfabriek", "Betoncentrale", "3D-printerij", "Asteroïdeboor", "Materieprinter"],
   },
+  {
+    // Dug into the mountain: never runs out, but a vein gives more ore.
+    id: "mine", category: "work", emoji: "🏔️", minEra: 0, produces: "stone", source: null, specialCost: 10,
+    ores: ["stone", "bronze", "iron", "coal", "gold", "titanium"], oreShare: 0.5,
+    baseCost: { wood: 50, food: 20 },
+    names: ["Vuursteenmijn", "Mijnschacht", "Mijngang", "Romeinse mijn", "Mijnwerkersgilde", "Mijnbouwbedrijf", "Stoommijn", "Dagbouwmijn", "Robotmijn", "Bergboor", "Kernboor"],
+  },
+  {
+    id: "weaponsmith", category: "work", emoji: "⚔️", minEra: 2, produces: "weapons", source: null, specialCost: 10,
+    consumes: { iron: 1, coal: 1 }, baseCost: { wood: 40, stone: 60 },
+    names: fromEra(2, ["Wapensmid", "Zwaardsmederij", "Wapensmederij", "Wapenkamer", "Geweermakerij", "Wapenfabriek", "Defensiebedrijf", "Dronefabriek", "Lasersmid"]),
+  },
+  {
+    id: "armorsmith", category: "work", emoji: "🔨", minEra: 2, produces: "armor", source: null, specialCost: 10,
+    consumes: { iron: 1, coal: 1 }, baseCost: { wood: 40, stone: 60 },
+    names: fromEra(2, ["Harnassmid", "Pantsersmederij", "Harnasmakerij", "Harnaswerkplaats", "Uniformfabriek", "Vestenfabriek", "Exopakfabriek", "Pantserwerf", "Krachtveldsmid"]),
+  },
   ...(
     [
       ["bronze", "Kopermijn", "🥉", 1],
@@ -203,7 +232,7 @@ export const BUILDING_TYPES: readonly BuildingType[] = [
       ["gold", "Goudmijn", "🪙", 3],
       ["wool", "Schapenwei", "🐑", 4],
       ["knowledge", "Bibliotheek", "📚", 5],
-      ["coal", "Kolenmijn", "⚫", 6],
+      ["coal", "Kolenmijn", "⚫", 2],
       ["oil", "Oliebron", "🛢️", 7],
       ["data", "Datacenter", "🖥️", 8],
       ["titanium", "Titaniummijn", "🔷", 9],
@@ -225,7 +254,7 @@ export const BUILDING_TYPES: readonly BuildingType[] = [
       ["sculptor", "🎨", 0, { stone: 60, wood: 20 }, ["Beeldhouwer", "Beeldhouwer", "Beeldensmidse", "Atelier", "Steenhouwersgilde", "Kunstatelier", "Gieterij", "Designstudio", "3D-kunstlab", "Holostudio", "Kosmisch atelier"]],
       ["tavern", "🍺", 0, { wood: 50, food: 40 }, ["Mede-hut", "Bierhuis", "Taverne", "Taberna", "Herberg", "Wijnhuis", "Kroeg", "Café", "Gamingcafé", "Ruimtebar", "Kosmische cantina"]],
       ["tailor", "🧵", 0, { wood: 40, food: 40 }, ["Huidenlooier", "Wever", "Kleermaker", "Toga-atelier", "Kleermakerij", "Modehuis", "Confectie", "Boetiek", "Streetwear-shop", "Ruimtepakkenzaak", "Holo-couture"]],
-      ["smith", "⚒️", 1, { wood: 80, stone: 80 }, ["Bronsgieter", "Smederij", "Wapensmid", "Gildesmid", "Meestersmid", "IJzergieterij", "Werkplaats", "Robotfabriek", "Exo-smederij", "Nanosmid"]],
+      ["smith", "⚒️", 1, { wood: 80, stone: 80 }, ["Bronsgieter", "Smederij", "Smidse", "Gildesmid", "Meestersmid", "IJzergieterij", "Werkplaats", "Robotfabriek", "Exo-smederij", "Nanosmid"]],
       ["bank", "🏦", 3, { stone: 120, wood: 60 }, ["Geldwisselaar", "Wisselbank", "Medici-bank", "Nationale bank", "Wereldbank", "Cryptobank", "Ruimtebank", "Galactische schatkist"]],
       ["university", "🎓", 5, { stone: 120, wood: 80 }, ["Universiteit", "Hogeschool", "Technische universiteit", "Onderzoekscampus", "Ruimteacademie", "Tijdloze academie"]],
       ["lab", "🔬", 7, { stone: 150, wood: 100 }, ["Laboratorium", "AI-lab", "Ruimtelab", "Kwantumlab"]],
@@ -466,6 +495,8 @@ export const REFUND_SHARE = 0.25;
 /** Per work building at full staff, per second, at level 0. */
 export const BASE_RATE: Readonly<Record<ResourceId, number>> = { food: 1, wood: 1, stone: 0.8 };
 export const SPECIAL_BASE_RATE = 0.5;
+/** A mine digs the land's ores (and stone) this close to the mountain. */
+export const MINE_RANGE = 5;
 /** Storage: the base everyone has (×4^era), per storage building and the center (×4^level). */
 export const BASE_CAP = 200;
 export const STORAGE_CAP = 400;

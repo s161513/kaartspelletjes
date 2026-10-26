@@ -199,6 +199,8 @@ function parseIdle(raw: unknown, now: number): IdleState | null {
         building.stage = b.stage as number;
         building.ready = finite(b.ready) ? Math.min(b.ready, now + WONDER_BUILD_MS) : now;
       }
+      // A mine digging another ore than its type's.
+      if (typeof b.ore === "string" && buildingType(b.type)!.ores?.includes(b.ore) && b.ore !== buildingType(b.type)!.produces) building.ore = b.ore;
       buildings.push(building);
     }
     // Keep the fresh campfire only if the file somehow lost its center.
@@ -259,6 +261,7 @@ function parseAction(a: unknown): ProposalAction | null {
   if (r.kind === "roads") return { kind: "roads" };
   if (r.kind === "buy" && typeof r.item === "string") return { kind: "buy", item: r.item };
   if (r.kind === "demolish" && Number.isInteger(r.building)) return { kind: "demolish", building: r.building as number };
+  if (r.kind === "ore" && Number.isInteger(r.building) && typeof r.ore === "string" && resourceDef(r.ore)) return { kind: "ore", building: r.building as number, ore: r.ore };
   if ((r.kind === "paths" || r.kind === "unpave") && Array.isArray(r.tiles) && r.tiles.length <= MAX_PATH_TILES) {
     const tiles = r.tiles.filter((i): i is number => Number.isInteger(i) && i >= 0 && i < MAP_SIZE * MAP_SIZE);
     if (tiles.length === r.tiles.length) return { kind: r.kind, tiles: [...new Set(tiles)] };

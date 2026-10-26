@@ -19,6 +19,14 @@ thema (zie [ROADMAP.md](ROADMAP.md)):
 
 ## Verwerkt
 
+- 2026-10-25, Richard: stemmen over welke update er komt, met de uitslag in
+  het raadhuis, waar Claude bij de volgende sessies naar kijkt: Update 13
+- 2026-10-25, Richard: relaties, een bredere update waarin je je eigen
+  mannetje bestuurt (baan, taak), vrienden maakt en relaties tussen spelers
+  verbetert; op een piek een kans op sex, of trouwen; een sterke relatie met
+  iemand anders breekt het huwelijk: Update 14 (eigen dorpeling, vrienden)
+  en Update 15 (liefde, trouwen, vreemdgaan)
+
 - 2026-10-24, Richard: het tijdperk moet afhangen van hoe goed de stad het
   doet, niet van de 67 counter (gaat te traag); doelen per tijdperk plus een
   wereldwonder; een tijdperk mag zo'n twee weken duren: Update 8 (PR #34)
@@ -96,5 +104,5 @@ thema (zie [ROADMAP.md](ROADMAP.md)):
   Update 11
 - 2026-10-22: "Tijdperk voelt nu niet als prehistory": Update 11
 - 2026-10-22: "soviets city council type beat zodat we kunnen voten voor
-  updates": eerst beslissen (zie ROADMAP)
-- 2026-10-22: "relationships, sex, marriage": eerst beslissen (zie ROADMAP)
+  updates": Update 13
+- 2026-10-22: "relationships, sex, marriage": Update 14 en 15

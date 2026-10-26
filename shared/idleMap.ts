@@ -5,6 +5,7 @@
 import {
   DEPOSIT_CLICKS,
   DEPOSIT_REGROW_MS,
+  MINE_RANGE,
   PATCH_CLICKS,
   PATCH_MAX_TILES,
   REGROW_MS,
@@ -35,7 +36,7 @@ export const DEPOSITS: readonly Deposit[] = [
   { resource: "gold", name: "Goudader", era: 3, x: 68, y: 18 },
   { resource: "wool", name: "Schapenweide", era: 4, x: 24, y: 54 },
   { resource: "knowledge", name: "Orakelsteen", era: 5, x: 30, y: 34 },
-  { resource: "coal", name: "Kolenlaag", era: 6, x: 26, y: 16 },
+  { resource: "coal", name: "Kolenlaag", era: 2, x: 26, y: 16 },
   { resource: "oil", name: "Olieveld", era: 7, x: 68, y: 66 },
   { resource: "data", name: "Glasvezelknoop", era: 8, x: 44, y: 64 },
   { resource: "titanium", name: "Meteorietkrater", era: 9, x: 14, y: 24 },
@@ -246,6 +247,7 @@ export function anchorOf(typeId: string): { x: number; y: number } {
     fishery: nearestTerrain(isRiver),
     wood: nearestTerrain("forest"),
     stone: nearestTerrain("rock"),
+    mine: nearestTerrain((x, y) => buildable(x, y) && nearMountain(x, y)),
   };
   if (anchors[typeId]) return anchors[typeId];
   const produces = buildingType(typeId)?.produces;
@@ -258,10 +260,14 @@ const near = (x: number, y: number, r: number, ok: (x: number, y: number) => boo
   return false;
 };
 
+/** A mine's spot: the mountain within MINE_RANGE. */
+const nearMountain = (x: number, y: number) => near(x, y, MINE_RANGE, (mx, my) => terrainAt(mx, my) === "mountain");
+
 /** What a work building must stand next to, if anything, and how to say so. */
-function sourceOf(typeId: string): { ok: (x: number, y: number) => boolean; hint: string } | null {
+function sourceOf(typeId: string): { ok: (x: number, y: number) => boolean; hint: string; range?: number } | null {
   if (typeId === "wood" || typeId === "hunter") return { ok: (x, y) => terrainAt(x, y) === "forest", hint: "moet vlak bij het bos staan" };
   if (typeId === "fishery") return { ok: isRiver, hint: "moet aan de rivier staan" };
+  if (typeId === "mine") return { ok: (x, y) => terrainAt(x, y) === "mountain", hint: "moet vlak bij de berg staan", range: MINE_RANGE };
   if (typeId === "stone") {
     return { ok: (x, y) => ["rock", "mountain"].includes(terrainAt(x, y)), hint: "moet vlak bij rotsen staan" };
   }
@@ -334,7 +340,7 @@ export function placeError(buildings: readonly Spot[], roads: readonly number[],
   if (buildings.some((b) => b.x === x && b.y === y)) return "daar staat al iets";
   if (isRoad(roads, x, y)) return "daar ligt een pad";
   const source = sourceOf(typeId);
-  if (source) return near(x, y, SOURCE_RANGE, source.ok) ? null : source.hint;
+  if (source) return near(x, y, source.range ?? SOURCE_RANGE, source.ok) ? null : source.hint;
   return nearBuilding(buildings, x, y, VILLAGE_RANGE) ? null : "te ver van het dorp";
 }
 

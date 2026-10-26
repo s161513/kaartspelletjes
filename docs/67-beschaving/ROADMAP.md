@@ -61,7 +61,7 @@ Daarnaast blijft gelden:
 
 | Wat | Bestand |
 | --- | --- |
-| Regels: productie, geluk, kosten, stemmen, paden, afbreken, doelen en wonderen, supply drops | `shared/idle.ts` |
+| Regels: productie (ook mijnen en smeden), geluk, kosten, stemmen, paden, afbreken, doelen en wonderen, supply drops | `shared/idle.ts` |
 | Getallen en content: grondstoffen, tijdperken (doelen, wonderen), gebouwen, winkels, gelukjes | `shared/idleContent.ts` |
 | Kaart, natuur, waar gebouwen en paden mogen | `shared/idleMap.ts` |
 | Server: opslag (`data/idle.json`), invoercontrole, stemmen afhandelen | `server/src/idle.ts`, `server/src/counter.ts` |
@@ -194,8 +194,7 @@ variatie telt.
       plek zoals een council house")
 
 ### Update 8: Tijdperken door het dorp
-Status: in review (PR #34). Steunt op update 7 (bevolking en geluk). Hierin
-zit ook de reset van het dorp.
+Status: gedaan (PR #34). Hierin zat ook de reset van het dorp.
 
 Afgesproken met Richard (2026-10-24): het tijdperk hangt niet meer aan de
 67 counter, want dat gaat te traag. Het dorp verdient het zelf, met doelen
@@ -234,17 +233,38 @@ geeft alleen nog extra's.
       hoeft. (bron: Richard, "de game resetten na deze updates")
 
 ### Update 9: Mijnen & smeden
-Status: gepland.
+Status: in review (PR #35).
 
-- [ ] Mijnen als echte bouwplek voor steen en erts, en meer mijnen dan alleen
-      bij de ertsaders. (bron: "Mines")
-- [ ] Kolen eerder of belangrijker maken: nu komen ze pas in de Industriële
-      revolutie. (bron: "coal")
-- [ ] Een wapensmid en een harnassmid, nodig voor update 10. (bron: "weapon
-      smith", "armor smith")
+Afgesproken met Richard (2026-10-25): één soort Mijn, tegen de berg; de
+spelers stemmen welk erts hij delft (alles wat ontgrendeld is). Kolen vanaf
+de IJzertijd. De wapensmid en harnassmid maken wapens en harnassen uit metaal
+en kolen, en verbruiken die.
+
+- [x] Mijnen als echte bouwplek voor steen en erts, en meer mijnen dan alleen
+      bij de ertsaders. Gedaan: de 🏔️ Mijn (Vuursteenmijn in de Steentijd)
+      staat hoogstens `MINE_RANGE` (5) tegels van de berg. Hij raakt nooit op,
+      maar maakt de helft (`oreShare`) van een groeve of een mijn bij de ader.
+      Een stemming "⛏️ … delven" zet hem op een ander erts (`ore` op het
+      gebouw), gratis. (bron: "Mines")
+- [x] Kolen eerder of belangrijker maken: nu komen ze pas in de Industriële
+      revolutie. Gedaan: kolen, de Kolenlaag en de Kolenmijn vanaf de
+      IJzertijd. De Industriële revolutie houdt kolen als speciale
+      grondstof voor de bouwkosten. (bron: "coal")
+- [x] Een wapensmid en een harnassmid, nodig voor update 10. Gedaan: vanaf de
+      IJzertijd. Ze maken 🗡️ wapens en 🛡️ harnassen en gebruiken per stuk
+      1 ijzer en 1 kolen (`consumes`). Zonder die voorraad staan ze stil. De
+      winkel Smederij heet in de IJzertijd nu Smidse. (bron: "weapon smith",
+      "armor smith")
 
 ### Update 10: Vijanden & muren
 Status: gepland. Steunt op update 9.
+
+Afgesproken met Richard (2026-10-25): af en toe een aanval, een uur van
+tevoren aangekondigd en te zien op de kaart. Verdediging: muren, torens en
+wachters met wapens en harnassen. Verliest het dorp, dan stelen ze een deel
+van de voorraad, gaan er een paar inwoners dood, raakt een gebouw beschadigd
+(het werkt niet tot het via een stemming hersteld is) en is het dorp een
+tijdje minder gelukkig.
 
 - [ ] Vijanden die het dorp af en toe aanvallen. (bron: "enemies")
 - [ ] Muren en verdediging, die je bouwt via de gewone stemmingen. (bron:
@@ -252,6 +272,10 @@ Status: gepland. Steunt op update 9.
 
 ### Update 11: Uiterlijk
 Status: gepland.
+
+Afgesproken met Richard (2026-10-25): installeer `create-game-assets`,
+`game-feel`, `procedural-gen` en `tower-defense` (die laatste voor update 10)
+in `~/.claude/skills`, niet in de repo.
 
 - [ ] Uitzoeken welke skills uit
       https://github.com/gamedev-skills/awesome-gamedev-agent-skills bruikbaar
@@ -275,16 +299,52 @@ update 4 (zonder klikken verandert het tempo).
       niet alleen met het tijdperk. (bron: "dorpsfeest resources moeten scalen
       met population")
 
-### Eerst beslissen (nog niet ingepland)
+### Update 13: De raad
+Status: gepland.
 
-- **Stemmen over welke update er komt** ("soviet city council type beat"):
-  hoe komt de uitslag bij Claude terecht? Bijvoorbeeld een raadhuis waar
-  spelers op de geplande updates stemmen, met een uitslag die in dit bestand
-  wordt overgenomen. Ontwerp eerst afstemmen met Richard.
-- **Relaties en gezinnen** ("relationships, sex, marriage"): bijvoorbeeld
-  huwelijken en kinderen die de bevolking laten groeien. Dit is een spel voor
-  vrienden en klasgenoten, dus houd het netjes. Omvang en toon eerst afstemmen
-  met Richard.
+- [ ] In het centrum (het raadhuis) een blok 🗳️ De raad: de geplande updates
+      uit deze roadmap, met per speler één stem die je kan verzetten. De
+      stand is voor iedereen te zien. De lijst staat in
+      `shared/idleContent.ts`; Claude houdt hem bij als de roadmap verandert.
+      (bron: Richard, 2026-10-25, "soviet city council type beat")
+- [ ] De uitslag wordt bewaard in de staat van het dorp. Claude kijkt er aan
+      het begin van een sessie naar en zet de updates in die volgorde. Draait
+      de server niet op deze computer, dan is er een knop 📋 die de uitslag
+      kopieert, om in FEEDBACK.md te plakken. (bron: idem, "wordt bij de
+      volgende claude sessies naar gekeken")
+- [ ] Spelers kunnen in de raad zelf een idee insturen. Het komt in de raad
+      te staan als "ingestuurd", en Claude neemt het mee als feedback.
+- [ ] Werkwijze bijwerken: "verwerk de feedback" leest ook de uitslag van de
+      raad.
+
+### Update 14: Je eigen dorpeling
+Status: gepland. Eerst met Richard afstemmen: hoe een relatie groeit (tijd
+samen online, iets doen voor elkaar, samen werken) en of ook de gewone
+inwoners meedoen of alleen spelers.
+
+- [ ] Je eigen mannetje besturen: zeg welke baan of taak het heeft. Het loopt
+      daarheen en werkt mee zolang je online bent. (bron: Richard,
+      2026-10-25, "alleen je eigen mannetje kan besturen")
+- [ ] Vrienden maken: klik op een andere speler om iets samen te doen (praten,
+      helpen, iets geven). Elk paar spelers heeft een relatie die groeit, en
+      langzaam zakt als je elkaar niet ziet. (bron: idem, "vrienden kan maken")
+- [ ] Relaties tussen andere spelers verbeteren, zoals een koppelaar. (bron:
+      idem)
+- [ ] Een overzicht van je relaties, bij je NPC.
+
+### Update 15: Liefde & trouwen
+Status: gepland. Steunt op update 14. Beide spelers moeten zelf ja zeggen
+voor ze iets samen beginnen.
+
+- [ ] Een relatie die een piek bereikt, geeft een kans op romantiek. In beeld
+      blijft het bij een hartje en een huisdeur die even dicht gaat; soms
+      komt er een kind bij (+1 inwoner). (bron: Richard, 2026-10-25, "een
+      kans geven op sex")
+- [ ] Trouwen: allebei ja zeggen, dan een bruiloft in het dorp (+geluk voor
+      een tijdje). (bron: idem, "of nog groter, trouwen")
+- [ ] Vreemdgaan: wie getrouwd is en met iemand anders een sterke relatie
+      opbouwt, breekt het huwelijk. Het dorp hoort ervan. (bron: idem, "een
+      sterke relatie opbouwen met iemand anders zal deze trouw breken")
 
 ### Update 2: Paden, bruggen, afbreken, stemmen
 Status: gedaan (PR #27)
@@ -334,3 +394,6 @@ een update worden opgenomen als het past.
 - **Berichtgrootte:** `MAX_PATH_TILES` (150) en de `maxPayload` van de
   counter-socket (2048 bytes) horen bij elkaar. Verhoog je het ene, controleer
   dan het andere. Daar is een test voor.
+- **Smeden in de browser:** de smeden gebruiken ijzer en kolen uit de opslag.
+  De browser rekent dat na met dezelfde `advance`. Tussen twee berichten van
+  de server kan de HUD dus even een andere voorraad tonen dan de server.

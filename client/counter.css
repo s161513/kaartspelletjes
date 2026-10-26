@@ -380,6 +380,23 @@ body.sx-era-10 { --sx-bg: #12002b; --sx-bg2: #2a0050; }
 
 /* ---------- floating buttons ---------- */
 
+/* The pixel art's makers (CC-BY asks for credit). */
+.sx-credits {
+  position: fixed;
+  left: 8px;
+  bottom: 4px;
+  z-index: 5;
+  margin: 0;
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.75);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+  pointer-events: none;
+}
+.sx-credits a {
+  color: inherit;
+  pointer-events: auto;
+}
+
 .sx-fabs {
   position: fixed;
   right: 16px;

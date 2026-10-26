@@ -66,6 +66,7 @@ Daarnaast blijft gelden:
 | Kaart, natuur, waar gebouwen en paden mogen | `shared/idleMap.ts` |
 | Server: opslag (`data/idle.json`), invoercontrole, stemmen afhandelen | `server/src/idle.ts`, `server/src/counter.ts` |
 | Browser: wereld, panelen, NPC's, padvinden | `client/src/world/*`, `client/src/counter.ts` |
+| Pixel-art: sprites, atlas, eigen sprites, licenties | `client/src/world/sprites/` (na een wijziging: `python client/src/world/sprites/build.py`), `sprites.ts`, `pixel.ts` |
 | Tests | `tests/idle.test.mts` |
 
 Volledig resetten om te testen: stop de server, verwijder `data/counter.json`
@@ -371,6 +372,41 @@ voor ze iets samen beginnen.
 - [ ] Vreemdgaan: wie getrouwd is en met iemand anders een sterke relatie
       opbouwt, breekt het huwelijk. Het dorp hoort ervan. (bron: idem, "een
       sterke relatie opbouwen met iemand anders zal deze trouw breken")
+
+### Update 16: Pixel-art
+Status: bezig. Steunt op update 11 (PR #37), en dus ook op 9 en 10.
+
+Afgesproken met Richard (2026-10-26): het spel wordt pixel-art. Zoveel
+mogelijk kant-en-klare sprites van internet; wat er niet is, maakt Claude zelf
+in dezelfde stijl. Eerst een stijlproef, die is goedgekeurd.
+
+- [x] Eén atlas met sprites, die bij het opstarten één keer geladen wordt
+      (`client/src/world/sprites/`, gebouwd door `build.py`). Bronnen en
+      licenties staan in `CREDITS.md`, en in het spel staat een regel credits
+      (CC-BY vraagt dat). (bron: Richard, "betere textures die bij het
+      opstarten ingeladen worden")
+- [x] Natuur en grond uit Yar's "Isometric 64x64 Outside Tileset": gras,
+      water, rotsen, bergen, struiken, bomen, boomstammen en puin. Straten en
+      zand krijgen een korrel.
+- [x] Gebouwen per tijdperk: de middeleeuwse stad van City Sim voor de
+      IJzertijd tot en met de Renaissance, Pixel City (bakstenen huizen,
+      flats, torens, kantoren, industrie) voor de Industriële revolutie tot en
+      met de Digitale tijd. (bron: idem, "zodat het op een volwaardige game
+      lijkt")
+- [x] Eigen pixel-sprites voor de Steentijd en de Bronstijd: tipi's in drie
+      kleuren, ronde hutten van vlechtwerk onder stro, Keltische roundhouses,
+      uitkijkposten op palen en het kampvuur met vlammen
+      (`sprites/pixelart.py`). (bron: Richard, "de kleine pixel-sprites in
+      dezelfde stijl zijn goed en moet je ook doen voor de eerste tijdperk")
+- [x] Al het andere (werkgebouwen, wonderen, decoraties, muren, mijnen,
+      dorpelingen, dieren, overvallers, kratten, bruggen) wordt nog als vormen
+      getekend, maar daarna omgezet naar pixel-art: harde randen, korrel, een
+      donkere rand. Bewegende dingen krijgen een paar frames. (bron: Richard,
+      "deze scherpe tipi's en tekeningen zijn qua stijl helemaal niet
+      hetzelfde")
+- [ ] Later, als er goede pakketten voor zijn: de Ruimte- en de
+      Sci-fi-tijd, de stenen muren van City Sim (welk stuk hoort bij welke
+      richting?), en oevers langs het water.
 
 ### Update 2: Paden, bruggen, afbreken, stemmen
 Status: gedaan (PR #27)

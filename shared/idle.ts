@@ -8,7 +8,8 @@
 // the town is happy and leave when it isn't (the happiness meter creeps towards what the town is worth); each needs a bed in a house or
 // sleeps outside, which makes everyone less happy (so does eating the same
 // thing every day; decorations and the tavern help). Villagers staff work
-// buildings, work buildings fill the storage, and unhappy ones work less. Villagers
+// buildings, work buildings fill the storage (every resource its own: a Schuur for
+// wood, a Voorraadkuil for food, …; a full one stops its workers), and unhappy ones work less. Villagers
 // without a job gather from the nature around the town, whatever the players
 // point them at. Food has kinds by where it comes from (grain, meat, fish,
 // berries) but is one resource in storage. Nature runs out: gatherers and
@@ -468,9 +469,10 @@ export interface Gathering {
 /**
  * Who of the villagers without a job gathers what. The players' choices
  * count as far as there are people (in resource order); everyone else is
- * spread evenly over food, wood and stone.
+ * spread evenly over food, wood and stone, skipping what's full (with
+ * `resources` given) as long as something isn't.
  */
-export function gatheringOf(s: Pick<IdleWorld, "buildings" | "perks" | "era" | "gatherers" | "population">): Gathering {
+export function gatheringOf(s: Pick<IdleWorld, "buildings" | "perks" | "era" | "gatherers" | "population"> & { resources?: Amounts }): Gathering {
   const options = gatherable(s.era);
   let left = assignWorkers(s).idle;
   const chosen: Amounts = {};
@@ -480,7 +482,9 @@ export function gatheringOf(s: Pick<IdleWorld, "buildings" | "perks" | "era" | "
     left -= n;
   }
   const auto: Amounts = {};
-  const basics = options.filter((id) => id in BASE_RATE);
+  const full = s.resources ? fullOf({ ...s, resources: s.resources }) : new Set<ResourceId>();
+  const all = options.filter((id) => id in BASE_RATE);
+  const basics = all.some((id) => !full.has(id)) ? all.filter((id) => !full.has(id)) : all;
   for (let i = 0; left > 0 && basics.length; i++, left--) {
     const id = basics[i % basics.length];
     auto[id] = (auto[id] ?? 0) + 1;
@@ -540,7 +544,7 @@ interface Output {
  * What each work building and the gatherers make per second without boosts;
  * nothing if their nature is used up (only checked when `nature` is given).
  */
-function outputs(s: Pick<IdleWorld, "buildings" | "perks" | "era" | "gatherers" | "population"> & { nature?: Used }): Output[] {
+function outputs(s: Pick<IdleWorld, "buildings" | "perks" | "era" | "gatherers" | "population"> & { nature?: Used; resources?: Amounts }): Output[] {
   const { workers } = assignWorkers(s);
   const out: Output[] = [];
   const left = (src: Patch[] | null) => !s.nature || !src || src.some((p) => leftIn(p, s.nature!) > 0.01);
@@ -581,7 +585,8 @@ export const sourceShareOf = (s: Pick<IdleWorld, "nature">, b: PlacedBuilding): 
 /** Food per second by kind, without boosts (the lab's robots make no particular kind). */
 export function foodKindsOf(s: Pick<IdleWorld, "buildings" | "perks" | "era" | "gatherers" | "population"> & { nature?: Used }): Partial<Record<FoodKind, number>> {
   const out: Partial<Record<FoodKind, number>> = {};
-  for (const { kind, rate } of outputs(s)) if (kind && rate > 0) out[kind] = (out[kind] ?? 0) + rate;
+  // What the town eats doesn't change while the food storage happens to be full.
+  for (const { kind, rate } of outputs({ ...s, resources: undefined })) if (kind && rate > 0) out[kind] = (out[kind] ?? 0) + rate;
   return out;
 }
 
@@ -675,16 +680,46 @@ export function ratesOf(s: Town & Pick<IdleWorld, "lastTick"> & { resources?: Am
   return rates;
 }
 
-/** Storage limit per resource (the same for every resource). */
-export function capOf(s: Pick<IdleWorld, "buildings" | "era" | "perks">): number {
-  let cap = BASE_CAP * scaleOf(s.era);
+/** What one storage building at this level adds for its resource. */
+export const storeCap = (level: number): number => STORAGE_CAP * scaleOf(level);
+
+/** One thing that adds to a resource's storage limit, for the overview. */
+export interface CapPart {
+  emoji: string;
+  label: string;
+  amount: number;
+}
+
+/**
+ * What a resource's storage limit is made of: the base everyone has (×4^era),
+ * the center, and every storage building that holds it (not the ones on fire);
+ * the bank's vault adds a share on top of all of it.
+ */
+export function capPartsOf(s: Pick<IdleWorld, "buildings" | "era" | "perks">, res: ResourceId): CapPart[] {
+  const parts: CapPart[] = [{ emoji: "📦", label: "basis", amount: BASE_CAP * scaleOf(s.era) }];
   for (const b of s.buildings) {
     if (b.damaged) continue;
-    if (b.type === "storage") cap += STORAGE_CAP * scaleOf(b.level);
-    else if (b.type === "center") cap += CENTER_CAP * scaleOf(b.level);
+    const t = buildingType(b.type);
+    if (b.type === "center") parts.push({ emoji: t!.emoji, label: buildingName(b.type, b.level), amount: CENTER_CAP * scaleOf(b.level) });
+    else if (t?.stores === res) parts.push({ emoji: t.emoji, label: buildingName(b.type, b.level), amount: storeCap(b.level) });
   }
-  return cap * (1 + 0.25 * perkOf(s, "vault"));
+  const vault = perkOf(s, "vault");
+  if (vault) parts.push({ emoji: "🔐", label: "grotere kluis", amount: 0.25 * vault * parts.reduce((a, p) => a + p.amount, 0) });
+  return parts;
 }
+
+/** Storage limit of one resource: every resource has its own (update 17). */
+export function capOf(s: Pick<IdleWorld, "buildings" | "era" | "perks">, res: ResourceId): number {
+  return capPartsOf(s, res).reduce((a, p) => a + p.amount, 0);
+}
+
+/** Resources whose storage is full: their workers stop, gatherers left to themselves pick something else. */
+export function fullOf(s: Pick<IdleWorld, "buildings" | "era" | "perks" | "resources">): Set<ResourceId> {
+  return new Set(unlockedResources(s.era).filter((id) => (s.resources[id] ?? 0) + 1e-9 >= capOf(s, id)));
+}
+
+/** The storage building type that holds a resource. */
+export const storeTypeOf = (res: ResourceId): string | undefined => BUILDING_TYPES.find((t) => t.stores === res)?.id;
 
 export const boostActive = (s: IdleWorld, now: number): boolean => s.boostUntil > now;
 
@@ -713,13 +748,14 @@ export function advance<T extends IdleWorld>(s: T, now: number): T {
   const elapsed = Math.min(Math.max(0, now - s.lastTick), MAX_OFFLINE_MS);
   const next = { ...s, resources: { ...s.resources }, lastTick: Math.max(s.lastTick, now) };
   if (elapsed === 0) return next;
-  const cap = capOf(s);
+  const caps: Amounts = {};
+  const cap = (res: ResourceId) => (caps[res] ??= capOf(s, res));
   const seconds = (res: ResourceId) => (elapsed + boostedMs(s, res, s.lastTick, s.lastTick + elapsed)) / 1000;
   const used = regrow(s.nature, next.lastTick - s.lastTick);
   const click = clickAmount(s.era);
   const add = (res: ResourceId, amount: number): number => {
     const have = next.resources[res] ?? 0;
-    const got = Math.max(0, Math.min(amount, cap - have));
+    const got = Math.max(0, Math.min(amount, cap(res) - have));
     if (got > 0) next.resources[res] = have + got;
     return got;
   };
@@ -737,7 +773,7 @@ export function advance<T extends IdleWorld>(s: T, now: number): T {
   const all = outputs(town).sort((a, b) => Number(!!a.uses) - Number(!!b.uses));
   if (perkOf(s, "auto")) for (const id of unlockedResources(s.era)) add(id, autoRate(s, id) * seconds(id));
   for (const { res, rate, src, drain, uses } of all) {
-    let amount = Math.min(rate * mult * seconds(res), cap - (next.resources[res] ?? 0));
+    let amount = Math.min(rate * mult * seconds(res), cap(res) - (next.resources[res] ?? 0));
     if (amount <= 0) continue;
     if (uses) {
       // Make only what the iron and coal in storage allow, and use that up.
@@ -992,9 +1028,8 @@ function pay<T extends IdleWorld>(s: T, cost: Amounts): T {
 
 /** Get resources back, as far as the storage holds them. */
 function receive<T extends IdleWorld>(s: T, amounts: Amounts): T {
-  const cap = capOf(s);
   const resources = { ...s.resources };
-  for (const [id, n] of Object.entries(amounts)) resources[id] = Math.max(resources[id] ?? 0, Math.min(cap, (resources[id] ?? 0) + n));
+  for (const [id, n] of Object.entries(amounts)) resources[id] = Math.max(resources[id] ?? 0, Math.min(capOf(s, id), (resources[id] ?? 0) + n));
   return { ...s, resources };
 }
 
@@ -1010,10 +1045,7 @@ export function buyItem<T extends IdleWorld>(s: T, itemId: string): T {
     const until = Math.min(Math.max(prev, now) + e.ms, now + MAX_ITEM_BOOST_MS);
     return { ...paid, boosts: [...paid.boosts.filter((b) => b.item !== item.id), { item: item.id, resource: e.resource, mult: e.mult, until }] };
   }
-  const cap = capOf(paid);
-  const resources = { ...paid.resources };
-  for (const [id, rate] of Object.entries(ratesOf(paid))) resources[id] = Math.max(resources[id] ?? 0, Math.min(cap, (resources[id] ?? 0) + rate * e.seconds));
-  return { ...paid, resources };
+  return receive(paid, Object.fromEntries(Object.entries(ratesOf(paid)).map(([id, rate]) => [id, rate * e.seconds])));
 }
 
 // ---------- streets ----------

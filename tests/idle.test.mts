@@ -38,6 +38,12 @@ import {
   buildTypeError,
   buyItem,
   capOf,
+  capPartsOf,
+  fullOf,
+  storeTypeOf,
+  RESOURCES,
+  buildingName,
+  buildingType,
   currentWonder,
   dropContents,
   defenseOf,
@@ -190,12 +196,32 @@ test("advance: produces over time, boost doubles, offline is capped, storage lim
   const s = { ...noGatherers(town(T0)), resources: {} };
   assert.equal(advance(s, T0 + 10_000).resources.food, 10);
   assert.equal(advance({ ...s, boostUntil: T0 + 5_000 }, T0 + 10_000).resources.food, 15);
-  const cap = capOf(s);
+  const cap = capOf(s, "food");
   assert.equal(advance(s, T0 + MAX_OFFLINE_MS * 3).resources.food, cap);
   assert.equal(cap, 800); // base 400 + campfire 400
-  const withBarn = { ...s, buildings: [...s.buildings, { id: 99, type: "storage", level: 0, x: 1, y: 1 }] };
-  assert.equal(capOf(withBarn), 1600);
+  const withBarn = { ...s, buildings: [...s.buildings, { id: 98, type: "storage", level: 0, x: 1, y: 2 }] };
+  assert.equal(capOf(withBarn, "wood"), 1600, "the Schuur holds wood");
+  assert.equal(capOf(withBarn, "food"), 800, "…and nothing else");
+  const withPit = { ...withBarn, buildings: [...withBarn.buildings, { id: 97, type: "storage_food", level: 0, x: 2, y: 2 }] };
+  assert.equal(capOf(withPit, "food"), 1600);
+  assert.equal(advance(withPit, T0 + MAX_OFFLINE_MS * 3).resources.food, 1600);
   assert.deepEqual(s.resources, {}, "pure");
+});
+
+test("storage: one kind per resource, a full one sends the gatherers elsewhere", () => {
+  for (const r of RESOURCES) assert.equal(buildingType(storeTypeOf(r.id)!)?.minEra, r.era, `${r.id} has its own storage from its era`);
+  assert.equal(buildingName("storage", 0), "Schuur");
+  const s = town(T0); // 2 without a job: on food and wood
+  assert.deepEqual(gatheringOf(s).auto, { food: 1, wood: 1 });
+  const fullWood = { ...s, resources: { ...s.resources, wood: capOf(s, "wood") } };
+  assert.deepEqual([...fullOf(fullWood)], ["wood"]);
+  assert.deepEqual(gatheringOf(fullWood).auto, { food: 1, stone: 1 }, "nobody gathers wood while it's full");
+  const allFull = { ...s, resources: { food: 1e9, wood: 1e9, stone: 1e9 } };
+  assert.deepEqual(gatheringOf(allFull).auto, { food: 1, wood: 1 }, "all full: as they were");
+  const fullFood = { ...s, resources: { ...s.resources, food: 1e9 } };
+  assert.deepEqual(Object.keys(foodKindsOf(fullFood)).sort(), Object.keys(foodKindsOf(s)).sort(), "a full storage doesn't change the menu");
+  const parts = capPartsOf({ ...s, perks: { vault: 1 } }, "food");
+  assert.deepEqual(parts.map((p) => p.amount), [400, 400, 200]);
 });
 
 test("gatherers: the jobless gather near the town, spread over the basics unless the players choose", () => {
@@ -461,7 +487,7 @@ test("raids: a building on fire does nothing until a vote repairs it", () => {
   const burnt = fire([house.id, cutter.id, storage.id]);
   assert.equal(bedsOf(burnt), bedsOf(s) - 3);
   assert.equal(assignWorkers(burnt).workers[cutter.id], undefined);
-  assert.ok(capOf(burnt) < capOf(s));
+  assert.ok(capOf(burnt, "wood") < capOf(s, "wood"));
   const repair = { kind: "repair" as const, building: house.id };
   assert.equal(actionError(s, repair), "niet beschadigd");
   assert.equal(actionError(burnt, repair), null);
@@ -739,8 +765,8 @@ test("demolish: anything but the center, for a share of its cost back, up to the
   assert.equal(bedsOf(state), bedsOf(s) - 3);
   assert.equal(assignWorkers(state).homeless, 3, "its people sleep outside now");
   assert.deepEqual([state.resources.wood, state.resources.stone], [22, 7]);
-  const full = { ...s, resources: { wood: capOf(s) } };
-  assert.equal(applyAction(full, action).state.resources.wood, capOf(s), "storage limit holds");
+  const full = { ...s, resources: { wood: capOf(s, "wood") } };
+  assert.equal(applyAction(full, action).state.resources.wood, capOf(s, "wood"), "storage limit holds");
   // A building from an earlier era gives back what it cost then.
   const old = unlockEra(s, 2);
   assert.deepEqual(refundOf(old, action), refundOf(s, action));

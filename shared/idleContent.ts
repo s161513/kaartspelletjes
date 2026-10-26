@@ -255,7 +255,6 @@ export const BUILDING_TYPES: readonly BuildingType[] = [
   },
   ...(
     [
-      ["market", "🏪", 0, { wood: 60, food: 30 }, ["Ruilplaats", "Marktkraam", "Handelspost", "Agora", "Markthal", "Handelshuis", "Beurs", "Winkelcentrum", "Webshop", "Ruimtemarkt", "Galactische beurs"]],
       ["sculptor", "🎨", 0, { stone: 60, wood: 20 }, ["Beeldhouwer", "Beeldhouwer", "Beeldensmidse", "Atelier", "Steenhouwersgilde", "Kunstatelier", "Gieterij", "Designstudio", "3D-kunstlab", "Holostudio", "Kosmisch atelier"]],
       ["tavern", "🍺", 0, { wood: 50, food: 40 }, ["Mede-hut", "Bierhuis", "Taverne", "Taberna", "Herberg", "Wijnhuis", "Kroeg", "Café", "Gamingcafé", "Ruimtebar", "Kosmische cantina"]],
       ["tailor", "🧵", 0, { wood: 40, food: 40 }, ["Huidenlooier", "Wever", "Kleermaker", "Toga-atelier", "Kleermakerij", "Modehuis", "Confectie", "Boetiek", "Streetwear-shop", "Ruimtepakkenzaak", "Holo-couture"]],
@@ -331,6 +330,8 @@ export interface ShopItem {
   vote: boolean;
   /** Level-0 cost, ×4 per era; perks ×PERK_GROWTH per level owned. */
   cost: Amounts;
+  /** The cost is for PARTY_PEOPLE villagers, and grows with the town (a party feeds everyone). */
+  perPerson?: boolean;
   effect: ShopEffect;
 }
 
@@ -340,16 +341,15 @@ export const SHOP_ITEMS: readonly ShopItem[] = [
   { id: "feast_food", shop: "shop_tavern", name: "Feestmaal", emoji: "🍗", desc: "+50% voedsel, 2 min", vote: false, cost: { wood: 30 }, effect: { kind: "boost", resource: "food", mult: 1.5, ms: 2 * MIN } },
   { id: "feast_wood", shop: "shop_tavern", name: "Houthakkerslied", emoji: "🎶", desc: "+50% hout, 2 min", vote: false, cost: { food: 30 }, effect: { kind: "boost", resource: "wood", mult: 1.5, ms: 2 * MIN } },
   { id: "feast_stone", shop: "shop_tavern", name: "Steenhouwersbier", emoji: "🍺", desc: "+50% steen, 2 min", vote: false, cost: { food: 30 }, effect: { kind: "boost", resource: "stone", mult: 1.5, ms: 2 * MIN } },
-  { id: "party", shop: "shop_tavern", name: "Groot dorpsfeest", emoji: "🎉", desc: "×2 alle productie, 10 min", vote: true, cost: { food: 150, wood: 100, stone: 100 }, effect: { kind: "boost", resource: null, mult: 2, ms: 10 * MIN } },
+  { id: "party", shop: "shop_tavern", name: "Groot dorpsfeest", emoji: "🎉", desc: "×2 alle productie, 10 min; duurder met meer inwoners", perPerson: true, vote: true, cost: { food: 150, wood: 100, stone: 100 }, effect: { kind: "boost", resource: null, mult: 2, ms: 10 * MIN } },
   { id: "tools_food", shop: "shop_smith", name: "Betere sikkels", emoji: "🌾", desc: "+10% voedsel, voor altijd", vote: true, cost: { wood: 80, stone: 60 }, effect: { kind: "perk", max: 5 } },
   { id: "tools_wood", shop: "shop_smith", name: "Scherpere bijlen", emoji: "🪓", desc: "+10% hout, voor altijd", vote: true, cost: { food: 60, stone: 80 }, effect: { kind: "perk", max: 5 } },
   { id: "tools_stone", shop: "shop_smith", name: "Stalen houwelen", emoji: "⛏️", desc: "+10% steen, voor altijd", vote: true, cost: { food: 60, wood: 80 }, effect: { kind: "perk", max: 5 } },
   { id: "tools_special", shop: "shop_smith", name: "Mijnwerkerslampen", emoji: "🔦", desc: "+10% op alle speciale grondstoffen, voor altijd", vote: true, cost: { food: 100, wood: 100, stone: 100 }, effect: { kind: "perk", max: 5 } },
   { id: "vault", shop: "shop_bank", name: "Grotere kluis", emoji: "🔐", desc: "+25% opslag, voor altijd", vote: true, cost: { stone: 200, wood: 100 }, effect: { kind: "perk", max: 4 } },
-  { id: "tradeDeal", shop: "shop_bank", name: "Handelsakkoord", emoji: "🤝", desc: "+5% betere koers op de markt", vote: true, cost: { food: 150, wood: 150 }, effect: { kind: "perk", max: 3 } },
   { id: "workplace", shop: "shop_university", name: "Efficiënte werkplaatsen", emoji: "👷", desc: "+1 werker per werkgebouw", vote: true, cost: { food: 200, wood: 200, stone: 200 }, effect: { kind: "perk", max: 3 } },
   { id: "architecture", shop: "shop_university", name: "Architectuur", emoji: "📐", desc: "−10% bouw- en upgradekosten", vote: true, cost: { wood: 250, stone: 250 }, effect: { kind: "perk", max: 3 } },
-  { id: "auto", shop: "shop_lab", name: "Automatisering", emoji: "🤖", desc: "robots verzamelen elke grondstof (+½ klik per seconde)", vote: true, cost: { food: 250, wood: 250, stone: 250 }, effect: { kind: "perk", max: 5 } },
+  { id: "auto", shop: "shop_lab", name: "Automatisering", emoji: "🤖", desc: "robots verzamelen elke grondstof (+¼ klik per seconde)", vote: true, cost: { food: 250, wood: 250, stone: 250 }, effect: { kind: "perk", max: 5 } },
   { id: "timewarp", shop: "shop_spaceport", name: "Tijdsprong", emoji: "⏩", desc: "meteen 10 minuten productie", vote: true, cost: { food: 300, wood: 300, stone: 300 }, effect: { kind: "instant", seconds: 600 } },
 ];
 
@@ -447,7 +447,7 @@ export type EraGoal =
 export const ERA_GOALS: readonly (readonly EraGoal[])[] = [
   [{ kind: "population", n: 15 }, { kind: "happiness", n: 50 }, { kind: "foodKinds", n: 3 }, { kind: "building", type: "storage" }],
   [{ kind: "population", n: 30 }, { kind: "happiness", n: 55 }, { kind: "foodKinds", n: 3 }, { kind: "building", type: "mine_bronze" }, { kind: "building", type: "shop_smith" }, { kind: "current", n: 5 }],
-  [{ kind: "population", n: 50 }, { kind: "happiness", n: 55 }, { kind: "building", type: "mine_iron" }, { kind: "building", type: "shop_market" }, { kind: "current", n: 8 }],
+  [{ kind: "population", n: 50 }, { kind: "happiness", n: 55 }, { kind: "building", type: "mine_iron" }, { kind: "building", type: "weaponsmith" }, { kind: "current", n: 8 }],
   [{ kind: "population", n: 75 }, { kind: "happiness", n: 60 }, { kind: "building", type: "mine_gold" }, { kind: "building", type: "shop_bank" }, { kind: "current", n: 10 }],
   [{ kind: "population", n: 100 }, { kind: "happiness", n: 60 }, { kind: "foodKinds", n: 4 }, { kind: "building", type: "mine_wool" }, { kind: "current", n: 12 }],
   [{ kind: "population", n: 140 }, { kind: "happiness", n: 60 }, { kind: "building", type: "mine_knowledge" }, { kind: "building", type: "shop_university" }, { kind: "current", n: 15 }],
@@ -465,7 +465,7 @@ export const WONDER_COST: Amounts = { wood: 400, stone: 400, food: 300 };
 /** Plus this much of the era's special resource (from the Bronze Age on). */
 export const WONDER_SPECIAL_COST = 120;
 /** After a phase the builders need this long before the next one can start. */
-export const WONDER_BUILD_MS = 6 * 60 * 60_000;
+export const WONDER_BUILD_MS = 24 * 60 * 60_000;
 
 // ---------- enemies ----------
 
@@ -511,7 +511,7 @@ export const RAID_MOODS: readonly { id: RaidMoodId; emoji: string; name: string;
 /** Every new 67 on the counter (by its highest value) drops a crate in town, holding this many seconds of production… */
 export const DROP_SECONDS = 300;
 /** …and at least this much of each base resource (×4 per era). */
-export const DROP_MIN = 30;
+export const DROP_MIN = 60;
 /** Crates waiting to be opened, at most. */
 export const MAX_DROPS = 3;
 /** Chance per +1 of a lucky event, at most one per cooldown. */
@@ -520,13 +520,12 @@ export const LUCKY_COOLDOWN_MS = 30 * MIN;
 /** How long a lucky event lasts. */
 export const LUCKY_MS = 10 * MIN;
 
-export type LuckyId = "lucky_gold" | "lucky_newcomers" | "lucky_party" | "lucky_merchant";
+export type LuckyId = "lucky_gold" | "lucky_newcomers" | "lucky_party";
 
 export const LUCKY_EVENTS: readonly { id: LuckyId; emoji: string; name: string }[] = [
   { id: "lucky_gold", emoji: "🌟", name: "Gouden uur" },
   { id: "lucky_newcomers", emoji: "🧳", name: "Nieuwkomers" },
   { id: "lucky_party", emoji: "🥳", name: "Spontaan feest" },
-  { id: "lucky_merchant", emoji: "🐪", name: "Rondtrekkende koopman" },
 ];
 /** Golden hour: one resource ×this. */
 export const LUCKY_GOLD_MULT = 3;
@@ -534,44 +533,43 @@ export const LUCKY_GOLD_MULT = 3;
 export const LUCKY_NEWCOMERS_SHARE = 0.1;
 /** A spontaneous party: this much happiness. */
 export const LUCKY_PARTY_POINTS = 20;
-/** The merchant: market rates ×this. */
-export const LUCKY_MERCHANT_MULT = 1.5;
 
 // ---------- balance ----------
 
 /** Costs, production and storage all grow ×4 per level/era, so every era plays at the same pace. */
 export const LEVEL_SCALE = 4;
+/**
+ * Every price in the game (buildings, upgrades, wonders, shop items, streets,
+ * walls, clothes) is this × the amounts in this file. With production at half
+ * (update 12), the town grows about four times slower.
+ */
+export const PRICE_MULT = 2;
 /** Building something new costs this × its base cost, so the town grows at a steady pace. */
 export const BUILD_COST_MULT = 1.5;
 /** Each copy of a type costs this much more than the previous one. */
-export const COST_GROWTH = 1.2;
+export const COST_GROWTH = 1.3;
 /** Upgrading costs this share of building new at the target level (before BUILD_COST_MULT). */
 export const UPGRADE_SHARE = 0.6;
 /** Tearing down a building or a path gives back this share of what it costs at its level. */
 export const REFUND_SHARE = 0.25;
 /** Per work building at full staff, per second, at level 0. */
-export const BASE_RATE: Readonly<Record<ResourceId, number>> = { food: 1, wood: 1, stone: 0.8 };
-export const SPECIAL_BASE_RATE = 0.5;
+export const BASE_RATE: Readonly<Record<ResourceId, number>> = { food: 0.5, wood: 0.5, stone: 0.4 };
+export const SPECIAL_BASE_RATE = 0.25;
 /** A mine digs the land's ores (and stone) this close to the mountain. */
 export const MINE_RANGE = 5;
-/** Storage: the base everyone has (×4^era), per storage building and the center (×4^level). */
-export const BASE_CAP = 200;
-export const STORAGE_CAP = 400;
-export const CENTER_CAP = 200;
+/** Storage: the base everyone has (×4^era), per storage building and the center (×4^level); grows with PRICE_MULT. */
+export const BASE_CAP = 400;
+export const STORAGE_CAP = 800;
+export const CENTER_CAP = 400;
 /** One "click's worth" of a resource is this ×4^era (gatherers and the lab's robots count in clicks). */
 export const CLICK_BASE = 1;
 
 /** Each level of a perk costs this much more than the one before. */
 export const PERK_GROWTH = 1.6;
+/** A shop item with `perPerson` costs its price per this many villagers (at least once). */
+export const PARTY_PEOPLE = 10;
 /** Boosts reach at most this far ahead, however often they're bought. */
 export const MAX_ITEM_BOOST_MS = 30 * MIN;
-/** Market: value per unit (specials are produced at half the base rate). */
-export const WORTH: Readonly<Record<ResourceId, number>> = { food: 1, wood: 1, stone: 1.25 };
-export const SPECIAL_WORTH = 2;
-/** Share of the value you get back, before the market's level and the bank's deals. */
-export const MARKET_FEE = 0.5;
-/** Market pressure halves this often; a trade worth a full storage adds 0.5. */
-export const MARKET_HALF_LIFE_MS = 2 * MIN;
 /** Village: homes, storage, shops and decorations stand this close (in tiles) to another building. */
 export const VILLAGE_RANGE = 10;
 /** Work buildings with a source (forest, rocks, a vein) stand this close to it. */
@@ -599,7 +597,7 @@ export const WORK_DRAIN = 0.25;
 /** Villagers without a job gather from nature within this many tiles of the town center… */
 export const GATHER_RANGE = 15;
 /** …each this many clicks' worth per second (a job pays far better), using up a click per click. */
-export const GATHER_RATE = 0.1;
+export const GATHER_RATE = 0.05;
 
 // ---------- happiness ----------
 
@@ -615,8 +613,10 @@ export const MAX_DECOR_POINTS = 20;
 /** A tavern in town, and a big party from it while it lasts. */
 export const TAVERN_POINTS = 10;
 export const PARTY_POINTS = 15;
-/** Villagers moving in or out, per minute, until the town has as many as it draws. */
-export const MOVE_PER_MIN = 1;
+/** One villager moves in or out this often, until the town has as many as it draws. */
+export const MOVE_MS = 30 * MIN;
+/** The happiness meter creeps one point towards what the town is worth this often (up and down). */
+export const HAPPY_STEP_MS = 10 * MIN;
 
 /** Beds in a house. */
 export const housingOf = (level: number): number => 3 + level;
@@ -632,7 +632,6 @@ export const resourceDef = (id: ResourceId): ResourceDef | undefined => RESOURCE
 export const buildingType = (id: string): BuildingType | undefined => TYPE_BY_ID[id];
 const ITEM_BY_ID: Record<string, ShopItem> = Object.fromEntries(SHOP_ITEMS.map((i) => [i.id, i]));
 export const shopItem = (id: string): ShopItem | undefined => ITEM_BY_ID[id];
-export const worthOf = (id: ResourceId): number => WORTH[id] ?? SPECIAL_WORTH;
 const OUTFIT_BY_ID: Record<string, Outfit> = Object.fromEntries(OUTFITS.map((o) => [o.id, o]));
 export const outfit = (id: string): Outfit | undefined => OUTFIT_BY_ID[id];
 

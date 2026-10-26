@@ -165,8 +165,6 @@ export function createCounterServer(opts: CounterServerOptions = {}): WebSocketS
           return reply(idle.assign(msg.from, msg.to, now));
         case "propose":
           return reply(idle.propose(clientId, msg.name, msg.action, online, now));
-        case "trade":
-          return reply(idle.trade(clientId, msg.name, msg.from, msg.to, msg.amount, now));
         case "buy":
           return reply(idle.buy(clientId, msg.name, msg.item, now));
         case "open":

@@ -575,6 +575,15 @@ zien of gebruiken, ook niet als ze het bericht zelf sturen.
       herstarten. (bron: idem, "Ik wil NIET dat
       deze optie mogelijk is voor gewone gebruikers, alleen hier lokaal bij
       mij")
+- [x] Een tijdelijke pagina met de sprites van elk tijdperk, om te zien of
+      ze kloppen (Richard, 2026-10-27: "maak een tijdelijke map waar je de
+      sprites laat zien van elke tijdperk, want ik denk dat er sommige niet
+      kloppen"). Gedaan: `/sprites.html` in `npm run dev` (ook via de knop
+      "🖼️ sprites" in de ontwikkelaarsbalk): een tabel met per gebouw een rij
+      en per tijdperk een kolom, getekend met dezelfde code als het dorp; ook
+      de wonderen in aanbouw en de muren. Het hoort niet bij de build, dus
+      spelers kunnen het niet openen (`client/sprites.html`,
+      `client/src/spriteGallery.ts`).
 
 ### Update 24: Pixel-art HUD
 Status: in review (PR #46). Pixel-art, zoals in update 16. Steunt op update 23 (PR #45).

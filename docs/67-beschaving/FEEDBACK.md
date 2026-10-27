@@ -17,6 +17,12 @@ thema (zie [ROADMAP.md](ROADMAP.md)):
 
 ## Verwerkt
 
+- 2026-10-27 (later), feedback ingedeeld (Richard):
+  - "het 67 standbeeld mag niet bewegen, het is gewoon statisch":
+    Update 19 (PR #42)
+  - "maak een tijdelijke map waar je de sprites laat zien van elk
+    tijdperk, want ik denk dat er sommige niet kloppen": Update 23 (PR #45)
+
 - 2026-10-27, feedback ingedeeld (Richard):
   - "een zonsopgang en zonsondergang, een mooie overgang" (in de chat) en
     "dag en nacht cycle hoeft geen HUD of weergave, het gebeurt gewoon":

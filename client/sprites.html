@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="nl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>67 Beschaving: sprites per tijdperk</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 16px;
+        background: #1c1209;
+        color: #fff;
+        font: 13px "Segoe UI", system-ui, sans-serif;
+      }
+      h1 {
+        margin: 0 0 4px;
+        font-size: 20px;
+      }
+      p {
+        margin: 0 0 12px;
+        color: #d6c8ff;
+      }
+      .sg-wrap {
+        overflow: auto;
+        max-height: calc(100vh - 90px);
+      }
+      table {
+        border-collapse: collapse;
+      }
+      th,
+      td {
+        border: 1px solid #3a2a18;
+        padding: 4px;
+        vertical-align: bottom;
+        text-align: center;
+      }
+      thead th {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+        background: #2b1b0d;
+      }
+      tbody th {
+        position: sticky;
+        left: 0;
+        background: #2b1b0d;
+        text-align: left;
+        white-space: nowrap;
+      }
+      td canvas {
+        display: block;
+        margin: 0 auto;
+        background: #2d4a1f;
+        image-rendering: pixelated;
+      }
+      td span {
+        display: block;
+        max-width: 140px;
+        margin: 2px auto 0;
+        color: #ffe82e;
+        font-size: 11px;
+      }
+      td.sg-none {
+        background: #140d06;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Sprites per tijdperk</h1>
+    <p>Alleen voor het testen (update 23), niet in het echte spel: elk gebouw zoals het in elk tijdperk getekend wordt. Leeg vak: bestaat in dat tijdperk nog niet.</p>
+    <div class="sg-wrap" id="sg"></div>
+    <script type="module" src="/src/spriteGallery.ts"></script>
+  </body>
+</html>

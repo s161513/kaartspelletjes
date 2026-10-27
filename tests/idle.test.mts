@@ -53,6 +53,13 @@ import {
   dropContents,
   defenseOf,
   dutchHour,
+  gateCost,
+  isNight,
+  nextDayAt,
+  nextNightAt,
+  workMs,
+  DAY_MS,
+  NIGHT_MS,
   nextRaidAt,
   raidStrength,
   repairCost,
@@ -425,16 +432,21 @@ const seq = (...xs: number[]) => {
   return () => xs[Math.min(i++, xs.length - 1)];
 };
 
-test("raids: from the Bronze Age, about a day apart, in the daytime, seen coming an hour before", () => {
+test("raids: from the Bronze Age, a few hours apart, at night while people are up, seen coming an hour before", () => {
   assert.equal(stepRaid(town(T0), Math.random), null, "no raids in the Stone Age");
   const s = raidTown();
   const planned = stepRaid(s, () => 0)!;
   assert.equal(planned.news, undefined);
   const at = planned.state.nextRaid;
-  assert.ok(at >= T0 + 20 * 3_600_000 && at < T0 + 37 * 3_600_000);
+  assert.ok(at >= T0 + 4 * 3_600_000 && at < T0 + 24 * 3_600_000);
+  assert.ok(isNight(at));
   for (let i = 0; i < 50; i++) {
-    const h = dutchHour(nextRaidAt(T0 + i * 3_917_000, Math.random));
+    const from = T0 + i * 3_917_000;
+    const next = nextRaidAt(from, Math.random);
+    const h = dutchHour(next);
     assert.ok(h >= 10 && h < 22, `hour ${h}`);
+    assert.ok(isNight(next), "at night");
+    assert.ok(next >= from + 4 * 3_600_000);
   }
   // Nothing until an hour before; then they're seen coming, with the strength fixed.
   const quiet = { ...planned.state, lastTick: at - RAID_WARNING_MS - 1 };
@@ -445,9 +457,32 @@ test("raids: from the Bronze Age, about a day apart, in the daytime, seen coming
   assert.equal(seen.state.raid!.strength, raidStrength(s, 0.5));
   assert.equal(raidStrength(s, 0.5), 15 + 15 + 12);
   assert.match(seen.news!.label, /^⚔️ Vijanden in aantocht! Over 1 u 00 vallen ze aan: ⚔️ 42 tegen onze 🛡️ \d+$/);
-  // After a long time nobody was around, there's still an hour's warning.
-  const late = stepRaid({ ...planned.state, lastTick: at + 5 * 3_600_000 }, seq(0.5, 0))!;
-  assert.equal(late.state.raid!.at, at + 6 * 3_600_000);
+  // After a long time nobody was around, there's still an hour's warning, and they still come at night.
+  const lastTick = at + 5 * 3_600_000;
+  const late = stepRaid({ ...planned.state, lastTick }, seq(0.5, 0))!;
+  assert.ok(late.state.raid!.at >= lastTick + RAID_WARNING_MS && late.state.raid!.at <= lastTick + RAID_WARNING_MS + DAY_MS + 2 * 60_000);
+  assert.ok(isNight(late.state.raid!.at));
+});
+
+test("day and night: 20 minutes each by the clock, at night everything is made at half speed", () => {
+  const night = nextNightAt(T0);
+  assert.ok(!isNight(night - 1) && isNight(night) && isNight(night + NIGHT_MS - 1) && !isNight(night + NIGHT_MS));
+  assert.equal(nextNightAt(night), night);
+  assert.equal(nextDayAt(night + 1000), night + NIGHT_MS);
+  assert.equal(nextDayAt(night - 1000), night - 1000);
+  assert.equal(DAY_MS, 20 * 60_000);
+  assert.equal(workMs(night - 60_000, night), 60_000);
+  assert.equal(workMs(night, night + 60_000), 30_000);
+  assert.equal(workMs(night - DAY_MS, night + NIGHT_MS), DAY_MS + NIGHT_MS / 2);
+  // A day and a night of work in two hours: the same however it's cut up.
+  assert.equal(workMs(T0, T0 + 7_200_000), workMs(T0, T0 + 1_234_567) + workMs(T0 + 1_234_567, T0 + 7_200_000));
+  // The town makes half as much in a minute of night as in a minute of day, and shows half the rate.
+  const s = { ...town(T0), resources: {} };
+  const day = advance({ ...s, lastTick: night - 60_000 }, night);
+  const dark = advance({ ...s, lastTick: night }, night + 60_000);
+  assert.ok(day.resources.wood! > 0);
+  assert.ok(Math.abs(dark.resources.wood! - day.resources.wood! / 2) < 1e-9);
+  assert.ok(Math.abs(ratesOf({ ...s, lastTick: night }).wood! - ratesOf({ ...s, lastTick: night - 1 }).wood! / 2) < 1e-9);
 });
 
 test("raids: walls, towers, villagers and armed guards defend; a lost fight steals, kills and sets a building on fire", () => {
@@ -525,6 +560,37 @@ test("walls: drawn on free land near the village like paths, upgraded all at onc
   const off = applyAction(walled, { kind: "unwall", tiles: [tile] }).state;
   assert.deepEqual(off.walls, []);
   assert.equal(off.resources.wood, walled.resources.wood + 3);
+});
+
+test("gates: a wall tile becomes a gate through a vote, for its own price; taking the wall off takes the gate too", () => {
+  const s = raidTown();
+  const free = findTile((x, y) => isBuildableTile(x, y) && !s.buildings.some((b) => b.x === x && b.y === y) && Math.abs(x - CENTER.x) + Math.abs(y - CENTER.y) < 6 && !isRoad(s.roads, x, y));
+  const tile = tileIndex(free.x, free.y);
+  const gate = { kind: "gate" as const, tiles: [tile] };
+  assert.equal(actionError(s, gate), "een poort komt in een muur");
+  const walled = applyAction(s, { kind: "walls", tiles: [tile] }).state;
+  assert.equal(actionError(walled, gate), null);
+  assert.deepEqual(gateCost(walled, [tile]), { wood: 60, stone: 20 });
+  assert.equal(actionLabel(walled, gate), "🚪 Poort in de muur");
+  const gated = applyAction(walled, gate).state;
+  assert.deepEqual(gated.gates, [tile]);
+  assert.equal(gated.resources.wood, walled.resources.wood - 60);
+  assert.equal(actionError(gated, gate), "daar is al een poort");
+  const off = applyAction(gated, { kind: "unwall", tiles: [tile] }).state;
+  assert.deepEqual([off.walls, off.gates], [[], []]);
+
+  // On the server: proposed like anything else, and only gates in the wall survive a restart.
+  const dir = mkdtempSync(path.join(tmpdir(), "idle-"));
+  try {
+    const file = path.join(dir, "idle.json");
+    writeFileSync(file, JSON.stringify({ ...walled, gates: [tile + 1] }));
+    const game = createIdleGame(file, T0);
+    assert.deepEqual(game.message("a", 0, 0, 1, T0).state.gates, []);
+    assert.equal(game.propose("a", "Ann", gate, 2, T0).error, undefined);
+    assert.deepEqual(game.message("a", 0, 0, 2, T0).proposals.map((p) => p.action), [gate]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("happiness: food variety, beds, decorations and the tavern; it sets the work speed", () => {
@@ -1070,10 +1136,10 @@ test("idle game: open votes wait for resources, count once per player, survive a
     // Two villagers without a job gather stone for it.
     game.assign(null, "stone", T0);
     game.assign(null, "stone", T0);
-    // 57 stone short, at 0.05 stone/s each: about ten minutes.
+    // 57 stone short, at 0.05 stone/s each: about ten minutes, longer as night falls (half speed).
     // (Newcomers knock and couples have children meanwhile: "lucky" news, left out here.)
     const news = (events: { kind: string }[]) => events.filter((e) => e.kind !== "lucky");
-    assert.deepEqual(news(game.tick(2, T0 + 900_000)).map((e) => e.kind), ["bought"], "built once there's enough");
+    assert.deepEqual(news(game.tick(2, T0 + 1_200_000)).map((e) => e.kind), ["bought"], "built once there's enough");
 
     // Two tabs of one player are one voter.
     game.hello("t1", KEY, "Ann", T0);

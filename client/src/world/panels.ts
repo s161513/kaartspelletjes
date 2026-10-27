@@ -70,6 +70,7 @@ import {
   populationTarget,
   profileText,
   freeBedsOf,
+  gateCost,
   BIRTH_HAPPY,
   BIRTH_MS,
   ratesOf,
@@ -469,7 +470,7 @@ export function createPanels(deps: PanelDeps): Panels {
   function spotOf(p: IdleProposalView): { x: number; y: number } | null {
     const a = p.action;
     if (a.kind === "build") return a;
-    if (a.kind === "paths" || a.kind === "unpave" || a.kind === "walls" || a.kind === "unwall") return a.tiles.length ? tileOf(a.tiles[0]) : null;
+    if (a.kind === "paths" || a.kind === "unpave" || a.kind === "walls" || a.kind === "unwall" || a.kind === "gate") return a.tiles.length ? tileOf(a.tiles[0]) : null;
     if (a.kind === "upgrade" || a.kind === "demolish" || a.kind === "wonder" || a.kind === "ore" || a.kind === "repair") return deps.world()?.buildings.find((b) => b.id === a.building) ?? null;
     return null;
   }
@@ -605,7 +606,7 @@ export function createPanels(deps: PanelDeps): Panels {
   const DRAW_TEXT: Record<DrawMode, string> = {
     paths: "🛤️ Sleep over tegels: een pad, dwars door de natuur of als brug over de rivier",
     unpave: "⛏️ Sleep over paden om ze weg te halen",
-    walls: "🧱 Sleep over tegels: een muur rond het dorp houdt vijanden tegen",
+    walls: "🧱 Sleep over tegels: een muur rond het dorp houdt vijanden tegen (klik daarna op een stuk muur voor een poort)",
     unwall: "⛏️ Sleep over muren om ze weg te halen",
   };
 
@@ -743,7 +744,7 @@ export function createPanels(deps: PanelDeps): Panels {
     const world = deps.world();
     if (!world || !placeTile) return;
     const { x, y } = placeTile;
-    const sig = `${x},${y}|${world.era}|${world.buildings.length}|${world.roadLevel}|${world.roads.length}|${world.wallLevel}|${world.walls.length}`;
+    const sig = `${x},${y}|${world.era}|${world.buildings.length}|${world.roadLevel}|${world.roads.length}|${world.wallLevel}|${world.walls.length}|${world.gates.length}`;
     if (sig !== placeSig) {
       placeSig = sig;
       placeOffers = [];
@@ -776,12 +777,33 @@ export function createPanels(deps: PanelDeps): Panels {
           placeBody.append(h("p", "sx-note", "✓ De straten zijn helemaal bij voor dit tijdperk."));
         }
       } else if (isRoad(world.walls, x, y)) {
-        placeTitle.textContent = `🧱 ${wallName(world.wallLevel)}`;
-        placeSub.textContent = `De hele muur gaat samen omhoog. Elke tegel geeft 🛡️ ${fmt(WALL_POINTS * (1 + world.wallLevel))} verdediging.`;
+        const gate = isRoad(world.gates, x, y);
+        placeTitle.textContent = gate ? `🚪 Poort in de ${wallName(world.wallLevel).toLowerCase()}` : `🧱 ${wallName(world.wallLevel)}`;
+        placeSub.textContent =
+          (gate ? "Dorpelingen lopen alleen door een poort naar buiten; vijanden ook, of ze klimmen over de muur (dat duurt langer). " : "") +
+          `De hele muur gaat samen omhoog. Elke tegel geeft 🛡️ ${fmt(WALL_POINTS * (1 + world.wallLevel))} verdediging.`;
         placeBody.append(
           button("sx-act sx-act-now", "⛏️ Muren weghalen", () => startPaths("unwall", { x, y })),
           button("sx-act", "🧱 Muren tekenen", () => startPaths("walls")),
         );
+        if (!gate) {
+          const action: ProposalAction = { kind: "gate", tiles: [tileIndex(x, y)] };
+          const o = offer({
+            emoji: "🚪",
+            name: "Poort maken",
+            effect: "dorpelingen lopen alleen door poorten in de muur",
+            action: "🗳️ voorstellen",
+            votes: true,
+            onClick: () => {
+              propose(action);
+              closePlace();
+            },
+            cost: (w) => gateCost(w, action.tiles),
+            error: (w) => actionError(w, action),
+          });
+          placeBody.append(o.el);
+          placeOffers.push(o);
+        }
         if (world.wallLevel < world.era) {
           const o = offer({
             emoji: "⬆️",
@@ -1082,8 +1104,8 @@ export function createPanels(deps: PanelDeps): Panels {
       h(
         "p",
         "sx-note",
-        `Vanaf de ${ERAS[RAID_FROM_ERA].name} valt er zo'n keer per dag een vijand aan, overdag en ${durationText(RAID_WARNING_MS)} van tevoren te zien. ` +
-          "Muren (tekenen zoals paden), torens, inwoners en wachters met wapens en harnassen houden ze tegen. " +
+        `Vanaf de ${ERAS[RAID_FROM_ERA].name} vallen er een paar keer per dag vijanden aan, altijd 's nachts en ${durationText(RAID_WARNING_MS)} van tevoren te zien. ` +
+          "Muren (tekenen zoals paden, met poorten voor de dorpelingen), torens, inwoners en wachters met wapens en harnassen houden ze tegen. " +
           "Is de vijand sterker, dan stelen ze, vallen er doden en steken ze een gebouw in brand.",
       ),
     );

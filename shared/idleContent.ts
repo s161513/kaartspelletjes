@@ -399,6 +399,8 @@ export const WALL_NAMES: readonly string[] = [
 ];
 /** One tile of wall, at the wall's level (×4 per level). */
 export const WALL_TILE_COST: Amounts = { wood: 6, stone: 4 };
+/** A gate in the wall, per tile, ×4 per wall level: villagers only walk through gates. */
+export const GATE_TILE_COST: Amounts = { wood: 30, stone: 10 };
 /** Level-0 cost of upgrading the whole wall (×4 per era, plus that era's special). */
 export const WALL_UPGRADE_COST: Amounts = { stone: 100, wood: 50 };
 export const WALL_SPECIAL_COST = 20;
@@ -487,14 +489,22 @@ export const WONDER_SPECIAL_COST = 120;
 /** After a phase the builders need this long before the next one can start. */
 export const WONDER_BUILD_MS = 24 * 60 * 60_000;
 
+// ---------- day and night ----------
+
+/** A day and a night of the town, each this long. The same for everyone: it goes by the clock. */
+export const DAY_MS = 20 * MIN;
+export const NIGHT_MS = 20 * MIN;
+/** At night most villagers sleep: everything is made at this speed. */
+export const NIGHT_WORK = 0.5;
+
 // ---------- enemies ----------
 
 /** Raids start in this era. */
 export const RAID_FROM_ERA = 1;
-/** The next raid comes this long after the last one, plus up to the spread… */
-export const RAID_GAP_MS = 20 * 60 * 60_000;
-export const RAID_GAP_SPREAD_MS = 16 * 60 * 60_000;
-/** …in the daytime (Dutch time, from–to hour), and is seen coming this long before. */
+/** The next raid comes this long after the last one, plus up to the spread (update 20: a few times a day)… */
+export const RAID_GAP_MS = 4 * 60 * 60_000;
+export const RAID_GAP_SPREAD_MS = 4 * 60 * 60_000;
+/** …always in a night of the town, while people are up (Dutch time, from–to hour), and is seen coming this long before. */
 export const RAID_HOURS: readonly [number, number] = [10, 22];
 export const RAID_WARNING_MS = 60 * 60_000;
 /** Attack: a base, more per era and per villager (they come for what's there), ± the spread. */

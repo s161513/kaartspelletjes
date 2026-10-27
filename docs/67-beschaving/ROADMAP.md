@@ -61,11 +61,11 @@ Daarnaast blijft gelden:
 
 | Wat | Bestand |
 | --- | --- |
-| Regels: productie (ook mijnen en smeden), opslag per grondstof, geluk (de meter), inwoners, kosten, stemmen, paden, muren, afbreken, doelen en wonderen, supply drops, aanvallen | `shared/idle.ts` |
+| Regels: productie (ook mijnen en smeden), dag en nacht, opslag per grondstof, geluk (de meter), inwoners, kosten, stemmen, paden, muren en poorten, afbreken, doelen en wonderen, supply drops, aanvallen | `shared/idle.ts` |
 | Getallen en content: grondstoffen, tijdperken (doelen, wonderen), gebouwen, winkels, gelukjes; de balans (`PRICE_MULT`, `BASE_RATE`, …) onderaan | `shared/idleContent.ts` |
 | Kaart, natuur, waar gebouwen en paden mogen | `shared/idleMap.ts` |
 | Server: opslag (`data/idle.json`), invoercontrole, stemmen afhandelen | `server/src/idle.ts`, `server/src/counter.ts` |
-| Browser: wereld, panelen, NPC's, padvinden | `client/src/world/*`, `client/src/counter.ts` |
+| Browser: wereld, panelen, NPC's, padvinden, de nacht en het licht (`night.ts`) | `client/src/world/*`, `client/src/counter.ts` |
 | Pixel-art: sprites, atlas, eigen sprites (`pixelart.py`: Steen- en Bronstijd, `pixelnature.py`: water, oevers, bloemen, `pixeldecor.py`: decoraties), licenties | `client/src/world/sprites/` (na een wijziging: `python client/src/world/sprites/build.py`), `sprites.ts`, `pixel.ts` |
 | Tests | `tests/idle.test.mts` |
 
@@ -459,21 +459,49 @@ Status: in review (PR #42). Pixel-art, zoals in update 16.
       golven; ook de hoekjes (`drawWaterTile` in `draw.ts`).
 
 ### Update 20: Dag & nacht
-Status: gepland. Eerst met Richard afstemmen wat er 's nachts verandert aan
-het werk, en hoe vaak de vijanden komen.
+Status: in review (PR #43). Steunt op update 19 (PR #42).
 
-- [ ] Een dag duurt 20 minuten. 's Nachts is alles donkerder (maanlicht);
-      vuren, fakkels en ramen geven licht, gebouwen zonder licht niet. (bron:
-      2026-10-26, "dag/nacht cycle van 20 minuten")
-- [ ] 's Nachts slaapt iedereen in zijn eigen huis. (bron: 2026-10-26,
-      "mensen moeten slapen in hun eigen huis")
-- [ ] De vijanden komen om de paar nachten, in plaats van ongeveer één keer
-      per dag overdag. (bron: 2026-10-26, "de vijanden komen om de paar
-      nachten")
-- [ ] Poorten in de muur: dorpelingen lopen alleen door een poort, en de
-      vijanden moeten erdoor of eroverheen. (bron: 2026-10-26, "poorten om in
-      de muur te kunnen zetten"; bekende beperking "muren houden niemand
-      tegen")
+Afgesproken met Richard (2026-10-27): een dag duurt 20 minuten en een nacht
+ook. 's Nachts gaat het werk half zo snel. Vijanden komen een paar keer per
+dag, altijd 's nachts en tussen 10:00 en 22:00. Een poort bouw je apart, via
+een stemming.
+
+- [x] Dag en nacht, elk 20 minuten. Gedaan: het gaat op de klok, dus voor
+      iedereen tegelijk (`isNight`, `DAY_MS`, `NIGHT_MS`). 's Nachts ligt er
+      donkerblauw over alles, met een schemering van ruim een minuut. Licht
+      geven: het kampvuur en andere vuren, ramen van huizen, winkels en het
+      centrum, fakkels op de torens, de smidse, brandende gebouwen, de
+      fakkels van de vijanden, straatlantaarns vanaf de Industriële revolutie,
+      en een lantaarn bij elke speler. Opslag en de meeste werkgebouwen
+      blijven donker (`client/src/world/night.ts`). In de HUD staat het niet:
+      het gebeurt gewoon (Richard, 2026-10-27, "dag en nacht cycle hoeft geen
+      HUD of weergave"). (bron: 2026-10-26, "dag/nacht cycle van 20
+      minuten")
+- [x] Zonsopgang en zonsondergang (Richard, 2026-10-27: "een mooie overgang
+      is wel leuk"). Gedaan: in de laatste 5 minuten van de dag kleurt het
+      dorp goud en dan oranje, bij het vallen van de nacht paars, en na ruim
+      3 minuten is het echt donker. Aan het eind van de nacht wordt het in 3
+      minuten licht met een roze dageraad, en de ochtend is nog 4 minuten
+      goudroze. Alleen kleur, geen schaduwen (`skyAt` in
+      `client/src/world/night.ts`).
+- [x] 's Nachts slapen de mensen in hun eigen huis. Gedaan: wie een bed heeft,
+      gaat naar huis; wie buiten slaapt, gaat bij het vuur liggen (met een
+      "z"). Ongeveer de helft draait nachtdienst en werkt door; daarom gaat het
+      werk 's nachts ×0,5 (`NIGHT_WORK`, in `advance` en `ratesOf`). (bron:
+      2026-10-26, "mensen moeten slapen in hun eigen huis")
+- [x] De vijanden komen een paar keer per dag, 's nachts. Gedaan: om de 4 tot
+      8 uur (was 20 tot 36), altijd in een nacht en tussen 10:00 en 22:00, met
+      nog steeds een uur waarschuwing. Ze zijn even sterk als eerst, dus ze
+      kosten het dorp meer dan vroeger. (bron: 2026-10-26, "de vijanden komen
+      om de paar nachten")
+- [x] Poorten in de muur. Gedaan: klik op een stuk muur, "🚪 Poort maken" gaat
+      via een stemming en kost per poort 30 hout en 10 steen (×4 per niveau
+      van de muur, ×2 balans). Dorpelingen lopen alleen nog door poorten; is
+      er geen weg, dan klimmen ze er toch over. De vijanden lopen door een
+      poort of klimmen over de muur (6× zo traag), en wachten voor de muur tot
+      de aanval begint. Wie een muur weghaalt, haalt ook de poort weg. (bron:
+      2026-10-26, "poorten om in de muur te kunnen zetten"; bekende beperking
+      "muren houden niemand tegen")
 
 ### Update 21: Grote gebouwen
 Status: gepland. Gebouwen beslaan nu één tegel; dit raakt de kaart, het
@@ -640,10 +668,9 @@ een update worden opgenomen als het past.
 - **Smeden in de browser:** de smeden gebruiken ijzer en kolen uit de opslag.
   De browser rekent dat na met dezelfde `advance`. Tussen twee berichten van
   de server kan de HUD dus even een andere voorraad tonen dan de server.
-- **Muren houden niemand tegen op de kaart:** dorpelingen lopen er gewoon
-  door (alsof er overal poorten zitten), en de vijanden lopen er in beeld
-  overheen. Voor het gevecht telt alleen hoeveel muur er staat, niet of het
-  dorp helemaal dicht is.
+- **Muren en het gevecht:** sinds update 20 lopen dorpelingen alleen door
+  poorten en klimmen vijanden in beeld over de muur. Voor het gevecht telt nog
+  steeds alleen hoeveel muur er staat, niet of het dorp helemaal dicht is.
 - **Aanvallen alleen met iemand online:** de server rekent alleen door
   terwijl er iemand kijkt. Komt er lang niemand, dan wacht de aanval, en
   zodra iemand er is, komt er eerst een waarschuwing van een uur.

@@ -22,6 +22,7 @@ import {
   type ProposalAction,
   type ResourceId,
   RAID_WARNING_MS,
+  isNight,
   type RaidStage,
 } from "@app/shared/idle";
 import {
@@ -54,10 +55,13 @@ import { clearBaked, drawBaked } from "./pixel";
 import { drawSprite, spritesLoaded, variant } from "./sprites";
 import { Camera, TILE_H, TILE_W, toTileSpace, toWorld } from "./iso";
 import { Wildlife } from "./animals";
-import { setTown } from "./path";
+import { findPath, setTown } from "./path";
+import { buildingLights, drawNight, drawSunGlow, skyAt, streetLights, type Light } from "./night";
 import { Population, type Gather, type VillagerInfo } from "./villagers";
 
 const DRAG_THRESHOLD = 6;
+/** What a step over a wall costs the raiders, against 1 on open ground: climbing is slow. */
+const RAID_CLIMB = 6;
 /** Players' NPCs are drawn this much bigger than the townsfolk. */
 const PLAYER_SCALE = 1.3;
 const MAX_PARTICLES = 400;
@@ -77,6 +81,8 @@ export interface WorldOptions {
   onTile(x: number, y: number, px: number, py: number): void;
   /** Drawing paths: the pointer touched this tile; `first` at the start of a stroke. */
   onPaint(x: number, y: number, first: boolean): void;
+  /** The server's clock (ms): day and night go by it. */
+  now(): number;
 }
 
 export interface TownWorld {
@@ -143,9 +149,13 @@ export function createWorld(opts: WorldOptions): TownWorld {
   let roads = new Set<string>();
   /** The streets as text, so the far-away picture is redrawn when they change (paths clear nature, bridges cross water). */
   let roadsKey = "";
+  let wallsKey = "";
   let roadLevel = 0;
-  /** Wall tiles, as "x,y". */
+  /** Wall tiles, as "x,y", and which of them are gates. */
   let walls = new Set<string>();
+  let gates = new Set<string>();
+  /** The way the raiders come, and how far along it each tile is (0..1, by effort: climbing a wall is slow). */
+  let raidPath: { key: string; tiles: { x: number; y: number }[]; at: number[] } | null = null;
   /** Screen shake: 0..1, decaying; the shake is its square, so small knocks barely move. */
   let trauma = 0;
   /** Buildings that just went up, by id: when (performance.now()), for their pop. */
@@ -562,10 +572,35 @@ export function createWorld(opts: WorldOptions): TownWorld {
     return dpr;
   }
 
+  /**
+   * Where the raiders are, `k` (0..1) of the way through their march: along the
+   * path they'd take, by effort, stopping before the first wall (or at 80% of the way).
+   */
+  function raidSpot(from: { x: number; y: number }, k: number): { x: number; y: number } {
+    const key = `${from.x},${from.y}|${wallsKey}`;
+    if (raidPath?.key !== key) {
+      const tiles = findPath(from, CENTER, RAID_CLIMB) ?? [from, CENTER];
+      const cost = tiles.map((p, i): number => (i === 0 ? 0 : walls.has(`${p.x},${p.y}`) && !gates.has(`${p.x},${p.y}`) ? RAID_CLIMB : 1));
+      const total = cost.reduce((a, c) => a + c, 0) || 1;
+      let sum = 0;
+      raidPath = { key, tiles, at: cost.map((c) => (sum += c) / total) };
+    }
+    const { tiles, at } = raidPath;
+    const wall = tiles.findIndex((p) => walls.has(`${p.x},${p.y}`));
+    const stop = wall > 0 ? at[wall - 1] : 0.8;
+    const want = k * stop;
+    const i = Math.max(1, at.findIndex((a) => a >= want));
+    const a = tiles[i - 1];
+    const b = tiles[Math.min(i, tiles.length - 1)];
+    const f = at[i] > at[i - 1] ? Math.max(0, Math.min(1, (want - at[i - 1]) / (at[i] - at[i - 1]))) : 0;
+    return { x: a.x + (b.x - a.x) * f + 0.5, y: a.y + (b.y - a.y) * f + 0.5 };
+  }
+
   function draw(t: number): void {
     const dpr = resize();
     const era = world?.era ?? 0;
     const now = Date.now();
+    const serverNow = opts.now();
     cam.clamp(MAP_SIZE);
 
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -613,8 +648,8 @@ export function createWorld(opts: WorldOptions): TownWorld {
 
     // Tile outlines under everything standing: a vote's tiles (yellow, red to remove), the
     // paths being drawn, placing or painting (green/red), the build popup's tile (yellow).
-    if (ghost?.kind === "paths" || ghost?.kind === "unpave" || ghost?.kind === "walls" || ghost?.kind === "unwall") {
-      for (const i of ghost.tiles) outline(tileOf(i).x, tileOf(i).y, ghost.kind === "paths" || ghost.kind === "walls" ? "#ffe82e" : "#ff3b3b");
+    if (ghost?.kind === "paths" || ghost?.kind === "unpave" || ghost?.kind === "walls" || ghost?.kind === "unwall" || ghost?.kind === "gate") {
+      for (const i of ghost.tiles) outline(tileOf(i).x, tileOf(i).y, ghost.kind === "unpave" || ghost.kind === "unwall" ? "#ff3b3b" : "#ffe82e");
     }
     if (ghost?.kind === "repair") {
       const id = ghost.building;
@@ -653,17 +688,20 @@ export function createWorld(opts: WorldOptions): TownWorld {
       if (x < x0 - 1 || x > x1 || y < y0 - 1 || y > y1) continue;
       const links = ([[1, 0], [-1, 0], [0, 1], [0, -1]] as const).filter(([dx, dy]) => walls.has(`${x + dx},${y + dy}`));
       const c = toWorld(x + 0.5, y + 0.5);
-      items.push({ d: x + y + 1.005, f: () => drawWall(ctx, c.x, c.y, world?.wallLevel ?? 0, links, t) });
+      const gate = gates.has(key);
+      items.push({ d: x + y + 1.005, f: () => drawWall(ctx, c.x, c.y, world?.wallLevel ?? 0, links, t, gate) });
     }
     const raid = world?.raid;
+    const lights: Light[] = [];
     if (raid) {
-      // They march from the edge of the map towards the town, and wait just outside it.
-      const k = Math.max(0, Math.min(1, 1 - (raid.at - now) / RAID_WARNING_MS)) * 0.8;
-      const fx = raid.from.x + (CENTER.x - raid.from.x) * k + 0.5;
-      const fy = raid.from.y + (CENTER.y - raid.from.y) * k + 0.5;
+      // They march from the edge of the map towards the town (through a gate, or over the
+      // wall, which is slow), and wait just outside the wall or the town.
+      const k = Math.max(0, Math.min(1, 1 - (raid.at - serverNow) / RAID_WARNING_MS));
+      const { x: fx, y: fy } = raidSpot(raid.from, k);
       const p = toWorld(fx, fy);
       const n = Math.max(3, Math.min(12, Math.round(raid.strength / 8)));
       items.push({ d: fx + fy + 0.03, f: () => drawRaiders(ctx, p.x, p.y, n, era, t) });
+      lights.push({ x: p.x, y: p.y - 10, r: 36, kind: "fire", seed: 3 });
     }
     for (const d of world?.drops ?? []) {
       if (d.x < x0 - 1 || d.x > x1 || d.y < y0 - 1 || d.y > y1) continue;
@@ -732,6 +770,24 @@ export function createWorld(opts: WorldOptions): TownWorld {
       ctx.setLineDash([]);
     }
 
+    // The glow of sunrise and sunset, and the night with the lights of the
+    // town (and a lantern for every player).
+    const sky = skyAt(serverNow);
+    const dark = sky.dark;
+    drawSunGlow(ctx, ctx.canvas.width, ctx.canvas.height, sky);
+    if (dark > 0) {
+      for (const b of world?.buildings ?? []) buildingLights(b, lights);
+      streetLights(roads, era, lights);
+      for (const v of pop.villagers.values()) {
+        if (v.player) {
+          const p = toWorld(v.x + 0.5 + v.ox, v.y + 0.5 + v.oy);
+          lights.push({ x: p.x, y: p.y - 8, r: 26, kind: "lantern", seed: 0 });
+        }
+      }
+      drawNight(ctx, cam, dpr, dark, lights, t);
+      ctx.setTransform(z, 0, 0, z, dpr * (cam.width / 2 - cam.x * cam.zoom + sx), dpr * (cam.height / 2 - cam.y * cam.zoom + sy));
+    }
+
     for (const [x, y, name, mine] of tags) drawNameTag(ctx, x, y, name, mine);
     for (const [x, y, text] of bubbles) drawBubble(ctx, x, y, text);
 
@@ -794,7 +850,7 @@ export function createWorld(opts: WorldOptions): TownWorld {
     const dt = Math.min(0.1, (t - last) / 1000);
     last = t;
     trauma = Math.max(0, trauma - dt * 0.9);
-    pop.update(dt, Date.now());
+    pop.update(dt, Date.now(), isNight(opts.now()));
     wild.update(dt, Date.now());
     draw(t);
     raf = requestAnimationFrame(frame);
@@ -838,10 +894,16 @@ export function createWorld(opts: WorldOptions): TownWorld {
         // Work spots under a new path move elsewhere.
         changed = true;
       }
-      if (changed) setTown(w.buildings, w.roads);
+      const fence = `${w.walls.join(",")}|${w.gates.join(",")}`;
+      if (fence !== wallsKey) {
+        wallsKey = fence;
+        changed = true;
+      }
+      if (changed) setTown(w.buildings, w.roads, w.walls, w.gates);
       world = w;
       roadLevel = w.roadLevel;
       walls = new Set(w.walls.map((i) => `${tileOf(i).x},${tileOf(i).y}`));
+      gates = new Set(w.gates.map((i) => `${tileOf(i).x},${tileOf(i).y}`));
       // Which tiles are used up only changes when a patch crosses a tile's worth.
       const all = patches();
       const key = Object.entries(w.nature)

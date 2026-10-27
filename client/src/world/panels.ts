@@ -1474,6 +1474,8 @@ export function createPanels(deps: PanelDeps): Panels {
     button("sx-dev-btn", "⏩ bouwfases klaar", () => devSend("phases")),
     button("sx-dev-btn", "🏛️ volgend tijdperk", () => devSend("era")),
     button("sx-dev-btn", "📦 opslag vol", () => devSend("fill")),
+    // The sprites of every era side by side (only with `npm run dev`: the build leaves that page out).
+    button("sx-dev-btn", "🖼️ sprites", () => window.open("/sprites.html", "_blank", "noopener")),
   );
 
   function renderDev(msg: IdleStateMsg): void {

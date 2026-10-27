@@ -669,7 +669,7 @@ Status: in review (PR #48). Steunt op update 22 (PR #47).
       de raad (zie Werkwijze, stap 1).
 
 ### Update 14: Je eigen dorpeling
-Status: in review. Steunt op update 13 (PR #48).
+Status: in review (PR #49). Steunt op update 13 (PR #48).
 
 Afgesproken met Richard (2026-10-27): een relatie groeit door samen dingen
 te doen; je kiest een baan of taak voor je mannetje; alleen spelers doen

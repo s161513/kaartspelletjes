@@ -100,12 +100,14 @@ import {
   type DecorBehavior,
   type IdleClientMsg,
   type IdleProposalView,
+  type DevCommand,
   type IdleStateMsg,
   type IdleWorld,
   type PlacedBuilding,
   type ProposalAction,
   type ShopItem,
   type Terrain,
+  withPlenty,
 } from "@app/shared/idle";
 import { session } from "../session";
 import { NPCS_PER_PLAYER, type Gather, type VillagerInfo } from "./villagers";
@@ -257,6 +259,10 @@ const outside = (n: number) => (n === 1 ? "1 slaapt buiten" : `${n} slapen buite
 
 const timeLeft = durationText;
 
+/** Developer menu (update 23): free mode is on, so check everything as if there were plenty and nothing waits for a vote. */
+let devFree = false;
+const checked = (w: IdleWorld): IdleWorld => (devFree ? withPlenty(w) : w);
+
 /** One buyable thing: name, effect, cost, what's missing and a button. Refreshed by `update`. */
 interface Offer {
   el: HTMLDivElement;
@@ -293,10 +299,11 @@ function offer(opts: {
     update(world, busy, connected) {
       const cost = opts.cost(world);
       costs.replaceChildren(...(opts.gain ? gainChips(opts.gain(world)) : costChips(world, cost)));
-      const err = opts.error(world);
+      const err = opts.error(checked(world));
       missing.textContent = err === "te duur" ? missingText(world, cost) : err ?? "";
       level.textContent = opts.level?.(world) ?? "";
-      const blocked = opts.votes && busy;
+      const blocked = opts.votes && busy && !devFree;
+      btn.textContent = devFree && opts.votes ? "🛠️ meteen" : opts.action;
       btn.disabled = !connected || blocked || !!err;
       btn.title = !connected ? "offline" : blocked ? "te veel open stemmingen" : err ?? "";
     },
@@ -704,9 +711,10 @@ export function createPanels(deps: PanelDeps): Panels {
         ? [h("span", "sx-cost", paths.erase ? `nog geen ${walls ? "muren" : "paden"} gekozen` : "nog geen tegels")]
         : [h("span", "sx-cost", count), ...(paths.erase ? gainChips(refundOf(w, action)) : costChips(w, cost))]),
     );
-    const err = n ? actionError(w, action) : null;
+    const err = n ? actionError(checked(w), action) : null;
     pathsMissing.textContent = err === "te duur" ? missingText(w, cost) : err ?? "";
-    const blocked = busy();
+    const blocked = busy() && !devFree;
+    pathsGo.textContent = devFree ? "🛠️ meteen" : "🗳️ voorstellen";
     pathsGo.disabled = !deps.connected() || blocked || !n || !!err;
     pathsGo.title = !deps.connected() ? "offline" : blocked ? "te veel open stemmingen" : !n ? "teken eerst een paar tegels" : err ?? "";
   }
@@ -1454,10 +1462,33 @@ export function createPanels(deps: PanelDeps): Panels {
 
   // ---------- render ----------
 
+  // ---------- developer menu (update 23) ----------
+  // Only when the server says this browser may: IDLE_DEV=1 and on its own computer.
+
+  const devEl = $<HTMLDivElement>("sx-dev");
+  const devSend = (cmd: DevCommand) => deps.send({ type: "dev", cmd, name: session.nickname });
+  const devFreeBtn = button("sx-dev-btn", "", () => devSend("free"));
+  devEl.append(
+    h("div", "sx-dev-title", "🛠️ ontwikkelaar"),
+    devFreeBtn,
+    button("sx-dev-btn", "⏩ bouwfases klaar", () => devSend("phases")),
+    button("sx-dev-btn", "🏛️ volgend tijdperk", () => devSend("era")),
+    button("sx-dev-btn", "📦 opslag vol", () => devSend("fill")),
+  );
+
+  function renderDev(msg: IdleStateMsg): void {
+    devFree = !!msg.dev?.free;
+    devEl.hidden = !msg.dev;
+    devFreeBtn.textContent = devFree ? "💸 gratis en meteen: aan" : "💸 gratis en meteen: uit";
+    devFreeBtn.classList.toggle("sx-dev-on", devFree);
+    devFreeBtn.title = "bouwen, upgraden en kopen zonder grondstoffen en zonder stemming; een wonder hoeft niet op zijn bouwers te wachten";
+  }
+
   function render(): void {
     const msg = deps.msg();
     const world = deps.world();
     if (!msg || !world) return;
+    renderDev(msg);
     const now = deps.serverNow();
     renderHud(world, now);
     hud.hidden = false;

@@ -374,9 +374,8 @@ export class Population {
       v.task = { kind: "go", then: behavior, duration: 6000 + Math.random() * 6000 };
       this.walkTo(v, nearestOpen(Math.round(d.x + Math.cos(a) * 1.4), Math.round(d.y + Math.sin(a) * 1.4)));
     } else if (roll < 0.6) {
-      const a = Math.random() * Math.PI * 2;
       v.task = { kind: "go", then: "sit", duration: 6000 + Math.random() * 5000 };
-      this.walkTo(v, nearestOpen(Math.round(CENTER.x + Math.cos(a) * 1.5), Math.round(CENTER.y + Math.sin(a) * 1.5)));
+      this.walkTo(v, this.fireSeat());
     } else if (roll < 0.9 || !home) {
       const base = home ?? CENTER;
       v.task = { kind: "go", then: "none", duration: 1500 + Math.random() * 3000 };
@@ -407,6 +406,17 @@ export class Population {
     if (Math.random() < 0.2) v.bubble = { text: pick(CHAT.sleep), until: now + 2500 };
   }
 
+  /** A seat by the fire: on one of the logs round the Kampvuur, else somewhere round De Senaat. */
+  private fireSeat(): Point {
+    const center = this.world?.buildings.find((b) => b.type === "center");
+    if (center && center.level === 0) {
+      const [dx, dy] = pick([[1, 0], [-1, 0], [0, 1], [0, -1]] as const);
+      return nearestOpen(center.x + dx, center.y + dy);
+    }
+    const a = Math.random() * Math.PI * 2;
+    return nearestOpen(Math.round(CENTER.x + Math.cos(a) * 2.2), Math.round(CENTER.y + Math.sin(a) * 2.2));
+  }
+
   /** What to do once the current task is done. */
   private next(v: Villager, now: number): void {
     // A newcomer stays put until the vote is over.
@@ -427,10 +437,9 @@ export class Population {
     if (!job && !(res && (spot || t === "work" || t === "toStore"))) return this.chooseIdle(v, now);
     if (t === "toWork" && this.full(res)) {
       // Nowhere to put it: sit by the fire until there's room again.
-      const a = Math.random() * Math.PI * 2;
       v.task = { kind: "go", then: "sit", duration: 15_000 + Math.random() * 10_000 };
       v.bubble = { text: "opslag vol, pauze 😴", until: now + 3000 };
-      this.walkTo(v, nearestOpen(Math.round(CENTER.x + Math.cos(a) * 1.5), Math.round(CENTER.y + Math.sin(a) * 1.5)));
+      this.walkTo(v, this.fireSeat());
     } else if (t === "toWork") {
       v.task = { kind: "work", until: now + 3500 + Math.random() * 2500 };
       v.action = "work";

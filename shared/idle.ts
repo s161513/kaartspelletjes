@@ -129,6 +129,7 @@ import {
   WORK_RANGE,
   buildingName,
   buildingType,
+  footprintOffsets,
   housingOf,
   outfit,
   resourceDef,
@@ -150,11 +151,15 @@ import {
   isRiver,
   isRoad,
   natureAt,
+  buildingOn,
+  footprintError,
   patchAt,
   patches,
   pathError,
   placeBuilding,
   placeError,
+  reservedFor,
+  takenTiles,
   tileIndex,
   tileOf,
   wallError,
@@ -360,6 +365,23 @@ export function newIdleState(now: number): IdleState {
   };
   for (const type of ["center", "house", "storage"]) s = addBuilding(s, type, 0, placeBuilding(s.buildings, type)!).state;
   return { ...s, roads: classicStreets(s.buildings), population: bedsOf(s) };
+}
+
+/**
+ * Move what stands round the Kampvuur, where De Senaat will come, to the
+ * nearest free spot for its type (towns from before update 21 have their
+ * first Hut and Schuur there). Nothing else changes.
+ */
+export function makeRoomForSenate<T extends IdleWorld>(s: T): T {
+  const inTheWay = (b: PlacedBuilding) => reservedFor(s.buildings, b.x, b.y) !== null;
+  if (!s.buildings.some(inTheWay)) return s;
+  const blocked = [...s.roads, ...s.walls, ...takenTiles(s.buildings)];
+  const moved = new Map<number, PlacedBuilding>();
+  for (const b of s.buildings.filter(inTheWay)) {
+    const spot = placeBuilding([...s.buildings, ...moved.values()], b.type, blocked);
+    if (spot) moved.set(b.id, { ...b, ...spot });
+  }
+  return { ...s, buildings: s.buildings.map((b) => moved.get(b.id) ?? b) };
 }
 
 /** Unlock eras up to `era` (never back). */
@@ -1006,7 +1028,7 @@ export function addDrop<T extends IdleWorld>(s: T, rand: () => number): T {
   for (let i = 0; i < 60; i++) {
     const x = CENTER.x + Math.round((rand() - 0.5) * 12);
     const y = CENTER.y + Math.round((rand() - 0.5) * 12);
-    const taken = s.buildings.some((b) => b.x === x && b.y === y) || s.drops.some((d) => d.x === x && d.y === y);
+    const taken = !!buildingOn(s.buildings, x, y) || s.drops.some((d) => d.x === x && d.y === y);
     if (!isLand(x, y) || isRoad(s.roads, x, y) || isRoad(s.walls, x, y) || taken) continue;
     return { ...s, drops: [...s.drops, { id: s.nextDropId, x, y }], nextDropId: s.nextDropId + 1 };
   }
@@ -1524,6 +1546,9 @@ export function actionError(s: IdleWorld, action: ProposalAction): string | null
     if (buildingType(b.type)?.noUpgrade) return "kan niet upgraden";
     if (b.level >= s.era) return "al up-to-date";
     if (b.damaged) return "eerst herstellen";
+    // The Kampvuur grows into De Senaat: its 3×3 tiles must be free first.
+    const grow = footprintError(s.buildings, s.roads, s.walls, b.type, s.era, b.x, b.y, b.id);
+    if (grow && footprintOffsets(b.type, s.era).length > footprintOffsets(b.type, b.level).length) return grow;
   }
   if (!canAfford(s, actionCost(s, action)!)) return "te duur";
   return null;

@@ -17,6 +17,18 @@ thema (zie [ROADMAP.md](ROADMAP.md)):
 
 ## Verwerkt
 
+- 2026-10-27, feedback ingedeeld (Richard):
+  - "een zonsopgang en zonsondergang, een mooie overgang" (in de chat) en
+    "dag en nacht cycle hoeft geen HUD of weergave, het gebeurt gewoon":
+    Update 20 (PR #43)
+  - "de basis schuur en hut staan geclipped door het plein, ze moeten wat
+    naar achter": Update 21 (PR #44)
+  - "een menu waar ik bouwfases kan skippen en resources niet hoef te
+    verbruiken, NIET voor gewone gebruikers, alleen lokaal bij mij":
+    Update 23
+  - "de volledige HUD, menu's en zelfs het lettertype in één pixel-art
+    thema, ook de HUD bovenin en de popups": Update 24
+
 - 2026-10-26, feedback ingedeeld (Richard en spelers):
   - "Ruilen moet in balans", "de resources zijn te snel", "er komen super
     snel mensen bij", "happiness meter gaat ook te snel omhoog", "begin met
@@ -34,7 +46,7 @@ thema (zie [ROADMAP.md](ROADMAP.md)):
     de nacht", "mensen moeten slapen in hun eigen huis", "poorten in de
     muur": Update 20 (PR #43)
   - "de tijdperk monumenten moeten groter zijn (meerdere tegels)", "De
-    Senaat, het middelste gebouw, meerdere tegels groot": Update 21
+    Senaat, het middelste gebouw, meerdere tegels groot": Update 21 (PR #44)
   - "de werkplaatsen hebben individuele tools nodig (rarity, crafting
     minigame)": Update 22
   - "je kan mannetjes aansturen (server-sided, iedereen ziet hetzelfde)":

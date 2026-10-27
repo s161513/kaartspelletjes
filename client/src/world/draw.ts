@@ -15,7 +15,7 @@
 //   the Iron Age to the Renaissance a medieval town (City Sim), then brick, flats and
 //   towers (Pixel City), later flat roofs and domes.
 
-import { ERAS, WONDER_PHASES, buildingType, depositAt, producesOf, type PlacedBuilding, type ResourceId, type Terrain } from "@app/shared/idle";
+import { ERAS, WONDER_PHASES, buildingType, depositAt, middleOf, producesOf, tilesOf, type PlacedBuilding, type ResourceId, type Terrain } from "@app/shared/idle";
 import { TILE_H, TILE_W, toWorld } from "./iso";
 import { FRAME_MS, drawBaked, frameOf } from "./pixel";
 import { drawSprite, spriteExtent, variant } from "./sprites";
@@ -534,6 +534,8 @@ function pickFor(b: PlacedBuilding, kind: string, n: number): string {
  */
 function buildingSprite(b: PlacedBuilding, cat: string, t = 0): string | null {
   if (cat === "decor") return decorSprite(b, t);
+  if (cat === "center" && b.level >= 1) return `senaat${SENAAT_LOOK[b.level]}`;
+  if (cat === "wonder") return wonderSprite(b, t);
   if (b.level >= 6 && b.level <= 8 && cat !== "decor" && cat !== "wonder" && b.type !== "mine") {
     const l = b.level;
     if (cat === "house") return l === 6 ? pickFor(b, "pcWalkup", 3) : l === 7 ? pickFor(b, "pcFlat", 4) : pickFor(b, "pcTower", 6);
@@ -553,6 +555,30 @@ function buildingSprite(b: PlacedBuilding, cat: string, t = 0): string | null {
   if (b.type === "farm") return "crops";
   if (b.type === "fishery") return "fish";
   return null;
+}
+
+/** Which of De Senaat's five looks (sprites/pixelbig.py) each era has: a great hall, a temple, a parliament, glass, a saucer. */
+const SENAAT_LOOK = [0, 0, 0, 1, 1, 1, 2, 2, 3, 4, 4];
+
+/** Each world wonder's sprite (sprites/pixelbig.py), and whether it moves (two frames). */
+const WONDER_SPRITES: Record<string, [string, boolean]> = {
+  stonehenge: ["wonderStonehenge", false],
+  pyramid: ["wonderPyramid", false],
+  colossus: ["wonderColossus", true],
+  colosseum: ["wonderColosseum", false],
+  cathedral: ["wonderCathedral", false],
+  dome: ["wonderDome", false],
+  eiffel: ["wonderEiffel", true],
+  skyscraper: ["wonderSkyscraper", true],
+  computer: ["wonderComputer", true],
+  rocket: ["wonderRocket", true],
+};
+
+function wonderSprite(b: PlacedBuilding, t: number): string | null {
+  const w = buildingType(b.type)?.wonder;
+  const s = w && WONDER_SPRITES[w.shape];
+  if (!s) return null;
+  return s[1] ? `${s[0]}${frameOf(t + b.id * 333, 2, 500).i}` : s[0];
 }
 
 /** Each decoration's sprite (sprites/pixeldecor.py), and how many frames it moves in. */
@@ -585,7 +611,8 @@ function decorSprite(b: PlacedBuilding, t: number): string | null {
 
 /** Screen-space box (world px) around a building, for clicks. */
 export function buildingBounds(b: PlacedBuilding): { x1: number; y1: number; x2: number; y2: number } {
-  const c = toWorld(b.x + 0.5, b.y + 0.5);
+  const m = middleOf(b);
+  const c = toWorld(m.x, m.y);
   // The hologram floats well above its projector.
   const sprite = b.type === "decor_hologram" ? "decorHolo" : buildingSprite(b, buildingType(b.type)?.category ?? "");
   const ext = sprite ? spriteExtent(sprite) : null;
@@ -841,8 +868,30 @@ function animalShapes(ctx: Ctx, x: number, y: number, a: AnimalLook): void {
   }
 }
 
+/** The outline of a building's tiles (only the outer edges). */
+export function outlineTiles(ctx: Ctx, tiles: readonly { x: number; y: number }[]): void {
+  const has = new Set(tiles.map((p) => `${p.x},${p.y}`));
+  ctx.beginPath();
+  for (const { x, y } of tiles) {
+    const [top, right, bottom, left] = [toWorld(x, y), toWorld(x + 1, y), toWorld(x + 1, y + 1), toWorld(x, y + 1)];
+    const edges: [boolean, { x: number; y: number }, { x: number; y: number }][] = [
+      [!has.has(`${x},${y - 1}`), top, right],
+      [!has.has(`${x + 1},${y}`), right, bottom],
+      [!has.has(`${x},${y + 1}`), bottom, left],
+      [!has.has(`${x - 1},${y}`), left, top],
+    ];
+    for (const [open, a, z] of edges) {
+      if (!open) continue;
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(z.x, z.y);
+    }
+  }
+  ctx.stroke();
+}
+
 export function drawBuilding(ctx: Ctx, b: PlacedBuilding, t: number, selected: boolean): void {
-  const c = toWorld(b.x + 0.5, b.y + 0.5);
+  const m = middleOf(b);
+  const c = toWorld(m.x, m.y);
   const type = buildingType(b.type);
   if (!type) return;
   const cx = c.x;
@@ -851,17 +900,24 @@ export function drawBuilding(ctx: Ctx, b: PlacedBuilding, t: number, selected: b
   if (selected) {
     ctx.lineWidth = 3;
     ctx.strokeStyle = "#ffe82e";
-    ctx.beginPath();
-    ctx.moveTo(cx - HW, cy);
-    ctx.lineTo(cx, cy + HH);
-    ctx.lineTo(cx + HW, cy);
-    ctx.lineTo(cx, cy - HH);
-    ctx.closePath();
-    ctx.stroke();
+    outlineTiles(ctx, tilesOf(b));
+  }
+
+  // The Kampvuur: the fire, with logs round it one tile out where people sit.
+  if (type.category === "center" && b.level === 0 && drawSprite(ctx, "campLogsBack", cx, cy)) {
+    drawCampfire(ctx, cx, cy, t);
+    drawSprite(ctx, "campLogsFront", cx, cy);
+    if (b.damaged) burning(ctx, cx, cy - 10, t + b.id * 777);
+    return;
   }
 
   const sprite = buildingSprite(b, type.category, t);
+  const building = type.category === "wonder" && b.stage !== undefined;
+  const alpha = ctx.globalAlpha;
+  if (building) ctx.globalAlpha = alpha * (0.3 + 0.6 * (b.stage! / WONDER_PHASES));
   if (sprite && drawSprite(ctx, sprite, cx, cy)) {
+    ctx.globalAlpha = alpha;
+    if (building) scaffold(ctx, b, cx, cy, t);
     const up = spriteExtent(sprite)?.up ?? 30;
     if (b.type === "decor_hologram") {
       // The see-through 67 floats over its projector and flickers.
@@ -874,6 +930,7 @@ export function drawBuilding(ctx: Ctx, b: PlacedBuilding, t: number, selected: b
     if (b.damaged) burning(ctx, cx, cy - up * 0.6, t + b.id * 777);
     return;
   }
+  ctx.globalAlpha = alpha;
   // Everything else is drawn as shapes and baked into pixel art, once per look and
   // frame. Four variants per type keep the flags and flames out of step.
   const bb = buildingBounds(b);
@@ -1337,6 +1394,52 @@ function shopSign(ctx: Ctx, emoji: string, x: number, y: number, t: number): voi
 }
 
 /** A world wonder; while it goes up, see-through behind scaffolding with how far it is. */
+/**
+ * Scaffolding round a world wonder going up (its sprite drawn see-through under it):
+ * poles round its tiles, planks, a crane. Taller with every phase; baked into pixels.
+ */
+function scaffold(ctx: Ctx, b: PlacedBuilding, cx: number, cy: number, t: number): void {
+  const tiles = tilesOf(b);
+  const m = middleOf(b);
+  // How far the tiles reach from the middle, on screen.
+  const reach = Math.max(...tiles.map((p) => Math.abs(p.x + 0.5 - m.x - (p.y + 0.5 - m.y)))) + 0.5;
+  const half = reach * HW * 0.85;
+  const height = 30 + 22 * (b.stage ?? 0);
+  const f = frameOf(t, 4, 500);
+  const box = { left: half + 50, right: half + 50, up: height + 50, down: half / 2 + 10 };
+  drawBaked(ctx, `scaffold|${Math.round(half)}|${b.stage}|${f.i}`, cx, cy, box, cx, cy, (g) => {
+    g.strokeStyle = "#8b5a2b";
+    g.lineWidth = 2;
+    const n = Math.max(3, Math.round(half / 22));
+    for (let i = 0; i <= n; i++) {
+      const dx = -half + (2 * half * i) / n;
+      const base = cy + (half - Math.abs(dx)) / 2;
+      g.beginPath();
+      g.moveTo(cx + dx, base);
+      g.lineTo(cx + dx, base - height);
+      g.stroke();
+    }
+    g.lineWidth = 1.5;
+    for (let y = 14; y < height; y += 16) {
+      g.beginPath();
+      g.moveTo(cx - half, cy - y);
+      g.lineTo(cx, cy + half / 2 - y);
+      g.lineTo(cx + half, cy - y);
+      g.stroke();
+    }
+    // A crane swinging slowly.
+    const a = Math.sin((f.i / 4) * Math.PI * 2) * 0.4;
+    g.strokeStyle = "#f59e0b";
+    g.lineWidth = 3;
+    g.beginPath();
+    g.moveTo(cx + half, cy);
+    g.lineTo(cx + half, cy - height - 24);
+    g.lineTo(cx + half - Math.cos(a) * 46, cy - height - 24 + Math.sin(a) * 8);
+    g.stroke();
+  });
+  shopSign(ctx, "🚧", cx, cy - height - 18, t);
+}
+
 function drawWonder(ctx: Ctx, b: PlacedBuilding, cx: number, cy: number, t: number): void {
   const w = buildingType(b.type)?.wonder;
   if (!w) return;

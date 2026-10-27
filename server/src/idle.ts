@@ -15,6 +15,7 @@ import {
   RAID_MOODS,
   RAID_WARNING_MS,
   STATE_VERSION,
+  makeRoomForSenate,
   VOTE_MS,
   WONDER_BUILD_MS,
   WONDER_PHASES,
@@ -46,6 +47,7 @@ import {
   stepNewcomer,
   stepRaid,
   isLand,
+  takenTiles,
   voteCounts,
   voteOutcome,
   votesNeeded,
@@ -155,7 +157,7 @@ function parsePlayers(raw: unknown): Record<string, IdlePlayer> {
 /** Street tiles on free land, once each, sorted. */
 function parseRoads(raw: unknown, buildings: readonly PlacedBuilding[]): number[] {
   if (!Array.isArray(raw)) return [];
-  const taken = new Set(buildings.map((b) => b.y * MAP_SIZE + b.x));
+  const taken = takenTiles(buildings);
   const ok = (i: unknown): i is number =>
     Number.isInteger(i) && (i as number) >= 0 && (i as number) < MAP_SIZE * MAP_SIZE && !taken.has(i as number) && canPave((i as number) % MAP_SIZE, Math.floor((i as number) / MAP_SIZE));
   return [...new Set(raw.filter(ok))].sort((a, b) => a - b);
@@ -276,7 +278,7 @@ function parseIdle(raw: unknown, now: number): IdleState | null {
   if (Number.isInteger(r.nextProposalId) && (r.nextProposalId as number) >= 1) s.nextProposalId = r.nextProposalId as number;
   s.nextProposalId = Math.max(s.nextProposalId, ...s.proposals.map((p) => p.id + 1));
   s.players = parsePlayers(r.players);
-  return s;
+  return makeRoomForSenate(s);
 }
 
 /** Players after a reset: same name and colors, the free hat and pattern, nothing bought. */

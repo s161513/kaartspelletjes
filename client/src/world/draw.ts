@@ -557,7 +557,8 @@ function buildingSprite(b: PlacedBuilding, cat: string, t = 0): string | null {
 
 /** Each decoration's sprite (sprites/pixeldecor.py), and how many frames it moves in. */
 const DECOR_SPRITES: Record<string, [string, number]> = {
-  decor_statue67: ["decorSixSeven", 2],
+  // A statue stands still (Richard): one pose, the hands weighing it up.
+  decor_statue67: ["decorSixSeven0", 1],
   decor_flowers: ["decorFlowers", 1],
   decor_totem: ["decorTotem", 1],
   decor_menhir: ["decorMenhir", 1],

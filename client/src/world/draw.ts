@@ -3,9 +3,9 @@
 // decorations, animals and the villagers (players' own NPCs included).
 //
 // The town is pixel art. Where there is a sprite (sprites.ts: packs from OpenGameArt
-// and our own pixelart.py), that is drawn. Everything else is drawn here as simple
-// isometric boxes and polygons and baked into pixel art (pixel.ts), so it sits with
-// the sprites. The look per era comes from ERAS[level].style (shared/idleContent.ts).
+// and our own pixelart.py, pixelnature.py and pixeldecor.py), that is drawn.
+// Everything else is drawn here as simple isometric boxes and polygons and baked
+// into pixel art (pixel.ts), so it sits with the sprites. The look per era comes from ERAS[level].style (shared/idleContent.ts).
 //
 // Art direction (keep new drawings and sprites to it):
 // - Pixel art at one pixel per world px: hard edges, a dark rim, a bit of grain.
@@ -118,6 +118,38 @@ export function grassDetail(tufts: Path2D, flowers: Path2D, x: number, y: number
     flowers.moveTo(fx + 1.4, fy);
     flowers.arc(fx, fy, 1.4, 0, Math.PI * 2);
   }
+}
+
+/** How long each frame of the waves and the foam on the banks shows. */
+const WAVE_MS = 450;
+const wetAt = (t: Terrain) => t === "water" || t === "bridge";
+/** The banks of a water tile: a side when the tile there is land, a corner when only the diagonal one is. */
+const BANK_SIDES: [string, number, number][] = [["NW", -1, 0], ["NE", 0, -1], ["SE", 1, 0], ["SW", 0, 1]];
+const BANK_CORNERS: [string, number, number][] = [["N", -1, -1], ["E", 1, -1], ["S", 1, 1], ["W", -1, 1]];
+
+/**
+ * A water tile in pixel art (sprites/pixelnature.py): waves that come and go, and a
+ * bank of sand and foam on each side that borders land. Returns false until the
+ * sprites are there. `t` is null for a still picture.
+ */
+export function drawWaterTile(ctx: Ctx, x: number, y: number, cx: number, cy: number, t: number | null, terrainAt: (x: number, y: number) => Terrain): boolean {
+  const f = t === null ? 0 : Math.floor(t / WAVE_MS) % 4;
+  if (!drawSprite(ctx, `wave${Math.floor(rand2(x, y, 61) * 3)}_${f}`, cx, cy)) return false;
+  const land = (dx: number, dy: number) => !wetAt(terrainAt(x + dx, y + dy));
+  for (const [side, dx, dy] of BANK_SIDES) if (land(dx, dy)) drawSprite(ctx, `bank${side}_${f}`, cx, cy);
+  for (const [side, dx, dy] of BANK_CORNERS) {
+    if (land(dx, dy) && !land(dx, 0) && !land(0, dy)) drawSprite(ctx, `bank${side}_${f}`, cx, cy);
+  }
+  return true;
+}
+
+/** Now and then a patch of wild flowers on a grass tile; more of them in the early eras. */
+export function drawFlowers(ctx: Ctx, x: number, y: number, cx: number, cy: number, era: number): void {
+  const wild = era <= 1 ? 3 : era <= 4 ? 2 : 1;
+  if (rand2(x, y, 50) >= 0.045 * wild) return;
+  const fx = cx + (rand2(x, y, 51) - 0.5) * HW * 0.8;
+  const fy = cy + (rand2(x, y, 52) - 0.5) * HH * 0.8;
+  drawSprite(ctx, variant("bloom", rand2(x, y, 53)), Math.round(fx), Math.round(fy));
 }
 
 /** The texture on a street tile: stones, bricks, markings or light, per level. */
@@ -500,7 +532,8 @@ function pickFor(b: PlacedBuilding, kind: string, n: number): string {
  * one. The Stone and Bronze Age are our own sprites (drawEarly); the rest is baked
  * from shapes.
  */
-function buildingSprite(b: PlacedBuilding, cat: string): string | null {
+function buildingSprite(b: PlacedBuilding, cat: string, t = 0): string | null {
+  if (cat === "decor") return decorSprite(b, t);
   if (b.level >= 6 && b.level <= 8 && cat !== "decor" && cat !== "wonder" && b.type !== "mine") {
     const l = b.level;
     if (cat === "house") return l === 6 ? pickFor(b, "pcWalkup", 3) : l === 7 ? pickFor(b, "pcFlat", 4) : pickFor(b, "pcTower", 6);
@@ -522,10 +555,39 @@ function buildingSprite(b: PlacedBuilding, cat: string): string | null {
   return null;
 }
 
+/** Each decoration's sprite (sprites/pixeldecor.py), and how many frames it moves in. */
+const DECOR_SPRITES: Record<string, [string, number]> = {
+  decor_statue67: ["decorSixSeven", 2],
+  decor_flowers: ["decorFlowers", 1],
+  decor_totem: ["decorTotem", 1],
+  decor_menhir: ["decorMenhir", 1],
+  decor_warrior: ["decorWarrior", 1],
+  decor_fountain: ["decorFountain", 4],
+  decor_knight: ["decorKnight", 1],
+  decor_david: ["decorDavid", 1],
+  decor_clocktower: ["decorClocktower", 1],
+  decor_neon: ["decorNeon", 2],
+  decor_hologram: ["decorHoloBase", 1],
+  decor_astronaut: ["decorAstronaut", 1],
+  decor_monument67: ["decorMonument", 2],
+};
+
+function decorSprite(b: PlacedBuilding, t: number): string | null {
+  const s = DECOR_SPRITES[b.type];
+  if (!s) return null;
+  const [name, frames] = s;
+  if (frames === 1) return name;
+  const clock = t + b.id * 333;
+  // The neon sign is lit, and flickers out now and then.
+  if (b.type === "decor_neon") return `${name}${Math.sin(clock / 200) > -0.6 ? 0 : 1}`;
+  return `${name}${frameOf(clock, frames, frames === 2 ? 400 : FRAME_MS).i}`;
+}
+
 /** Screen-space box (world px) around a building, for clicks. */
 export function buildingBounds(b: PlacedBuilding): { x1: number; y1: number; x2: number; y2: number } {
   const c = toWorld(b.x + 0.5, b.y + 0.5);
-  const sprite = buildingSprite(b, buildingType(b.type)?.category ?? "");
+  // The hologram floats well above its projector.
+  const sprite = b.type === "decor_hologram" ? "decorHolo" : buildingSprite(b, buildingType(b.type)?.category ?? "");
   const ext = sprite ? spriteExtent(sprite) : null;
   if (ext) return { x1: c.x - ext.half, x2: c.x + ext.half, y1: c.y - ext.up, y2: c.y + HH };
   const s = shapeOf(b);
@@ -798,9 +860,16 @@ export function drawBuilding(ctx: Ctx, b: PlacedBuilding, t: number, selected: b
     ctx.stroke();
   }
 
-  const sprite = buildingSprite(b, type.category);
+  const sprite = buildingSprite(b, type.category, t);
   if (sprite && drawSprite(ctx, sprite, cx, cy)) {
     const up = spriteExtent(sprite)?.up ?? 30;
+    if (b.type === "decor_hologram") {
+      // The see-through 67 floats over its projector and flickers.
+      const clock = t + b.id * 333;
+      ctx.globalAlpha = 0.9 + Math.sin(clock / 150) * 0.1;
+      drawSprite(ctx, "decorHolo", cx, Math.round(cy - 2 - Math.sin(clock / 500) * 3));
+      ctx.globalAlpha = 1;
+    }
     if (type.category === "shop") shopSign(ctx, type.emoji, cx, cy - up - 6, t + b.id * 500);
     if (b.damaged) burning(ctx, cx, cy - up * 0.6, t + b.id * 777);
     return;

@@ -24,12 +24,12 @@ thema (zie [ROADMAP.md](ROADMAP.md)):
   - "niks van resources samenvoegen, opslag per resource", "stoppen met
     werken als storage vol is", "hover functie bij de HUD glitcht", "de
     tijdperk informatie in een mooier overzicht", "geen melding dat je er
-    niet op kan klikken (2.5D)": Update 17
+    niet op kan klikken (2.5D)": Update 17 (PR #40)
   - "inwoners proberen alleen binnen te komen als er vrije slaapplaatsen
     zijn", "nieuwe inwoners moeten geaccepteerd worden (profiel, stemmen)",
-    "huidige inwoners kunnen kinderen maken": Update 18
+    "huidige inwoners kunnen kinderen maken": Update 18 (PR #41)
   - "de golven zien er slecht uit", "retexture de bloemen en de golven",
-    "decoraties verbeteren": Update 19
+    "decoraties verbeteren": Update 19 (PR #42)
   - "dag/nacht cycle van 20 minuten, vijanden om de paar nachten, licht in
     de nacht", "mensen moeten slapen in hun eigen huis", "poorten in de
     muur": Update 20
@@ -96,8 +96,8 @@ thema (zie [ROADMAP.md](ROADMAP.md)):
   bij paden: Update 2 (PR #27)
 - 2026-10-22, Richard: telefoon voorlopig negeren, de browser op een computer
   is genoeg: zie "Scope" in ROADMAP.md
-- 2026-10-22: "moeilijker resources": Update 12
-- 2026-10-22: "de dorpsfeest resources moeten scalen met population": Update 12
+- 2026-10-22: "moeilijker resources": Update 12 (PR #39)
+- 2026-10-22: "de dorpsfeest resources moeten scalen met population": Update 12 (PR #39)
 - 2026-10-22: "een balk voor resources om makkelijk te zien hoe vol iets is":
   Update 3 (PR #28)
 - 2026-10-22: "scrollen op mousepad werkt veel te traag": Update 3 (PR #28)

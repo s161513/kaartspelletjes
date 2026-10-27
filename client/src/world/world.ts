@@ -34,6 +34,7 @@ import {
   drawDrop,
   drawBush,
   drawDeposit,
+  drawFlowers,
   drawMountain,
   drawNameTag,
   drawRoadDetail,
@@ -43,6 +44,7 @@ import {
   drawRaiders,
   drawRock,
   drawUsedUp,
+  drawWaterTile,
   drawTree,
   drawVillager,
   groundColor,
@@ -442,10 +444,9 @@ export function createWorld(opts: WorldOptions): TownWorld {
         // Pixel-art ground where there is a sprite for it (sand and streets stay a color);
         // a forest floor is a bit darker.
         const wet = terrain === "water" || terrain === "bridge";
-        const tile = road || terrain === "sand" ? null
-          : wet ? variant("water", live ? (Math.floor(t / 1400 + rand2(x, y, 61) * 3) % 3) / 3 : 0)
-          : variant("grass", rand2(x, y, 60));
-        let sprite = tile !== null && drawSprite(g, tile, c.x, c.y);
+        const tile = road || terrain === "sand" || wet ? null : variant("grass", rand2(x, y, 60));
+        let sprite = wet ? drawWaterTile(g, x, y, c.x, c.y, live ? t : null, terrainAt) : tile !== null && drawSprite(g, tile, c.x, c.y);
+        if (sprite && !paved && (terrain === "grass" || terrain === "bush")) drawFlowers(g, x, y, c.x, c.y, era);
         if (!sprite && live && (road || terrain === "sand")) {
           // Streets and sand as pixel-art tiles too: the color with grain and the street's stones.
           const v = Math.floor(rand2(x, y, 62) * 4);

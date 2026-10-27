@@ -6,7 +6,8 @@
 # atlas.json: name -> [x, y, w, h, ax, ay, scale]. (ax, ay) is the point in the sprite
 # that goes on the middle of its tile; scale is how big it is drawn (the City Sim
 # sprites are made for 128 px tiles, ours are 64). Sources and licenses: CREDITS.md.
-# Our own sprites for the Stone and Bronze Age are drawn by pixelart.py.
+# Our own sprites are drawn by code: the Stone and Bronze Age by pixelart.py, water,
+# banks and flowers by pixelnature.py, the decorations by pixeldecor.py.
 
 import json
 import os
@@ -15,6 +16,8 @@ from PIL import Image
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import pixelart  # noqa: E402
+import pixeldecor  # noqa: E402
+import pixelnature  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.join(HERE, "src")
@@ -23,7 +26,6 @@ SRC = os.path.join(HERE, "src")
 # lower half of a cell. (row, col) of the top cell, and how many cells high.
 YAR = {
     "grass": [(0, c) for c in range(7)] + [(1, c) for c in range(8)] + [(2, c) for c in range(4)],
-    "water": [(8, 4), (8, 5), (9, 7)],
     "rock": [(5, 0), (5, 1), (5, 2), (5, 3), (5, 6), (5, 9)],
     "mountain": [(5, 4), (5, 5), (5, 7), (5, 8)],
     "bush": [(12, 0), (12, 1), (12, 8), (12, 9)],
@@ -111,7 +113,7 @@ def main() -> None:
         box = (c * 64, r * 64, c * 64 + 64, (r + rows) * 64)
         im = yar.crop(box)
         bb = im.getbbox()
-        if name.startswith("grass") or name.startswith("water"):
+        if name.startswith("grass"):
             bb = (0, rows * 64 - 32, 64, rows * 64)  # exactly the diamond
         im = im.crop(bb)
         sprites.append((name, im, 32 - bb[0], rows * 64 - 16 - bb[1], 1))
@@ -139,7 +141,7 @@ def main() -> None:
         scale = 1.5 if w <= 40 else 1.25 if w <= 56 else 1.0
         sprites.append((name, im, w / 2, h - 3 - w / 4 * 0.95, scale))
 
-    sprites += pixelart.all_sprites()
+    sprites += pixelart.all_sprites() + pixelnature.all_sprites() + pixeldecor.all_sprites()
 
     # Shelf packing, tallest first, 2 px apart.
     sprites.sort(key=lambda s: -s[1].height)

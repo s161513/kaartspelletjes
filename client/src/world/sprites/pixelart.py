@@ -32,28 +32,29 @@ def hash2(x: int, y: int, salt: int = 0) -> float:
 
 
 class Sprite:
-    def __init__(self) -> None:
-        self.im = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    def __init__(self, w: int = W, h: int = H) -> None:
+        self.w, self.h = w, h
+        self.im = Image.new("RGBA", (w, h), (0, 0, 0, 0))
         self.px = self.im.load()
 
     def set(self, x: float, y: float, c: Color, a: int = 255) -> None:
         x, y = int(round(x)), int(round(y))
-        if 0 <= x < W and 0 <= y < H:
+        if 0 <= x < self.w and 0 <= y < self.h:
             self.px[x, y] = (*c, a)
 
     def get(self, x: int, y: int) -> tuple[int, int, int, int]:
-        return self.px[x, y] if 0 <= x < W and 0 <= y < H else (0, 0, 0, 0)
+        return self.px[x, y] if 0 <= x < self.w and 0 <= y < self.h else (0, 0, 0, 0)
 
     def mask(self, poly: list[tuple[float, float]]) -> list[tuple[int, int]]:
         """The pixels inside a polygon (hard edges, no smoothing)."""
-        m = Image.new("1", (W, H), 0)
+        m = Image.new("1", (self.w, self.h), 0)
         ImageDraw.Draw(m).polygon([(round(x), round(y)) for x, y in poly], fill=1)
         mp = m.load()
-        return [(x, y) for y in range(H) for x in range(W) if mp[x, y]]
+        return [(x, y) for y in range(self.h) for x in range(self.w) if mp[x, y]]
 
     def shadow(self, cx: float, cy: float, rx: float, ry: float) -> None:
-        for y in range(H):
-            for x in range(W):
+        for y in range(self.h):
+            for x in range(self.w):
                 if ((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2 <= 1 and self.get(x, y)[3] == 0:
                     self.set(x, y, (10, 14, 10), 70)
 
@@ -66,13 +67,13 @@ class Sprite:
     def rim(self) -> None:
         """A dark rim round everything solid, from the color next to it."""
         src = self.im.copy().load()
-        for y in range(H):
-            for x in range(W):
+        for y in range(self.h):
+            for x in range(self.w):
                 if src[x, y][3] == 255:
                     continue
                 for dx, dy in ((0, 1), (0, -1), (1, 0), (-1, 0)):
                     nx, ny = x + dx, y + dy
-                    if 0 <= nx < W and 0 <= ny < H and src[nx, ny][3] == 255:
+                    if 0 <= nx < self.w and 0 <= ny < self.h and src[nx, ny][3] == 255:
                         r, g, b, _ = src[nx, ny]
                         self.px[x, y] = (int(r * 0.4), int(g * 0.4), int(b * 0.44), 255)
                         break

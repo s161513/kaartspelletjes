@@ -10,3 +10,6 @@ artifacts/
 
 # Persisted 67-counter state (server/src/counter.ts)
 data/
+
+# Python bytecode (the sprite scripts)
+__pycache__/

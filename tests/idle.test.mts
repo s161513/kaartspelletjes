@@ -78,6 +78,7 @@ import {
   isRiver,
   isRoad,
   isRoadTile,
+  makeRoomForSenate,
   isUsedUp,
   itemCost,
   itemError,
@@ -869,6 +870,15 @@ test("big buildings: De Senaat takes 3×3 once the Kampvuur grows, wonders their
   const senaat = applyAction(cleared, { kind: "upgrade", building: center.id }).state;
   assert.equal(tilesOf(senaat.buildings.find((b) => b.type === "center")!).length, 9);
   assert.equal(placeError(senaat.buildings, senaat.roads, "house", CENTER.x + 1, CENTER.y), "daar staat al iets");
+
+  // Loading such a town moves the hut out of the way, a bit further from the fire.
+  const roomy = makeRoomForSenate(old);
+  const moved = roomy.buildings.find((b) => b.id === hut.id)!;
+  assert.ok(Math.max(Math.abs(moved.x - CENTER.x), Math.abs(moved.y - CENTER.y)) > 1);
+  assert.ok(!isRoad(roomy.roads, moved.x, moved.y) && !roomy.buildings.some((b) => b !== moved && b.x === moved.x && b.y === moved.y));
+  assert.deepEqual({ ...moved, x: 0, y: 0 }, { ...hut, x: 0, y: 0 }, "the same hut");
+  assert.equal(actionError(rich(roomy), { kind: "upgrade", building: center.id }), null);
+  assert.equal(makeRoomForSenate(fresh), fresh, "a new town is left as it is");
 
   // A wonder on top of a building: clear it first.
   const spot = findTile((x, y) => !placeError(fresh.buildings, fresh.roads, "wonder_0", x, y));

@@ -15,6 +15,7 @@ import {
   RAID_MOODS,
   RAID_WARNING_MS,
   STATE_VERSION,
+  makeRoomForSenate,
   VOTE_MS,
   WONDER_BUILD_MS,
   WONDER_PHASES,
@@ -277,7 +278,7 @@ function parseIdle(raw: unknown, now: number): IdleState | null {
   if (Number.isInteger(r.nextProposalId) && (r.nextProposalId as number) >= 1) s.nextProposalId = r.nextProposalId as number;
   s.nextProposalId = Math.max(s.nextProposalId, ...s.proposals.map((p) => p.id + 1));
   s.players = parsePlayers(r.players);
-  return s;
+  return makeRoomForSenate(s);
 }
 
 /** Players after a reset: same name and colors, the free hat and pattern, nothing bought. */

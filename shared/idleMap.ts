@@ -309,7 +309,7 @@ export function buildingOn<T extends Spot>(buildings: readonly T[], x: number, y
 }
 
 /** The tiles round the Kampvuur that De Senaat will need: kept free while the center is still a campfire. */
-function reservedFor(buildings: readonly Spot[], x: number, y: number): string | null {
+export function reservedFor(buildings: readonly Spot[], x: number, y: number): string | null {
   const c = buildings.find((b) => buildingType(b.type)?.category === "center");
   if (!c || (c.level ?? 0) >= 1 || (x === c.x && y === c.y)) return null;
   return Math.abs(x - c.x) <= 1 && Math.abs(y - c.y) <= 1 ? `hier komt later ${buildingName(c.type, 1)}` : null;
@@ -429,11 +429,14 @@ export function placeError(buildings: readonly Spot[], roads: readonly number[],
  * The free tile closest to where this type likes to stand: homes, storage and
  * decorations around the center, work buildings by their resource. Every 4th
  * row and column stays free for the first streets. Null if the map is full.
- * Only for the starting town; later buildings go where people click.
+ * For the starting town (and to move what stands where De Senaat comes);
+ * later buildings go where people click. `blocked`: tile numbers that are
+ * taken too (paths, walls).
  */
-export function placeBuilding(buildings: readonly { x: number; y: number }[], typeId: string): { x: number; y: number } | null {
+export function placeBuilding(buildings: readonly { x: number; y: number }[], typeId: string, blocked: readonly number[] = []): { x: number; y: number } | null {
   if (typeId === "center") return { ...CENTER };
   const taken = new Set(buildings.map((b) => `${b.x},${b.y}`));
+  for (const i of blocked) taken.add(`${i % MAP_SIZE},${Math.floor(i / MAP_SIZE)}`);
   // Round the center stays free for De Senaat.
   for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) taken.add(`${CENTER.x + dx},${CENTER.y + dy}`);
   const anchor = anchorOf(typeId);

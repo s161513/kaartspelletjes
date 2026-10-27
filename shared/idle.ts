@@ -158,6 +158,8 @@ import {
   pathError,
   placeBuilding,
   placeError,
+  reservedFor,
+  takenTiles,
   tileIndex,
   tileOf,
   wallError,
@@ -363,6 +365,23 @@ export function newIdleState(now: number): IdleState {
   };
   for (const type of ["center", "house", "storage"]) s = addBuilding(s, type, 0, placeBuilding(s.buildings, type)!).state;
   return { ...s, roads: classicStreets(s.buildings), population: bedsOf(s) };
+}
+
+/**
+ * Move what stands round the Kampvuur, where De Senaat will come, to the
+ * nearest free spot for its type (towns from before update 21 have their
+ * first Hut and Schuur there). Nothing else changes.
+ */
+export function makeRoomForSenate<T extends IdleWorld>(s: T): T {
+  const inTheWay = (b: PlacedBuilding) => reservedFor(s.buildings, b.x, b.y) !== null;
+  if (!s.buildings.some(inTheWay)) return s;
+  const blocked = [...s.roads, ...s.walls, ...takenTiles(s.buildings)];
+  const moved = new Map<number, PlacedBuilding>();
+  for (const b of s.buildings.filter(inTheWay)) {
+    const spot = placeBuilding([...s.buildings, ...moved.values()], b.type, blocked);
+    if (spot) moved.set(b.id, { ...b, ...spot });
+  }
+  return { ...s, buildings: s.buildings.map((b) => moved.get(b.id) ?? b) };
 }
 
 /** Unlock eras up to `era` (never back). */

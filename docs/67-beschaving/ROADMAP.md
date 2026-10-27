@@ -533,9 +533,13 @@ verhuist niets vanzelf). De wonderen krijgen meteen eigen pixel-sprites.
       boomstammen eromheen waar de dorpelingen op gaan zitten. Het stemmen en
       de feedback horen bij update 13. (bron: 2026-10-26, "de council heeft
       een gebouw De Senaat")
-Let op voor het echte dorp: daar staan de eerste Hut en Schuur naast het
-Kampvuur. Die moeten afgebroken worden voordat het Kampvuur De Senaat kan
-worden.
+- [x] De eerste Hut en Schuur van een oud dorp staan niet meer tegen het
+      Kampvuur aan (Richard, 2026-10-27: "ze moeten wat naar achter omdat
+      het middenplein meer plek vraagt"). Gedaan: bij het laden van het dorp
+      verhuist wat op de tegels van De Senaat staat naar de dichtstbijzijnde
+      vrije plek voor dat gebouw, met alles erop en eraan
+      (`makeRoomForSenate`). In het echte dorp gaan de Hut en de Schuur dus
+      vanzelf een stukje naar achter zodra de server opnieuw start.
 
 ### Update 22: Gereedschap
 Status: gepland. Eerst met Richard afstemmen: welke werkplaats wat maakt,

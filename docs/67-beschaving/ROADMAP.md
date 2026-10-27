@@ -476,6 +476,13 @@ een stemming.
       blijven donker (`client/src/world/night.ts`). In de HUD staat of het dag
       of nacht is, en hoe lang nog. (bron: 2026-10-26, "dag/nacht cycle van
       20 minuten")
+- [x] Zonsopgang en zonsondergang (Richard, 2026-10-27: "een mooie overgang
+      is wel leuk"). Gedaan: in de laatste 5 minuten van de dag kleurt het
+      dorp goud en dan oranje, bij het vallen van de nacht paars, en na ruim
+      3 minuten is het echt donker. Aan het eind van de nacht wordt het in 3
+      minuten licht met een roze dageraad, en de ochtend is nog 4 minuten
+      goudroze. Alleen kleur, geen schaduwen (`skyAt` in
+      `client/src/world/night.ts`). De HUD zegt dan 🌇 avond en 🌅 ochtend.
 - [x] 's Nachts slapen de mensen in hun eigen huis. Gedaan: wie een bed heeft,
       gaat naar huis; wie buiten slaapt, gaat bij het vuur liggen (met een
       "z"). Ongeveer de helft draait nachtdienst en werkt door; daarom gaat het

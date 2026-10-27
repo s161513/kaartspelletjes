@@ -59,7 +59,7 @@ import { drawSprite, spritesLoaded, variant } from "./sprites";
 import { Camera, TILE_H, TILE_W, toTileSpace, toWorld } from "./iso";
 import { Wildlife } from "./animals";
 import { findPath, setTown } from "./path";
-import { buildingLights, darknessAt, drawNight, streetLights, type Light } from "./night";
+import { buildingLights, drawNight, drawSunGlow, skyAt, streetLights, type Light } from "./night";
 import { Population, type Gather, type VillagerInfo } from "./villagers";
 
 const DRAG_THRESHOLD = 6;
@@ -782,8 +782,11 @@ export function createWorld(opts: WorldOptions): TownWorld {
       ctx.setLineDash([]);
     }
 
-    // The night, with the lights of the town (and a lantern for every player).
-    const dark = darknessAt(serverNow);
+    // The glow of sunrise and sunset, and the night with the lights of the
+    // town (and a lantern for every player).
+    const sky = skyAt(serverNow);
+    const dark = sky.dark;
+    drawSunGlow(ctx, ctx.canvas.width, ctx.canvas.height, sky);
     if (dark > 0) {
       for (const b of world?.buildings ?? []) buildingLights(b, lights);
       streetLights(roads, era, lights);

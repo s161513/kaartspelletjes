@@ -79,6 +79,14 @@ import {
   isRoad,
   isRoadTile,
   makeRoomForSenate,
+  slotsOf,
+  meet,
+  pairKey,
+  relationLevel,
+  relationPoints,
+  SOCIAL,
+  taskError,
+  TOGETHER_MS,
   COUNCIL_ITEMS,
   IDEA_COOLDOWN_MS,
   councilText,
@@ -1445,6 +1453,84 @@ test("idle game: a town from an older version starts over; players keep their na
     const saved = JSON.parse(readFileSync(file, "utf8"));
     assert.equal(saved.v, 7);
     assert.deepEqual(saved.players["0123456789ab"], { ...ann, owned: [], look: { skin: 2, clothes: 5, hat: "none", pattern: "stripes" } });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("your own villager: a task makes you one more worker while you're online; relations grow and fade", () => {
+  const s = town(T0);
+  const camp = s.buildings.find((b) => b.type === "wood")!;
+  assert.equal(taskError(s, { kind: "work", building: camp.id }), null);
+  assert.equal(taskError(s, { kind: "work", building: s.buildings.find((b) => b.type === "house")!.id }), "daar is geen werk");
+  assert.equal(taskError(s, { kind: "gather", res: "iron" }), "dat groeit hier niet");
+  const workers = assignWorkers(s).workers[camp.id];
+  const helped = ratesOf({ ...s, helpers: [{ kind: "work", building: camp.id }] }).wood! - ratesOf(s).wood!;
+  assert.ok(near(helped, (fullRateOf(camp) / slotsOf(camp.level)) * happinessOf(s, T0).mult), `one worker more (${workers} there)`);
+  const gathering = ratesOf({ ...s, helpers: [{ kind: "gather", res: "stone" }] }).stone! - (ratesOf(s).stone ?? 0);
+  assert.ok(gathering > 0);
+
+  // Relations: points up to RELATION_MAX, fading 2 a day without seeing each other.
+  const r = { relations: {} };
+  const met = meet(r, "b", "a", 12, T0);
+  assert.deepEqual(Object.keys(met.relations), [pairKey("a", "b")]);
+  assert.equal(relationLevel(relationPoints(met.relations["a|b"], T0)).name, "vrienden");
+  assert.ok(near(relationPoints(met.relations["a|b"], T0 + 3 * 86_400_000), 6));
+  assert.equal(meet(r, "a", "b", 0, T0), r, "just seeing each other starts nothing");
+  assert.equal(meet(met, "a", "b", 500, T0).relations["a|b"].points, 100);
+});
+
+test("players together: tasks count while online, waving, talking, gifts and matchmaking, the same task brings them closer", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "idle-"));
+  try {
+    const file = path.join(dir, "idle.json");
+    const s = rich(town(T0));
+    writeFileSync(file, JSON.stringify(s));
+    const game = createIdleGame(file, T0);
+    const camp = s.buildings.find((b) => b.type === "wood")!;
+    const [A, B, C] = ["0123456789abcdef-annann", "0123456789abcdef-bobbob", "0123456789abcdef-cascas"];
+    game.hello("a", A, "Ann", T0);
+    game.hello("b", B, "Bob", T0);
+    const ann = game.message("a", 0, 0, 2, T0).me!.id;
+    const bob = game.message("b", 0, 0, 2, T0).me!.id;
+    assert.equal(game.task("a", { kind: "work", building: 9999 }, T0).error, "daar is geen werk");
+    game.task("a", { kind: "work", building: camp.id }, T0);
+    let msg = game.message("b", 0, 0, 2, T0);
+    assert.deepEqual(msg.state.helpers, [{ kind: "work", building: camp.id }]);
+    assert.deepEqual(msg.people.find((p) => p.id === ann)!.task, { kind: "work", building: camp.id }, "everyone sees where Ann works");
+    game.leave("a", T0 + 1000);
+    assert.deepEqual(game.message("b", 0, 0, 1, T0 + 1000).state.helpers, [], "only while online");
+    game.hello("a", A, "Ann", T0 + 2000);
+    assert.equal(game.message("b", 0, 0, 2, T0 + 2000).state.helpers.length, 1, "the task stays for next time");
+
+    // Waving, with a cooldown per pair; not to yourself or someone offline.
+    assert.equal(game.social("a", "wave", ann, undefined, T0).error, "die speler is niet online");
+    assert.deepEqual(game.social("a", "wave", bob, undefined, T0).events, [{ kind: "social", from: ann, to: bob, emoji: "👋", label: "👋 Ann zwaait naar Bob" }]);
+    assert.match(game.social("a", "wave", bob, undefined, T0 + 1000).error!, /^even wachten/);
+    assert.equal(game.social("b", "wave", ann, undefined, T0 + 1000).error, undefined, "Bob may wave back");
+    // A gift is paid from the town's storage.
+    const food = game.message("a", 0, 0, 2, T0).state.resources.food;
+    assert.equal(game.social("a", "gift", bob, undefined, T0).error, undefined);
+    assert.ok(game.message("a", 0, 0, 2, T0).state.resources.food < food);
+    assert.ok(Math.abs(game.message("a", 0, 0, 2, T0).relations[0].points - (SOCIAL.wave.points * 2 + SOCIAL.gift.points)) < 0.001);
+
+    // Matchmaking: Cas brings Ann and Bob closer.
+    game.hello("c", C, "Cas", T0);
+    assert.equal(game.social("c", "introduce", ann, ann, T0).error, "kies een andere speler die online is");
+    const intro = game.social("c", "introduce", ann, bob, T0).events[0];
+    assert.equal(intro.kind === "social" && intro.label, "🤝 Cas stelt voor aan Ann en Bob");
+
+    // On the same task, every TOGETHER_MS they grow a bit closer.
+    game.task("b", { kind: "work", building: camp.id }, T0);
+    const before = game.message("a", 0, 0, 3, T0).relations.find((r) => r.id === bob)!.points;
+    game.tick(3, T0 + TOGETHER_MS);
+    const after = game.message("a", 0, 0, 3, T0 + TOGETHER_MS).relations.find((r) => r.id === bob)!.points;
+    assert.ok(after > before);
+    // Saved with the town.
+    game.flush();
+    const saved = JSON.parse(readFileSync(file, "utf8"));
+    assert.ok(saved.relations[pairKey(ann, bob)].points > 0);
+    assert.deepEqual(saved.players[ann].task, { kind: "work", building: camp.id });
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

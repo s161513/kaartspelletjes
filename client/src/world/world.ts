@@ -108,6 +108,8 @@ export interface TownWorld {
   villager(id: string): VillagerInfo | null;
   /** Someone chose what this villager gathers (shown before the server confirms). */
   setGather(id: string, g: Gather | null): void;
+  /** Two players did something together (update 14). */
+  social(from: string, to: string, emoji: string): void;
   focus(b: PlacedBuilding): void;
   /** Move the view to a tile. */
   lookAt(x: number, y: number): void;
@@ -893,6 +895,9 @@ export function createWorld(opts: WorldOptions): TownWorld {
     setGather(id, g) {
       const v = pop.villagers.get(id);
       if (v) pop.setGather(v, g, Date.now());
+    },
+    social(from, to, emoji) {
+      pop.social(from, to, emoji, Date.now());
     },
     setWorld(w) {
       let changed =

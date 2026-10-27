@@ -208,6 +208,11 @@ export function createCounterServer(opts: CounterServerOptions = {}): WebSocketS
           return reply(idle.devCommand(clientId, msg.name, msg.cmd, now));
         case "open":
           return reply(idle.open(clientId, msg.name, msg.id, now));
+        // Your own villager and the other players (update 14).
+        case "task":
+          return reply(idle.task(clientId, msg.task, now));
+        case "social":
+          return reply(idle.social(clientId, msg.kind, msg.target, msg.other, now));
         // De raad: which update next, and ideas.
         case "council":
           return reply(idle.councilVote(clientId, msg.item));

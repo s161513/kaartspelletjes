@@ -7,6 +7,13 @@
 // are kept, not rebuilt, so buttons never vanish under a click.
 
 import {
+  SOCIAL,
+  TOGETHER_MS,
+  TOGETHER_POINTS,
+  relationLevel,
+  sameTask,
+  scaleOf,
+  type PlayerTask,
   IDEA_LENGTH,
   councilText,
   ideaError,
@@ -963,7 +970,7 @@ export function createPanels(deps: PanelDeps): Panels {
 
   function renderVillager(v: VillagerInfo): void {
     const world = deps.world();
-    const options = v.gather && world ? gatherable(world.era) : [];
+    const options = v.gather && world && !v.player ? gatherable(world.era) : [];
     const sig = `v:${villagerId}:${options.join(",")}`;
     if (sig !== inspectSig) {
       inspectSig = sig;
@@ -972,6 +979,7 @@ export function createPanels(deps: PanelDeps): Panels {
       insOffers = [];
       insLive = null;
       gatherBtns = [];
+      if (v.playerId) insLive = playerPanel(v.playerId);
       if (options.length) {
         const row = h("div", "sx-gather-btns");
         for (const id of [...options, null]) {
@@ -984,7 +992,7 @@ export function createPanels(deps: PanelDeps): Panels {
       }
     }
     const lines = v.player
-      ? [`🎮 ${v.player}`, v.doing]
+      ? [`🎮 ${v.player}`, ...(v.job ? [`👷 werkt mee bij: ${v.job}`] : v.gather ? [`🧺 verzamelt ${resourceDef(v.gather.resource)?.emoji ?? ""} ${resourceDef(v.gather.resource)?.name ?? ""}`] : []), v.doing]
       : v.visitor
         ? [v.doing]
         : [
@@ -997,6 +1005,7 @@ export function createPanels(deps: PanelDeps): Panels {
           `⏱️ nu: ${v.doing}`,
         ];
     insInfo.replaceChildren(...lines.map((l) => h("div", "", l)));
+    insLive?.();
     for (const { id, btn } of gatherBtns) {
       const on = id === null ? !v.gather?.chosen : !!v.gather?.chosen && v.gather.resource === id;
       btn.setAttribute("aria-pressed", String(on));
@@ -1209,6 +1218,107 @@ export function createPanels(deps: PanelDeps): Panels {
   }
 
   /** The campfire: who works, who gathers what, and choosing that for the whole town. */
+  // ---------- a player's villager (update 14): your task, your friends ----------
+
+  /** For a player's NPC: your own task and relations, or what you can do with someone else. Returns its refresh. */
+  function playerPanel(id: string): () => void {
+    const box = h("div");
+    insActions.append(box);
+    let sig = "";
+    return () => {
+      const msg = deps.msg();
+      const w = deps.world();
+      if (!msg || !w) return;
+      const mine = msg.me?.id === id;
+      const online = msg.people;
+      const rel = msg.relations;
+      const next = JSON.stringify([id, mine, msg.me?.task ?? null, online.map((p) => [p.id, p.name]), rel.map((r) => [r.id, Math.floor(r.points)]), w.buildings.length, w.era, deps.connected()]);
+      if (next === sig) return;
+      sig = next;
+      box.replaceChildren(...(mine ? ownPanel(w, msg) : otherPanel(id, msg)));
+    };
+  }
+
+  function taskLabel(w: IdleWorld, t: PlayerTask): string {
+    if (t.kind === "gather") return `${resourceDef(t.res)?.emoji ?? ""} ${resourceDef(t.res)?.name ?? t.res} verzamelen`;
+    const b = w.buildings.find((x) => x.id === t.building);
+    return b ? `${buildingType(b.type)?.emoji ?? ""} ${buildingName(b.type, b.level)}` : "?";
+  }
+
+  /** Your own villager: pick a task, see your relations. */
+  function ownPanel(w: IdleWorld, msg: IdleStateMsg): HTMLElement[] {
+    const current = msg.me?.task ?? null;
+    const choose = (task: PlayerTask | null) => deps.send({ type: "task", task });
+    const tasks: PlayerTask[] = [
+      ...w.buildings.filter((b) => buildingType(b.type)?.category === "work" && producesOf(b) && !b.damaged).map((b): PlayerTask => ({ kind: "work", building: b.id })),
+      ...gatherable(w.era).map((res): PlayerTask => ({ kind: "gather", res })),
+    ];
+    const select = h("select", "sx-input");
+    const free = h("option", "", "🚶 vrij rondlopen");
+    free.value = "";
+    select.append(free);
+    for (const [i, t] of tasks.entries()) {
+      const o = h("option", "", taskLabel(w, t));
+      o.value = String(i);
+      if (sameTask(t, current ?? undefined)) o.selected = true;
+      select.append(o);
+    }
+    select.disabled = !deps.connected();
+    select.addEventListener("change", () => choose(select.value === "" ? null : tasks[Number(select.value)]));
+    const relations = msg.relations.length
+      ? msg.relations.map((r) => {
+          const level = relationLevel(r.points);
+          return h("div", "sx-tool-line", `${level.emoji} ${r.name}: ${level.name} (${Math.floor(r.points)})`);
+        })
+      : [h("p", "sx-note", "Nog niemand. Klik op een andere speler om te zwaaien, te praten of een cadeautje te geven.")];
+    return [
+      h("h4", "sx-h", "🎯 Jouw taak"),
+      h("p", "sx-note", "Zolang je online bent, werkt je mannetje mee: één werker extra, met eigen gereedschap. Iedereen ziet waar je werkt."),
+      select,
+      h("h4", "sx-h", "💞 Jouw relaties"),
+      ...relations,
+      h("p", "sx-note", `Samen dingen doen maakt jullie beter bevriend; samen aan dezelfde taak werken ook (+${TOGETHER_POINTS} per ${TOGETHER_MS / 60_000} min). Wie elkaar niet ziet, zakt langzaam.`),
+    ];
+  }
+
+  /** Someone else: your relation, and what you can do together. */
+  function otherPanel(id: string, msg: IdleStateMsg): HTMLElement[] {
+    const other = msg.people.find((p) => p.id === id);
+    const points = msg.relations.find((r) => r.id === id)?.points ?? 0;
+    const level = relationLevel(points);
+    const can = !!msg.me && !!other && deps.connected();
+    const buttons = (["wave", "talk", "gift"] as const).map((kind) => {
+      const def = SOCIAL[kind];
+      const cost = def.cost ? ` (${costText(Object.fromEntries(Object.entries(def.cost).map(([r, n]) => [r, n * scaleOf(deps.world()?.era ?? 0)])))})` : "";
+      const b = button("sx-act", `${def.emoji} ${def.name}${cost}`, () => deps.send({ type: "social", kind, target: id }));
+      b.disabled = !can;
+      b.title = !msg.me ? "eerst inloggen" : `+${def.points} · eens per ${def.cooldownMs / 60_000} min`;
+      return b;
+    });
+    const row = h("div", "sx-gather-btns");
+    row.append(...buttons);
+    const others = msg.people.filter((p) => p.id !== id && p.id !== msg.me?.id);
+    const out: HTMLElement[] = [
+      h("h4", "sx-h", "💞 Jullie relatie"),
+      h("div", "", `${level.emoji} ${level.name} (${Math.floor(points)})`),
+      h("h4", "sx-h", "🤝 Samen"),
+      row,
+    ];
+    if (others.length) {
+      const pick = h("select", "sx-input");
+      for (const p of others) {
+        const o = h("option", "", p.name);
+        o.value = p.id;
+        pick.append(o);
+      }
+      const intro = button("sx-act", `${SOCIAL.introduce.emoji} voorstellen`, () => deps.send({ type: "social", kind: "introduce", target: id, other: pick.value }));
+      intro.disabled = !can;
+      out.push(h("p", "sx-note", `Koppelaar: stel ${other?.name ?? "deze speler"} voor aan iemand anders (+${SOCIAL.introduce.points} voor hen samen).`), pick, intro);
+    }
+    if (!other) out.push(h("p", "sx-note", "Die speler is niet meer online."));
+    return out;
+  }
+
   // ---------- De raad (update 13): which update next, and ideas ----------
 
   function councilPanel(): () => void {

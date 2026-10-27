@@ -56,6 +56,8 @@ export interface VillagerInfo {
   name: string;
   /** "speler" or "dat ben jij!" for a player's NPC. */
   player: string | null;
+  /** The player's public id, for a player's NPC. */
+  playerId: string | null;
   home: string | null;
   /** Work building, or null: out of work. */
   job: string | null;
@@ -136,7 +138,7 @@ export interface Villager {
   sixSevenUntil: number;
   nextChat: number;
   /** Set for a player's own NPC. */
-  player?: { name: string; hat: string; pattern: string; mine: boolean };
+  player?: { id: string; name: string; hat: string; pattern: string; mine: boolean };
   /** A newcomer waiting at the edge of town for the vote. */
   visitor?: boolean;
 }
@@ -291,7 +293,16 @@ export class Population {
       v.name = p.name;
       v.skin = SKIN_TONES[p.look.skin] ?? SKIN_TONES[0];
       v.clothes = CLOTHES_COLORS[p.look.clothes] ?? CLOTHES_COLORS[0];
-      v.player = { name: p.name, hat: p.look.hat, pattern: p.look.pattern, mine: p.id === me };
+      v.player = { id: p.id, name: p.name, hat: p.look.hat, pattern: p.look.pattern, mine: p.id === me };
+      // Their task (update 14): off to that building or that nature, like any villager with a job.
+      const job = p.task?.kind === "work" ? p.task.building : null;
+      const gather = p.task?.kind === "gather" ? p.task.res : null;
+      if (v.job !== job || (v.gather?.resource ?? null) !== gather) {
+        v.job = job;
+        v.gather = gather ? { resource: gather, chosen: true } : null;
+        v.carry = null;
+        v.task = { kind: "stay", until: now, action: "none" };
+      }
     }
     for (const id of [...this.villagers.keys()]) if (id.startsWith("p:") && !keep.has(id)) this.villagers.delete(id);
   }
@@ -541,6 +552,17 @@ export class Population {
     v.bubble = { text: `${v.name} · ${what}`, until: now + 3500 };
   }
 
+  /** Two players did something together: a bubble over both. */
+  social(from: string, to: string, emoji: string, now: number): void {
+    for (const id of [from, to]) {
+      const v = this.villagers.get(`p:${id}`);
+      if (v) {
+        v.bubble = { text: emoji, until: now + 3000 };
+        v.jumpUntil = now + 700;
+      }
+    }
+  }
+
   /** Someone picked what this villager gathers: show it right away, the town's next sync keeps them on it. */
   setGather(v: Villager, g: Gather | null, now: number): void {
     if (v.job !== null || v.gather?.resource === g?.resource) {
@@ -583,9 +605,10 @@ export class Population {
     return {
       name: v.name,
       player: v.player ? (v.player.mine ? "dat ben jij!" : "speler") : null,
+      playerId: v.player?.id ?? null,
       home: home ? `${buildingType(home.type)?.emoji ?? ""} ${buildingName(home.type, home.level)}` : null,
       job: job ? `${buildingType(job.type)?.emoji ?? ""} ${buildingName(job.type, job.level)}` : null,
-      gather: job || v.player ? null : v.gather,
+      gather: job ? null : v.gather,
       doing,
       visitor: !!v.visitor,
     };

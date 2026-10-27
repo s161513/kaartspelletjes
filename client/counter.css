@@ -460,6 +460,7 @@ body.sx-era-10 { --sx-bg: #12002b; --sx-bg2: #2a0050; }
   color: #000;
   font: 700 0.8rem system-ui, sans-serif;
   text-align: left;
+  white-space: nowrap;
   cursor: pointer;
 }
 .sx-dev-btn.sx-dev-on {

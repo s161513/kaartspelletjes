@@ -70,7 +70,7 @@ Daarnaast blijft gelden:
 | Tests | `tests/idle.test.mts` |
 
 Testen zonder wachten: zet `IDLE_DEV=1` in `.env` (alleen op je eigen
-computer) en gebruik het blok 🛠️ ontwikkelaar links onderin (update 23).
+computer) en gebruik de balk 🛠️ ontwikkelaar onderin (update 23).
 
 Volledig resetten om te testen: stop de server, verwijder `data/counter.json`
 en `data/idle.json`, en start opnieuw.
@@ -553,8 +553,8 @@ zien of gebruiken, ook niet als ze het bericht zelf sturen.
 
 - [x] Een menu 🛠️ om te testen zonder lang te wachten: bouwen en kopen
       zonder grondstoffen en zonder stemming, de bouwfases van een wonder
-      overslaan, naar het volgende tijdperk, de opslag vol. Gedaan: links
-      onderin staat het blok "🛠️ ontwikkelaar". "💸 gratis en meteen" aan:
+      overslaan, naar het volgende tijdperk, de opslag vol. Gedaan: onderin
+      het midden staat de balk "🛠️ ontwikkelaar". "💸 gratis en meteen" aan:
       alles wat je voorstelt of koopt gebeurt meteen, zonder stemming en
       zonder te betalen; de knoppen heten dan "🛠️ meteen". De gewone
       controles blijven (plek, tijdperk, doelen). Een wonder hoeft dan niet op

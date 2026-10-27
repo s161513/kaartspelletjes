@@ -656,6 +656,62 @@ export const GATHER_RANGE = 15;
 /** …each this many clicks' worth per second (a job pays far better), using up a click per click. */
 export const GATHER_RATE = 0.05;
 
+// ---------- tools (update 22) ----------
+
+/** Every job has its own tool; the jobs without one (herding, books, oil, …) work as before. */
+export type ToolKind = "axe" | "pick" | "bow" | "rod" | "sickle";
+export interface ToolDef {
+  id: ToolKind;
+  name: string;
+  emoji: string;
+  /** Who uses it, for the overview. */
+  who: string;
+}
+export const TOOLS: readonly ToolDef[] = [
+  { id: "axe", name: "bijl", emoji: "🪓", who: "houthakkers" },
+  { id: "pick", name: "houweel", emoji: "⛏️", who: "steenhouwers en mijnwerkers" },
+  { id: "bow", name: "pijl en boog", emoji: "🏹", who: "jagers" },
+  { id: "rod", name: "hengel", emoji: "🎣", who: "vissers" },
+  { id: "sickle", name: "sikkel", emoji: "🌾", who: "boeren" },
+];
+/** Rarities, worst first: how much faster a worker with one works, and how much longer it lasts. */
+export interface Rarity {
+  id: "common" | "rare" | "epic";
+  name: string;
+  mult: number;
+  life: number;
+}
+export const RARITIES: readonly Rarity[] = [
+  { id: "common", name: "gewoon", mult: 1, life: 1 },
+  { id: "rare", name: "zeldzaam", mult: 1.25, life: 1 },
+  { id: "epic", name: "episch", mult: 1.5, life: 1.5 },
+];
+/** The chance a tool the smiths make comes out rare, or epic. */
+export const RARE_CHANCE = 0.2;
+export const EPIC_CHANCE = 0.05;
+/** A worker without the tool for the job works this much (from TOOLS_FROM_ERA on). */
+export const NO_TOOL_MULT = 0.75;
+/** Before the smiths (the Iron Age), everyone gets by with stone tools: no tools needed. */
+export const TOOLS_FROM_ERA = 2;
+/** A tool lasts this long of work (a night counts for NIGHT_WORK). */
+export const TOOL_LIFE_MS = 3 * 24 * 60 * MIN;
+/** A smith with all its workers makes a tool this often, from TOOL_COST in storage. */
+export const TOOL_CRAFT_MS = 10 * MIN;
+export const TOOL_COST: Amounts = { iron: 4, coal: 4 };
+/** Smithing a tool yourself (the minigame): once per player this often. */
+export const FORGE_COOLDOWN_MS = 2 * MIN;
+
+/** The tool a work building's workers use, if any. */
+export function toolKindOf(type: string, produces: ResourceId | undefined): ToolKind | null {
+  if (type === "hunter") return "bow";
+  if (type === "fishery") return "rod";
+  if (type === "farm") return "sickle";
+  if (type === "wood") return "axe";
+  if (type === "stone" || type === "mine") return "pick";
+  if (type.startsWith("mine_") && produces && ["bronze", "iron", "coal", "gold", "titanium"].includes(produces)) return "pick";
+  return null;
+}
+
 // ---------- happiness ----------
 
 /** Happiness (0–100) starts here: a town with a bed for everyone and two kinds of food is content. */

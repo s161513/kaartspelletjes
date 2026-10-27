@@ -208,6 +208,8 @@ export function createCounterServer(opts: CounterServerOptions = {}): WebSocketS
           return reply(idle.devCommand(clientId, msg.name, msg.cmd, now));
         case "open":
           return reply(idle.open(clientId, msg.name, msg.id, now));
+        case "forge":
+          return reply(idle.forge(clientId, msg.name, msg.building, msg.score, now));
         case "outfit":
           return reply(idle.outfit(clientId, msg.item, now));
         // Who's who: their NPC shows up for everyone.

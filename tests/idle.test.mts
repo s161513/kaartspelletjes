@@ -79,6 +79,18 @@ import {
   isRoad,
   isRoadTile,
   makeRoomForSenate,
+  addTool,
+  forgeError,
+  forgeTool,
+  NO_TOOL_MULT,
+  RARITIES,
+  stepForge,
+  TOOL_COST,
+  TOOL_CRAFT_MS,
+  TOOL_LIFE_MS,
+  TOOLS_FROM_ERA,
+  toolUseOf,
+  workMs,
   doForFree,
   fillStorage,
   finishPhases,
@@ -426,6 +438,80 @@ test("coal and smiths: coal from the Iron Age; smiths turn iron and coal into we
   assert.ok(near(long.resources.weapons + (long.resources.armor ?? 0), 100));
   assert.ok(near(long.resources.iron, 0) && near(long.resources.coal, 0));
   assert.equal(ratesOf({ ...s, resources: {} }).weapons, undefined, "nothing in stock, nothing coming in");
+});
+
+test("tools: from the Iron Age every job needs its own tool; without one ×0.75, rare and epic ones better; they wear out", () => {
+  // Two woodcutters' camps (4 workers), nobody else working or gathering.
+  const camps = [
+    { id: 1, type: "center", level: 2, x: CENTER.x, y: CENTER.y },
+    { id: 2, type: "wood", level: 2, x: CENTER.x + 2, y: CENTER.y },
+    { id: 3, type: "wood", level: 2, x: CENTER.x - 2, y: CENTER.y },
+  ];
+  const base = { ...unlockEra(town(T0), 2), buildings: camps, population: 4, resources: {} };
+  assert.deepEqual(toolUseOf({ ...base, era: TOOLS_FROM_ERA - 1 }), {}, "stone tools before the Iron Age");
+  const bare = toolUseOf(base);
+  assert.deepEqual(bare, { axe: { need: 4, have: [0, 0, 0], mult: NO_TOOL_MULT } });
+  const full = ratesOf({ ...base, tools: { axe: [4, 0, 0] } }).wood;
+  assert.ok(near(ratesOf(base).wood, full * NO_TOOL_MULT), "a quarter slower without");
+  // The best tools go first: one epic, one rare, one common, one worker without.
+  const mixed = toolUseOf({ ...base, tools: { axe: [1, 1, 1] } }).axe!;
+  assert.deepEqual(mixed.have, [1, 1, 1]);
+  assert.ok(near(mixed.mult, (1.5 + 1.25 + 1 + NO_TOOL_MULT) / 4));
+
+  // A tool lasts TOOL_LIFE_MS of work, an epic one half again as long.
+  const s = { ...base, tools: { axe: [10, 0, 2] } };
+  const later = advance(s, T0 + 3_600_000);
+  const worked = workMs(T0, T0 + 3_600_000);
+  assert.ok(near(later.tools.axe![0], 10 - (2 * worked) / TOOL_LIFE_MS));
+  assert.ok(near(later.tools.axe![2], 2 - (2 * worked) / (TOOL_LIFE_MS * RARITIES[2].life)));
+});
+
+test("tools: a smith can make tools instead (vote), from iron and coal; the server hands them out where they're needed most", () => {
+  const town2 = {
+    ...unlockEra(town(T0), 2),
+    buildings: [
+      { id: 1, type: "center", level: 2, x: CENTER.x, y: CENTER.y },
+      { id: 2, type: "weaponsmith", level: 2, x: CENTER.x + 2, y: CENTER.y },
+      { id: 3, type: "fishery", level: 2, x: CENTER.x - 2, y: CENTER.y },
+    ],
+    population: 4,
+    resources: { iron: 100, coal: 100 },
+  };
+  const on = { kind: "tools" as const, building: 2, on: true };
+  assert.equal(actionError(town2, { ...on, building: 3 }), "dat is geen smidse");
+  assert.equal(actionError(town2, { ...on, on: false }), "die maakt al wapens");
+  assert.equal(actionLabel(town2, on), "⚔️ Wapensmid: 🔨 gereedschap maken");
+  const s = applyAction(town2, on).state;
+  assert.equal(s.buildings.find((b) => b.id === 2)!.tools, true);
+  assert.equal(actionError(s, on), "die maakt al gereedschap");
+  assert.equal(ratesOf(s).weapons, undefined, "no weapons meanwhile");
+  assert.ok(ratesOf(s).iron! < 0, "iron goes to the tools");
+
+  // In TOOL_CRAFT_MS of daytime work the full smith makes one tool (as happy as the town is).
+  const day = T0 - (T0 % 2_400_000) + 60_000; // just after daybreak
+  const made = advance({ ...s, lastTick: day }, day + TOOL_CRAFT_MS);
+  const mult = happinessOf(s, day).mult;
+  assert.ok(near(made.forged, mult));
+  assert.ok(near(made.resources.iron, 100 - mult * TOOL_COST.iron));
+  // The server makes a whole one into a tool for the fishers, who have none.
+  const ready = { ...made, forged: 1.2 };
+  const handed = stepForge(ready, () => 0.9)!;
+  assert.ok(near(handed.state.forged, 0.2));
+  assert.deepEqual(handed.state.tools.rod, [1, 0, 0]);
+  assert.equal(handed.label, undefined, "a common one is no news");
+  assert.equal(stepForge(ready, () => 0.01)!.label, "🔨 De smeden maakten 🎣 een epische hengel!");
+  assert.equal(stepForge({ ...ready, forged: 0.5 }, () => 0), null);
+
+  // Smithing one yourself: costs the same; a good game makes rare and epic likelier.
+  assert.equal(forgeError(s, 2), null);
+  assert.equal(forgeError(s, 3), "dat is geen smidse");
+  assert.equal(forgeError({ ...s, resources: {} }, 2), "te duur");
+  assert.equal(forgeError(unlockEra(town(T0), 1), 2), "gereedschap komt pas in de IJzertijd");
+  const roll = 0.5;
+  assert.equal(forgeTool(s, 0, roll).rarity, 0);
+  assert.equal(forgeTool(s, 1, roll).rarity, 1);
+  assert.equal(forgeTool(s, 0, roll).state.resources.iron, 100 - TOOL_COST.iron);
+  assert.equal(addTool(s, 0.2, 1).rarity, 2);
 });
 
 /** A Bronze Age town with 30 people and a few buildings, as of T0. */

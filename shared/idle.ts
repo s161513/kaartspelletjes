@@ -20,7 +20,10 @@
 // the longer they last), which slowly grow back; hunters catch less where the
 // forest is cut down. Mines dug into the mountain never run out; the players
 // vote which ore each one digs. Smiths turn iron and coal into weapons and
-// armor. Days and nights take 20 minutes each, by the clock; at night most
+// armor, or into tools: from the Iron Age on every job has its own tool (an axe,
+// a pick, a bow, a rod, a sickle) that wears out, workers without one work
+// slower, and now and then one comes out rare or epic (players can also smith
+// one themselves, in a little game). Days and nights take 20 minutes each, by the clock; at night most
 // villagers sleep and everything is made at half speed. From the Bronze Age on,
 // enemies raid the town a few times a day, always at night, seen coming an
 // hour before: walls (with gates for the villagers), towers, villagers and guards with
@@ -126,6 +129,16 @@ import {
   STORAGE_CAP,
   UPGRADE_SHARE,
   WORK_DRAIN,
+  EPIC_CHANCE,
+  NO_TOOL_MULT,
+  RARE_CHANCE,
+  RARITIES,
+  TOOL_COST,
+  TOOL_CRAFT_MS,
+  TOOL_LIFE_MS,
+  TOOLS,
+  TOOLS_FROM_ERA,
+  toolKindOf,
   WORK_RANGE,
   buildingName,
   buildingType,
@@ -143,6 +156,7 @@ import {
   type Outfit,
   type ResourceId,
   type ShopItem,
+  type ToolKind,
 } from "./idleContent.js";
 import {
   CENTER,
@@ -202,6 +216,8 @@ export interface PlacedBuilding {
   ore?: ResourceId;
   /** Set on fire by raiders: does nothing until it's repaired. */
   damaged?: boolean;
+  /** A smith making tools instead of weapons or armor (update 22). */
+  tools?: true;
 }
 
 /** Enemies on their way: they arrive at `at`, from `from`. */
@@ -284,6 +300,10 @@ export interface IdleWorld {
   nextNewcomer: number;
   /** When a couple may next have a child (0: not planned yet). */
   nextBirth: number;
+  /** Tools in town per kind, by rarity (index into RARITIES); fractional as they wear (update 22). */
+  tools: Partial<Record<ToolKind, number[]>>;
+  /** Tools the smiths have made but nobody has looked at yet: the server turns every whole one into a tool. */
+  forged: number;
 }
 
 /** Who knocks on the door, for the vote: only for the story. */
@@ -308,6 +328,8 @@ export type ProposalAction =
   | { kind: "wonder"; building: number }
   /** A mine digs another ore from now on. */
   | { kind: "ore"; building: number; ore: ResourceId }
+  /** A smith makes tools from now on (or goes back to its own thing). */
+  | { kind: "tools"; building: number; on: boolean }
   /** Put a wall on these tiles, or take it off for a bit back. */
   | { kind: "walls"; tiles: number[] }
   | { kind: "unwall"; tiles: number[] }
@@ -361,7 +383,7 @@ export function newIdleState(now: number): IdleState {
   let s: IdleState = {
     v: STATE_VERSION, era: 0, resources: { food: 150, wood: 200, stone: 100 }, buildings: [], nextBuildingId: 1,
     lastTick: now, boostUntil: 0, boosts: [], perks: {}, roadLevel: 0, roads: [], nature: {}, gatherers: {}, population: 0, happiness: HAPPY_BASE, drops: [], nextDropId: 1, lastLucky: 0,
-    walls: [], wallLevel: 0, gates: [], raid: null, nextRaid: 0, lastRaid: null, nextNewcomer: 0, nextBirth: 0, proposals: [], nextProposalId: 1, players: {},
+    walls: [], wallLevel: 0, gates: [], raid: null, nextRaid: 0, lastRaid: null, nextNewcomer: 0, nextBirth: 0, tools: {}, forged: 0, proposals: [], nextProposalId: 1, players: {},
   };
   for (const type of ["center", "house", "storage"]) s = addBuilding(s, type, 0, placeBuilding(s.buildings, type)!).state;
   return { ...s, roads: classicStreets(s.buildings), population: bedsOf(s) };
@@ -460,6 +482,127 @@ export function fullRateOf(b: PlacedBuilding): number {
 /** The smith's bonus on a resource: ×1.1 per level. */
 const toolsOf = (s: Pick<IdleWorld, "perks">, res: ResourceId): number =>
   1 + 0.1 * perkOf(s, res in BASE_RATE ? `tools_${res}` : "tools_special");
+
+// ---------- tools (update 22) ----------
+
+/** The smiths, who can make tools instead of weapons or armor. */
+export const isSmith = (type: string): boolean => type === "weaponsmith" || type === "armorsmith";
+
+/** The tool a work building's workers need, if any (none before the Iron Age). */
+export const toolOf = (s: Pick<IdleWorld, "era">, b: PlacedBuilding): ToolKind | null => (s.era >= TOOLS_FROM_ERA ? toolKindOf(b.type, producesOf(b)) : null);
+/** …and gatherers: an axe for wood, a pick for stone (berries are picked by hand). */
+const gatherTool = (res: ResourceId): ToolKind | null => (res === "wood" ? "axe" : res === "stone" ? "pick" : null);
+
+export interface ToolUse {
+  /** Workers who need this tool (in buildings and gathering). */
+  need: number;
+  /** How many of them have one, per rarity (RARITIES order): the best go first. */
+  have: number[];
+  /** How fast they work together: 1 with a common tool each. */
+  mult: number;
+}
+
+type ToolTown = Pick<IdleWorld, "buildings" | "perks" | "era" | "gatherers" | "population"> & { tools?: IdleWorld["tools"]; resources?: Amounts };
+
+/** Per tool kind that anyone needs: who has one, and how fast that makes them. */
+export function toolUseOf(s: ToolTown): Partial<Record<ToolKind, ToolUse>> {
+  if (s.era < TOOLS_FROM_ERA) return {};
+  const need: Partial<Record<ToolKind, number>> = {};
+  const { workers } = assignWorkers(s);
+  for (const b of s.buildings) {
+    const k = toolOf(s, b);
+    if (k && workers[b.id]) need[k] = (need[k] ?? 0) + workers[b.id];
+  }
+  const { chosen, auto } = gatheringOf(s);
+  for (const res of ["wood", "stone"]) {
+    const n = (chosen[res] ?? 0) + (auto[res] ?? 0);
+    const k = gatherTool(res)!;
+    if (n) need[k] = (need[k] ?? 0) + n;
+  }
+  const out: Partial<Record<ToolKind, ToolUse>> = {};
+  for (const [k, n] of Object.entries(need) as [ToolKind, number][]) {
+    const stock = s.tools?.[k] ?? [];
+    const have = RARITIES.map(() => 0);
+    let left = n;
+    for (let r = RARITIES.length - 1; r >= 0 && left > 0; r--) {
+      have[r] = Math.min(left, stock[r] ?? 0);
+      left -= have[r];
+    }
+    out[k] = { need: n, have, mult: (RARITIES.reduce((a, rarity, r) => a + have[r] * rarity.mult, 0) + left * NO_TOOL_MULT) / n };
+  }
+  return out;
+}
+
+/** Made but not handed out yet: the server does that every second, so this is never reached unless nobody is online. */
+const MAX_FORGED = 20;
+
+/** Tools in stock of a kind, all rarities together. */
+export const toolCount = (s: Pick<IdleWorld, "tools">, kind: ToolKind): number => (s.tools?.[kind] ?? []).reduce((a, n) => a + n, 0);
+
+/** Tools per ms of work the smiths on tools make together, with all their workers at full speed. */
+function craftRate(s: Pick<IdleWorld, "buildings" | "perks" | "population">): number {
+  const { workers } = assignWorkers(s);
+  let rate = 0;
+  for (const b of s.buildings) if (b.tools && !b.damaged) rate += (workers[b.id] ?? 0) / slotsOf(b.level) / TOOL_CRAFT_MS;
+  return rate;
+}
+
+/** The kind the town is shortest of: most workers without one (else the fewest in stock). */
+function mostNeeded(s: ToolTown): ToolKind {
+  const use = toolUseOf(s);
+  let best: ToolKind = TOOLS[0].id;
+  let bestScore = -Infinity;
+  for (const t of TOOLS) {
+    const u = use[t.id];
+    const score = u ? u.need - toolCount({ tools: s.tools ?? {} }, t.id) : -1000 - toolCount({ tools: s.tools ?? {} }, t.id);
+    if (score > bestScore) {
+      bestScore = score;
+      best = t.id;
+    }
+  }
+  return best;
+}
+
+/**
+ * One more tool, of the kind the town is shortest of. `roll` (0..1) decides
+ * its rarity; `skill` (0..1, from the smithing game) makes rare and epic likelier.
+ */
+export function addTool<T extends IdleWorld>(s: T, roll: number, skill = 0): { state: T; kind: ToolKind; rarity: number } {
+  const kind = mostNeeded(s);
+  const epic = EPIC_CHANCE + 0.25 * skill * skill;
+  const rare = RARE_CHANCE + 0.4 * skill;
+  const rarity = roll < epic ? 2 : roll < epic + rare ? 1 : 0;
+  const stock = RARITIES.map((_, i) => (s.tools[kind]?.[i] ?? 0) + (i === rarity ? 1 : 0));
+  return { state: { ...s, tools: { ...s.tools, [kind]: stock } }, kind, rarity };
+}
+
+/** "een zeldzame bijl", "een gewone hengel". */
+export function toolText(kind: ToolKind, rarity: number): string {
+  const t = TOOLS.find((x) => x.id === kind)!;
+  const adj = ["gewone", "zeldzame", "epische"][rarity];
+  return `${t.emoji} een ${adj} ${t.name}`;
+}
+
+/** Turn a whole tool the smiths made into a real one (the server, every tick); rare and epic ones are news. */
+export function stepForge<T extends IdleWorld>(s: T, rand: () => number): { state: T; label?: string } | null {
+  if (s.forged < 1) return null;
+  const { state, kind, rarity } = addTool({ ...s, forged: s.forged - 1 }, rand());
+  return { state, ...(rarity > 0 ? { label: `🔨 De smeden maakten ${toolText(kind, rarity)}!` } : {}) };
+}
+
+/** Why nobody can smith a tool at this building right now (the smithing game), or null. */
+export function forgeError(s: IdleWorld, building: number): string | null {
+  if (s.era < TOOLS_FROM_ERA) return `gereedschap komt pas in de ${ERAS[TOOLS_FROM_ERA].name}`;
+  const b = s.buildings.find((x) => x.id === building);
+  if (!b || !isSmith(b.type)) return "dat is geen smidse";
+  if (b.damaged) return "eerst herstellen";
+  return canAfford(s, TOOL_COST) ? null : "te duur";
+}
+
+/** Smith a tool yourself: pay TOOL_COST, `score` (0..1) from the game makes it likelier to be rare. */
+export function forgeTool<T extends IdleWorld>(s: T, score: number, roll: number): { state: T; kind: ToolKind; rarity: number } {
+  return addTool(pay(s, TOOL_COST), roll, Math.max(0, Math.min(1, score)));
+}
 
 // ---------- nature running out ----------
 
@@ -600,16 +743,19 @@ interface Output {
  * What each work building and the gatherers make per second without boosts;
  * nothing if their nature is used up (only checked when `nature` is given).
  */
-function outputs(s: Pick<IdleWorld, "buildings" | "perks" | "era" | "gatherers" | "population"> & { nature?: Used; resources?: Amounts }): Output[] {
+function outputs(s: ToolTown & { nature?: Used }): Output[] {
   const { workers } = assignWorkers(s);
+  const tools = toolUseOf(s);
+  const toolMult = (k: ToolKind | null) => (k && tools[k]?.mult) || 1;
   const out: Output[] = [];
   const left = (src: Patch[] | null) => !s.nature || !src || src.some((p) => leftIn(p, s.nature!) > 0.01);
   for (const b of s.buildings) {
     const t = buildingType(b.type);
     const res = producesOf(b);
-    if (!t || !res) continue;
+    // A smith on tools makes those instead (see advance).
+    if (!t || !res || b.tools) continue;
     const src = sourcePatches(b);
-    const rate = ((fullRateOf(b) * (workers[b.id] ?? 0)) / slotsOf(b.level)) * toolsOf(s, res);
+    const rate = ((fullRateOf(b) * (workers[b.id] ?? 0)) / slotsOf(b.level)) * toolsOf(s, res) * toolMult(toolOf(s, b));
     if (t.sparesSource) {
       // Hunters: as much as the forest around them still stands.
       const share = s.nature ? sourceShare(s.nature, src) : 1;
@@ -623,7 +769,7 @@ function outputs(s: Pick<IdleWorld, "buildings" | "perks" | "era" | "gatherers" 
   for (const res of gatherable(s.era)) {
     const n = (chosen[res] ?? 0) + (auto[res] ?? 0);
     const src = gatherPatches(res);
-    if (n > 0 && left(src)) out.push({ res, kind: res === "food" ? "berries" : undefined, rate: n * GATHER_RATE * clickAmount(s.era) * toolsOf(s, res), src, drain: 1 });
+    if (n > 0 && left(src)) out.push({ res, kind: res === "food" ? "berries" : undefined, rate: n * GATHER_RATE * clickAmount(s.era) * toolsOf(s, res) * toolMult(s.era >= TOOLS_FROM_ERA ? gatherTool(res) : null), src, drain: 1 });
   }
   return out;
 }
@@ -757,6 +903,11 @@ export function ratesOf(s: Town & Pick<IdleWorld, "lastTick"> & { resources?: Am
     rates[res] = (rates[res] ?? 0) + rate * mult;
     for (const [id, n] of Object.entries(uses)) rates[id] = (rates[id] ?? 0) - rate * mult * n;
   }
+  // The smiths on tools use iron and coal too, while there is some.
+  const craft = craftRate(s) * 1000 * mult;
+  if (craft > 0 && Object.keys(TOOL_COST).every((id) => (s.resources?.[id] ?? 0) >= TOOL_COST[id] || (rates[id] ?? 0) > 0)) {
+    for (const [id, n] of Object.entries(TOOL_COST)) rates[id] = (rates[id] ?? 0) - craft * n;
+  }
   return rates;
 }
 
@@ -878,6 +1029,22 @@ export function advance<T extends IdleWorld>(s: T, now: number): T {
     add(res, amount);
   }
   next.nature = used;
+  // Tools wear while they're used (update 22); the smiths on tools make new ones from iron and coal.
+  const worked = workMs(s.lastTick, s.lastTick + elapsed);
+  const use = toolUseOf(town);
+  if (Object.keys(use).length) {
+    const tools = { ...s.tools };
+    for (const [k, u] of Object.entries(use) as [ToolKind, ToolUse][]) {
+      tools[k] = RARITIES.map((r, i) => Math.max(0, (s.tools[k]?.[i] ?? 0) - (u.have[i] * worked) / (TOOL_LIFE_MS * r.life)));
+    }
+    next.tools = tools;
+  }
+  let made = craftRate(town) * worked * mult;
+  for (const [id, n] of Object.entries(TOOL_COST)) made = Math.min(made, (next.resources[id] ?? 0) / n);
+  if (made > 0) {
+    for (const [id, n] of Object.entries(TOOL_COST)) next.resources[id] = Math.max(0, (next.resources[id] ?? 0) - made * n);
+    next.forged = Math.min(MAX_FORGED, s.forged + made);
+  }
   if (s.boosts.some((b) => b.until <= next.lastTick)) next.boosts = s.boosts.filter((b) => b.until > next.lastTick);
   return next;
 }
@@ -1467,7 +1634,7 @@ export function actionCost(s: IdleWorld, action: ProposalAction): Amounts | null
   if (action.kind === "build") return buildingType(action.type)?.category === "wonder" ? wonderCost(s, 0) : buildCost(s, action.type);
   if (action.kind === "roads") return roadCost(s);
   if (action.kind === "paths") return pathCost(s, action.tiles);
-  if (action.kind === "unpave" || action.kind === "demolish" || action.kind === "ore" || action.kind === "unwall" || action.kind === "newcomer") return {};
+  if (action.kind === "unpave" || action.kind === "demolish" || action.kind === "ore" || action.kind === "tools" || action.kind === "unwall" || action.kind === "newcomer") return {};
   if (action.kind === "walls") return wallCost(s, action.tiles);
   if (action.kind === "gate") return gateCost(s, action.tiles);
   if (action.kind === "fortify") return fortifyCost(s);
@@ -1507,6 +1674,11 @@ export function actionError(s: IdleWorld, action: ProposalAction): string | null
     if (!b || !buildingType(b.type)?.ores) return "onbekende mijn";
     if (!oresOf(s, b.type).includes(action.ore)) return "dat erts kan hier nog niet";
     if (producesOf(b) === action.ore) return "die delft dat al";
+  } else if (action.kind === "tools") {
+    const b = s.buildings.find((x) => x.id === action.building);
+    if (!b || !isSmith(b.type)) return "dat is geen smidse";
+    if (s.era < TOOLS_FROM_ERA) return `gereedschap komt pas in de ${ERAS[TOOLS_FROM_ERA].name}`;
+    if (!!b.tools === action.on) return action.on ? "die maakt al gereedschap" : `die maakt al ${resourceDef(producesOf(b)!)?.name}`;
   } else if (action.kind === "walls") {
     const err = wallsError(s, action.tiles);
     if (err) return err;
@@ -1569,6 +1741,11 @@ export function applyAction<T extends IdleWorld>(s: T, action: ProposalAction): 
     const gone = new Set(action.tiles);
     return { state: { ...receive(s, refundOf(s, action)), walls: s.walls.filter((i) => !gone.has(i)), gates: s.gates.filter((i) => !gone.has(i)) } };
   }
+  if (action.kind === "tools") {
+    const { tools: _, ...rest } = s.buildings.find((b) => b.id === action.building)!;
+    const building: PlacedBuilding = action.on ? { ...rest, tools: true } : rest;
+    return { state: { ...s, buildings: s.buildings.map((b) => (b.id === building.id ? building : b)) }, building };
+  }
   if (action.kind === "ore") {
     const { ore: _, ...rest } = s.buildings.find((b) => b.id === action.building)!;
     const building: PlacedBuilding = action.ore === buildingType(rest.type)?.produces ? rest : { ...rest, ore: action.ore };
@@ -1627,6 +1804,10 @@ export function actionLabel(s: Pick<IdleWorld, "buildings" | "era" | "roadLevel"
   if (action.kind === "demolish") return b ? `🧨 ${buildingName(b.type, b.level)} afbreken` : "afbreken";
   if (action.kind === "wonder") return b ? `${buildingType(b.type)?.emoji ?? ""} ${buildingName(b.type, b.level)}: fase ${(b.stage ?? 0) + 1}/${WONDER_PHASES}` : "wereldwonder";
   if (action.kind === "repair") return b ? `🔧 ${buildingName(b.type, b.level)} herstellen` : "herstellen";
+  if (action.kind === "tools") {
+    const what = action.on ? "🔨 gereedschap" : b ? `${resourceDef(producesOf(b)!)?.emoji ?? ""} ${resourceDef(producesOf(b)!)?.name ?? ""}` : "";
+    return `${b ? `${buildingType(b.type)?.emoji ?? ""} ${buildingName(b.type, b.level)}` : "smidse"}: ${what} maken`;
+  }
   if (action.kind === "ore") {
     const ore = resourceDef(action.ore);
     return `${b ? `${buildingType(b.type)?.emoji ?? ""} ${buildingName(b.type, b.level)}` : "mijn"}: ${ore?.emoji ?? ""} ${ore?.name ?? action.ore} delven`;
@@ -1788,5 +1969,7 @@ export type IdleClientMsg =
   | { type: "buy"; item: string; name?: string }
   /** Open a supply drop. */
   | { type: "open"; id: number; name?: string }
+  /** Smith a tool yourself at a smith: `score` (0..1) is how well the game went. */
+  | { type: "forge"; building: number; score: number; name?: string }
   /** The developer menu (only when the server allows it for this browser). */
   | { type: "dev"; cmd: DevCommand; name?: string };

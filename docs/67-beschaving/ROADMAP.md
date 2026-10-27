@@ -444,7 +444,7 @@ een koppel kiest zelf wanneer het een kind krijgt.
       "huidige inwoners kunnen kinderen maken")
 
 ### Update 19: Water, bloemen & decoraties
-Status: in review (PR #42). Pixel-art, zoals in update 16.
+Status: gedaan (PR #42; het stilstaande 67-standbeeld komt mee met PR #47). Pixel-art, zoals in update 16.
 
 - [x] Nieuwe golven op het water: die zien er slecht uit. Gedaan: het water
       is een eigen pixel-tegel in de kleuren van Yar (`sprites/pixelnature.py`).
@@ -473,7 +473,7 @@ Status: in review (PR #42). Pixel-art, zoals in update 16.
       golven; ook de hoekjes (`drawWaterTile` in `draw.ts`).
 
 ### Update 20: Dag & nacht
-Status: in review (PR #43). Steunt op update 19 (PR #42).
+Status: gedaan (PR #43).
 
 Afgesproken met Richard (2026-10-27): een dag duurt 20 minuten en een nacht
 ook. 's Nachts gaat het werk half zo snel. Vijanden komen een paar keer per
@@ -518,7 +518,7 @@ een stemming.
       "muren houden niemand tegen")
 
 ### Update 21: Grote gebouwen
-Status: in review (PR #44). Steunt op update 19 en 20 (PR #42, #43).
+Status: gedaan (PR #44).
 
 Afgesproken met Richard (2026-10-27): na het Kampvuur heet het centrum altijd
 De Senaat; het is 3×3. Staat er iets op de tegels, dan moet dat eerst weg (er
@@ -557,7 +557,7 @@ verhuist niets vanzelf). De wonderen krijgen meteen eigen pixel-sprites.
       vanzelf een stukje naar achter zodra de server opnieuw start.
 
 ### Update 23: Ontwikkelaarsmenu
-Status: in review (PR #45). Steunt op update 21 (PR #44).
+Status: gedaan (PR #45; de sprite-pagina komt mee met PR #47).
 
 Alleen voor Richard, op zijn eigen computer: gewone spelers kunnen het niet
 zien of gebruiken, ook niet als ze het bericht zelf sturen.
@@ -595,7 +595,7 @@ zien of gebruiken, ook niet als ze het bericht zelf sturen.
       `client/src/spriteGallery.ts`).
 
 ### Update 24: Pixel-art HUD
-Status: in review (PR #46). Pixel-art, zoals in update 16. Steunt op update 23 (PR #45).
+Status: gedaan (PR #46). Pixel-art, zoals in update 16.
 
 - [x] De HUD bovenin, de menu's, de panelen en de popups in één pixel-art
       stijl: harde randen, pixelranden en -schaduwen, geen ronde hoeken of
@@ -615,7 +615,7 @@ Status: in review (PR #46). Pixel-art, zoals in update 16. Steunt op update 23 (
       🗳️, …) zijn nog de gewone emoji van het systeem, niet in pixel-art.
 
 ### Update 22: Gereedschap
-Status: in review (PR #47). Steunt op update 24 (PR #46).
+Status: in review (PR #47).
 
 Afgesproken met Richard (2026-10-27): de smeden maken het gereedschap.
 Zonder gereedschap werk je ×0,75, en het slijt in 3 dagen. Zeldzaamheid
@@ -649,7 +649,7 @@ door toeval, plus een minigame om zelf te smeden.
       hebben. (bron: idem)
 
 ### Update 13: De raad
-Status: in review. Steunt op update 22 (PR #47).
+Status: in review (PR #48). Steunt op update 22 (PR #47).
 
 - [x] In het centrum (het Kampvuur, later De Senaat) een blok 🗳️ De raad: de
       geplande updates uit deze roadmap, met per speler één stem die je kan

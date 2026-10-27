@@ -71,6 +71,7 @@ import {
   profileText,
   freeBedsOf,
   gateCost,
+  DAY_MS,
   isNight,
   nextDayAt,
   nextNightAt,
@@ -438,7 +439,8 @@ export function createPanels(deps: PanelDeps): Panels {
 
     const night = isNight(now);
     const turn = night ? nextDayAt(now) : nextNightAt(now);
-    dayChip.textContent = `${night ? "🌙 nacht" : "☀️ dag"} · nog ${Math.max(1, Math.ceil((turn - now) / 60_000))} min`;
+    const label = night ? "🌙 nacht" : turn - now <= 5 * 60_000 ? "🌇 avond" : now - (turn - DAY_MS) < 4 * 60_000 ? "🌅 ochtend" : "☀️ dag";
+    dayChip.textContent = `${label} · nog ${Math.max(1, Math.ceil((turn - now) / 60_000))} min`;
     setTitle(
       dayChip,
       night

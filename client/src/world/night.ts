@@ -3,27 +3,74 @@
 // everything, and only what gives light breaks through it: fires and torches,
 // lit windows, street lamps in the later eras, the raiders' torches, and a
 // lantern for every player. The dark is drawn at a coarse resolution and
-// scaled up with hard edges, so the pools of light are pixel art too.
+// scaled up with hard edges, so the pools of light are pixel art too. Night
+// doesn't fall at once: a golden evening turns into an orange sunset and a
+// purple dusk, and the night ends in a pink dawn and a golden morning.
 
-import { NIGHT_MS, buildingType, isNight, nextDayAt, type PlacedBuilding } from "@app/shared/idle";
+import { DAY_MS, NIGHT_MS, buildingType, isNight, nextDayAt, nextNightAt, type PlacedBuilding } from "@app/shared/idle";
 import { rand2 } from "./draw";
 import type { Camera } from "./iso";
 import { toWorld } from "./iso";
 
-/** How long the dusk and the dawn take, at the edges of the night. */
-const DUSK_MS = 75_000;
 /** How dark the night gets (the alpha of the dark), and its color. */
 const NIGHT_ALPHA = 0.62;
-const NIGHT_RGB = "10, 14, 44";
+const NIGHT_RGB = [10, 14, 44] as const;
+/** The color of the dark while it's still falling (or lifting): a purple dusk. */
+const DUSK_RGB = [52, 26, 78] as const;
 /** World px per pixel of the dark: the pools of light have steps this big. */
 const CELL = 2;
 
-/** 0 in the daytime, 1 in the dead of night, in between at dusk and dawn. */
-export function darknessAt(ms: number): number {
-  if (!isNight(ms)) return 0;
-  const end = nextDayAt(ms);
-  const since = ms - (end - NIGHT_MS);
-  return Math.min(1, since / DUSK_MS, (end - ms) / DUSK_MS);
+const MIN = 60_000;
+/**
+ * The sky over one day and night, as [minute after daybreak, darkness, the
+ * color of the light, how strongly it tints]: a golden evening, an orange
+ * sunset turning purple, the dark night, a pink dawn and a golden morning.
+ */
+const SKY: readonly (readonly [number, number, number, number, number, number])[] = [
+  [0, 0, 255, 160, 120, 0.2], // daybreak: pink-gold
+  [4, 0, 255, 220, 160, 0], // full day
+  [DAY_MS / MIN - 5, 0, 255, 210, 120, 0], // the evening begins
+  [DAY_MS / MIN - 2, 0, 255, 175, 80, 0.16], // golden hour
+  [DAY_MS / MIN, 0.15, 255, 110, 50, 0.28], // sunset: night falls
+  [DAY_MS / MIN + 1.5, 0.6, 200, 60, 110, 0.2], // purple dusk
+  [DAY_MS / MIN + 3, 1, 120, 60, 140, 0], // dark
+  [(DAY_MS + NIGHT_MS) / MIN - 3, 1, 140, 70, 150, 0], // the dawn begins
+  [(DAY_MS + NIGHT_MS) / MIN - 1.5, 0.55, 220, 110, 150, 0.18], // pink dawn
+  [(DAY_MS + NIGHT_MS) / MIN, 0, 255, 160, 120, 0.2], // sunrise
+];
+
+export interface Sky {
+  /** 0 in the daytime, 1 in the dead of night, in between at dusk and dawn. */
+  dark: number;
+  /** The color of the low sun ("r, g, b") and how strongly it tints the town. */
+  tint: string;
+  tintAlpha: number;
+}
+
+/** The sky at `ms`: the dark of the night and the glow of sunrise and sunset. */
+export function skyAt(ms: number): Sky {
+  // Minutes since daybreak.
+  const m = (isNight(ms) ? DAY_MS + NIGHT_MS - (nextDayAt(ms) - ms) : DAY_MS - (nextNightAt(ms) - ms)) / MIN;
+  let i = 0;
+  while (i < SKY.length - 2 && SKY[i + 1][0] <= m) i++;
+  const [m0, ...a] = SKY[i];
+  const [m1, ...b] = SKY[i + 1];
+  const f = Math.max(0, Math.min(1, (m - m0) / (m1 - m0)));
+  const v = a.map((x, k) => x + (b[k] - x) * f);
+  return { dark: v[0], tint: v.slice(1, 4).map(Math.round).join(", "), tintAlpha: v[4] };
+}
+
+/** The glow of the low sun over the town, strongest towards the horizon at the top of the screen. */
+export function drawSunGlow(ctx: CanvasRenderingContext2D, w: number, h: number, sky: Sky): void {
+  if (sky.tintAlpha <= 0.002) return;
+  const g = ctx.createLinearGradient(0, 0, 0, h);
+  g.addColorStop(0, `rgba(${sky.tint}, ${sky.tintAlpha})`);
+  g.addColorStop(1, `rgba(${sky.tint}, ${sky.tintAlpha * 0.55})`);
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, w, h);
+  ctx.restore();
 }
 
 export type LightKind = "fire" | "window" | "lamp" | "lantern" | "magic";
@@ -99,7 +146,8 @@ export function drawNight(ctx: CanvasRenderingContext2D, cam: Camera, dpr: numbe
   g.setTransform(1, 0, 0, 1, 0, 0);
   g.globalCompositeOperation = "source-over";
   g.clearRect(0, 0, w, h);
-  g.fillStyle = `rgba(${NIGHT_RGB}, ${NIGHT_ALPHA * amount})`;
+  const rgb = NIGHT_RGB.map((c, k) => Math.round(DUSK_RGB[k] + (c - DUSK_RGB[k]) * amount)).join(", ");
+  g.fillStyle = `rgba(${rgb}, ${NIGHT_ALPHA * amount})`;
   g.fillRect(0, 0, w, h);
   // World px → dark px (snapped to whole cells, so the steps don't crawl).
   const left = Math.floor((cam.x - cam.width / 2 / cam.zoom) / CELL) * CELL;

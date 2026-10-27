@@ -69,6 +69,9 @@ Daarnaast blijft gelden:
 | Pixel-art: sprites, atlas, eigen sprites (`pixelart.py`: Steen- en Bronstijd, `pixelnature.py`: water, oevers, bloemen, `pixeldecor.py`: decoraties, `pixelbig.py`: De Senaat en de wonderen), licenties | `client/src/world/sprites/` (na een wijziging: `python client/src/world/sprites/build.py`), `sprites.ts`, `pixel.ts` |
 | Tests | `tests/idle.test.mts` |
 
+Testen zonder wachten: zet `IDLE_DEV=1` in `.env` (alleen op je eigen
+computer) en gebruik de balk 🛠️ ontwikkelaar onderin (update 23).
+
 Volledig resetten om te testen: stop de server, verwijder `data/counter.json`
 en `data/idle.json`, en start opnieuw.
 
@@ -543,19 +546,31 @@ verhuist niets vanzelf). De wonderen krijgen meteen eigen pixel-sprites.
       vanzelf een stukje naar achter zodra de server opnieuw start.
 
 ### Update 23: Ontwikkelaarsmenu
-Status: gepland.
+Status: in review (PR #45). Steunt op update 21 (PR #44).
 
 Alleen voor Richard, op zijn eigen computer: gewone spelers kunnen het niet
 zien of gebruiken, ook niet als ze het bericht zelf sturen.
 
-- [ ] Een menu 🛠️ om te testen zonder lang te wachten: bouwen en kopen
+- [x] Een menu 🛠️ om te testen zonder lang te wachten: bouwen en kopen
       zonder grondstoffen en zonder stemming, de bouwfases van een wonder
-      overslaan, naar het volgende tijdperk, de opslag vol. (bron: Richard,
+      overslaan, naar het volgende tijdperk, de opslag vol. Gedaan: onderin
+      het midden staat de balk "🛠️ ontwikkelaar". "💸 gratis en meteen" aan:
+      alles wat je voorstelt of koopt gebeurt meteen, zonder stemming en
+      zonder te betalen; de knoppen heten dan "🛠️ meteen". De gewone
+      controles blijven (plek, tijdperk, doelen). Een wonder hoeft dan niet op
+      zijn bouwers te wachten. Verder: "⏩ bouwfases klaar" (alle bouwers
+      meteen klaar), "🏛️ volgend tijdperk" en "📦 opslag vol" (`doForFree`,
+      `finishPhases`, `fillStorage` in `shared/idle.ts`). (bron: Richard,
       2026-10-27, "een menu waar ik bouwfases kan skippen en resources niet
       hoef te verbruiken want dit testen duurt te lang")
-- [ ] Het werkt alleen als de server met `IDLE_DEV=1` draait (in `.env`, staat
+- [x] Het werkt alleen als de server met `IDLE_DEV=1` draait (in `.env`, staat
       nooit in de echte omgeving) én de browser op dezelfde computer zit. De
-      server controleert het, niet de browser. (bron: idem, "Ik wil NIET dat
+      server controleert het, niet de browser. Gedaan: de server kijkt per
+      verbinding of die van 127.0.0.1 komt, met localhost als adres en zonder
+      proxy-headers (dus niet via een tunnel); alleen dan krijgt de browser
+      het menu en doet het bericht iets (`isLocal` in
+      `server/src/counter.ts`). Aanzetten: `IDLE_DEV=1` in `.env`, de server
+      herstarten. (bron: idem, "Ik wil NIET dat
       deze optie mogelijk is voor gewone gebruikers, alleen hier lokaal bij
       mij")
 

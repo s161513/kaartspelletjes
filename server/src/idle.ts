@@ -16,6 +16,10 @@ import {
   RAID_WARNING_MS,
   STATE_VERSION,
   makeRoomForSenate,
+  doForFree,
+  fillStorage,
+  finishPhases,
+  unlockEra,
   VOTE_MS,
   WONDER_BUILD_MS,
   WONDER_PHASES,
@@ -92,6 +96,10 @@ export interface IdleGame {
   vote(clientId: string, id: unknown, yes: unknown, online: number, now: number): IdleEvent[];
   /** A small shop item, right away. */
   buy(clientId: string, name: unknown, item: unknown, now: number): { error?: string; events: IdleEvent[] };
+  /** Developer menu, free mode: do it now, without a vote and without paying. */
+  devDo(clientId: string, name: unknown, action: unknown, now: number): { error?: string; events: IdleEvent[] };
+  /** Developer menu: wonders' builders ready, the next era, or full storage. */
+  devCommand(clientId: string, name: unknown, cmd: unknown, now: number): { error?: string; events: IdleEvent[] };
   /** This connection is the player with this secret key (created if new). */
   hello(clientId: string, key: unknown, name: unknown, now: number): { error?: string };
   /** New name and NPC look for this connection's player. */
@@ -477,6 +485,35 @@ export function createIdleGame(file: string, now = Date.now()): IdleGame {
       state = buyItem(advanced, item.id);
       saver.schedule();
       return { events: [{ kind: "deal", label: `${item.emoji} ${item.name}`, by: nameOf(clientId, name) }] };
+    },
+
+    devDo(clientId, name, rawAction, now) {
+      const action = parseAction(rawAction);
+      if (!action || action.kind === "newcomer") return { error: "onbekend voorstel", events: [] };
+      const done = doForFree(advance(state, now), action);
+      if (typeof done === "string") return { error: done, events: [] };
+      const era = state.era;
+      state = done.state;
+      saver.schedule();
+      const base = { label: `🛠️ ${actionLabel(state, action)}`, by: nameOf(clientId, name) };
+      const events: IdleEvent[] = [done.building ? { kind: "bought", ...base, building: done.building } : { kind: "bought", ...base }];
+      if (state.era > era) events.push({ kind: "era", era: state.era });
+      return { events };
+    },
+
+    devCommand(clientId, name, cmd, now) {
+      const s = advance(state, now);
+      const by = nameOf(clientId, name);
+      if (cmd === "phases") state = finishPhases(s);
+      else if (cmd === "fill") state = fillStorage(s);
+      else if (cmd === "era") {
+        if (s.era >= ERAS.length - 1) return { error: "dit is het laatste tijdperk", events: [] };
+        state = unlockEra(s, s.era + 1);
+        saver.schedule();
+        return { events: [{ kind: "deal", label: "🛠️ volgend tijdperk", by }, { kind: "era", era: state.era }] };
+      } else return { error: "onbekend", events: [] };
+      saver.schedule();
+      return { events: [{ kind: "deal", label: cmd === "phases" ? "🛠️ bouwers van de wonderen klaar" : "🛠️ opslag vol", by }] };
     },
 
     hello(clientId, key, name, now) {

@@ -431,6 +431,42 @@ body.sx-era-10 { --sx-bg: #12002b; --sx-bg2: #2a0050; }
   box-shadow: 0 2px 0 #000;
 }
 
+/* ---------- developer menu (update 23), only with IDLE_DEV=1 on this computer ---------- */
+
+.sx-dev {
+  position: fixed;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px;
+  border: 3px dashed var(--sx-yellow);
+  background: var(--sx-glass);
+}
+.sx-dev[hidden] {
+  display: none;
+}
+.sx-dev-title {
+  font-size: 0.8rem;
+  color: var(--sx-yellow);
+}
+.sx-dev-btn {
+  padding: 6px 10px;
+  border: 2px solid #000;
+  background: #fff;
+  color: #000;
+  font: 700 0.8rem system-ui, sans-serif;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.sx-dev-btn.sx-dev-on {
+  background: var(--sx-yellow);
+}
+
 /* ---------- open votes, on the right ---------- */
 
 .sx-vote {

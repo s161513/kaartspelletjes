@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createServer } from "node:http";
+import { createServer, type IncomingMessage } from "node:http";
 import type { AddressInfo } from "node:net";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -79,6 +79,10 @@ import {
   isRoad,
   isRoadTile,
   makeRoomForSenate,
+  doForFree,
+  fillStorage,
+  finishPhases,
+  withPlenty,
   isUsedUp,
   itemCost,
   itemError,
@@ -120,7 +124,7 @@ import {
   type IdleStateMsg,
   type PlacedBuilding,
 } from "@app/shared/idle";
-import { createCounterServer } from "../server/src/counter.ts";
+import { createCounterServer, isLocal } from "../server/src/counter.ts";
 import { createIdleGame } from "../server/src/idle.ts";
 
 const T0 = 1_000_000;
@@ -844,6 +848,37 @@ test("build: at the current era, unlocked types only, cost grows per copy, pays"
   assert.equal(buildCost(bronzeAge, "mine_bronze")!.bronze, undefined);
 });
 
+test("developer menu: free mode builds without paying, a wonder's phases follow each other at once; full storage", () => {
+  const poor = { ...readyTown(), resources: { food: 1, wood: 2, stone: 3 } };
+  const spot = { kind: "build" as const, type: "wonder_0", ...findTile((x, y) => !placeError(poor.buildings, poor.roads, "wonder_0", x, y, poor.walls)) };
+  assert.equal(actionError(poor, spot), "te duur");
+  assert.equal(actionError(withPlenty(poor), spot), null);
+  let s = poor;
+  const first = doForFree(s, spot);
+  assert.ok(typeof first !== "string");
+  s = first.state;
+  assert.deepEqual(s.resources, poor.resources, "nothing paid");
+  const w = currentWonder(s)!;
+  assert.deepEqual([w.stage, w.ready], [1, undefined], "no builders to wait for");
+  for (let phase = 1; phase < WONDER_PHASES; phase++) {
+    const done = doForFree(s, { kind: "wonder", building: w.id });
+    assert.ok(typeof done !== "string", String(done));
+    s = done.state;
+  }
+  assert.equal(s.era, 1, "the last phase starts the next era");
+  assert.equal(doForFree(s, { kind: "upgrade", building: 12345 }), "onbekend gebouw", "the same checks");
+
+  // Outside free mode the builders still take their time, until "bouwfases klaar".
+  const paid = applyAction(rich(poor), spot).state;
+  const busy = { kind: "wonder" as const, building: currentWonder(paid)!.id };
+  assert.match(actionError(paid, busy)!, /^de bouwers zijn nog bezig/);
+  assert.equal(actionError(finishPhases(paid), busy), null);
+
+  const full = fillStorage(poor);
+  assert.equal(full.resources.wood, capOf(poor, "wood"));
+  assert.equal(full.resources.stone, capOf(poor, "stone"));
+});
+
 test("big buildings: De Senaat takes 3×3 once the Kampvuur grows, wonders their own shape; the tiles must be cleared first", () => {
   assert.deepEqual(tilesOf({ type: "center", level: 0, x: 42, y: 42 }), [{ x: 42, y: 42 }]);
   assert.equal(tilesOf({ type: "center", level: 1, x: 42, y: 42 }).length, 9);
@@ -1509,6 +1544,65 @@ test("counter socket: a new 67 drops a crate, gatherers reach the others, vote b
     wss.close();
     await new Promise<void>((resolve) => http.close(() => resolve()));
     await sleep(600); // let the debounced saves land
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("counter socket: the developer menu only with IDLE_DEV on this computer; free mode builds at once without paying", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "counter-"));
+  const poor = { ...town(Date.now()), resources: { food: 0, wood: 0, stone: 0 } };
+  writeFileSync(path.join(dir, "idle.json"), JSON.stringify(poor));
+  const servers: { wss: ReturnType<typeof createCounterServer>; http: ReturnType<typeof createServer>; url: string }[] = [];
+  const start = async (dev: boolean) => {
+    const wss = createCounterServer({ file: path.join(dir, "counter.json"), dev });
+    const http = createServer();
+    http.on("upgrade", (req, socket, head) => wss.handleUpgrade(req, socket, head, (ws) => wss.emit("connection", ws, req)));
+    await new Promise<void>((resolve) => http.listen(0, "127.0.0.1", resolve));
+    servers.push({ wss, http, url: `ws://127.0.0.1:${(http.address() as AddressInfo).port}/` });
+    return servers.at(-1)!.url;
+  };
+  const peers: Peer[] = [];
+  try {
+    // Without IDLE_DEV: no menu, and the message does nothing.
+    const plain = await new Peer(await start(false)).open();
+    peers.push(plain);
+    assert.equal((await plain.wait<IdleStateMsg>((m) => m.type === "idle")).dev, undefined);
+    plain.send({ type: "dev", cmd: "free" });
+    plain.send({ type: "propose", action: at(poor, "house") });
+    assert.equal((await plain.wait(event("error"))).event.message, "te duur");
+
+    // With it, from this computer: the menu, and free mode.
+    const dev = await new Peer(await start(true)).open();
+    peers.push(dev);
+    assert.deepEqual((await dev.wait<IdleStateMsg>((m) => m.type === "idle")).dev, { free: false });
+    dev.send({ type: "dev", cmd: "free" });
+    await dev.wait<IdleStateMsg>((m) => m.type === "idle" && m.dev?.free === true);
+    dev.send({ type: "propose", action: at(poor, "house"), name: "Dev" });
+    const built = await dev.wait(event("bought"));
+    assert.equal(built.event.label, "🛠️ 🛖 Hut bouwen");
+    const after = await dev.wait<IdleStateMsg>((m) => m.type === "idle" && m.state.buildings.some((b) => b.id === built.event.building.id));
+    assert.equal(after.proposals.length, 0, "no vote");
+    assert.ok((after.state.resources.wood ?? 0) < 1, "nothing paid");
+    dev.send({ type: "dev", cmd: "era" });
+    assert.equal((await dev.wait(event("era"))).event.era, 1);
+    dev.send({ type: "dev", cmd: "fill" });
+    await dev.wait<IdleStateMsg>((m) => m.type === "idle" && (m.state.resources.stone ?? 0) >= 100);
+
+    // Only straight from this computer: not from elsewhere, not through a proxy or tunnel.
+    const req = (addr: string, headers: Record<string, string>) => ({ socket: { remoteAddress: addr }, headers }) as unknown as IncomingMessage;
+    assert.ok(isLocal(req("127.0.0.1", { host: "localhost:5173" })));
+    assert.ok(isLocal(req("::1", { host: "127.0.0.1:3000" })));
+    assert.ok(!isLocal(req("192.168.1.20", { host: "localhost:3000" })));
+    assert.ok(!isLocal(req("127.0.0.1", { host: "mijn-tunnel.example.com" })));
+    assert.ok(!isLocal(req("127.0.0.1", { host: "localhost", "x-forwarded-for": "8.8.8.8" })));
+    assert.ok(!isLocal(undefined));
+  } finally {
+    for (const p of peers) await p.close();
+    for (const { wss, http } of servers) {
+      wss.close();
+      await new Promise<void>((resolve) => http.close(() => resolve()));
+    }
+    await sleep(600);
     rmSync(dir, { recursive: true, force: true });
   }
 });

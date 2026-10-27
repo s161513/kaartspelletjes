@@ -83,8 +83,8 @@ Status: gepland | bezig | in review (PR #x) | gedaan (PR #x)
 
 Volgorde: van boven naar beneden, op volgorde van belangstelling. "Doe de
 volgende update" is de bovenste die nog gepland staat. De nummers volgen
-die volgorde niet helemaal: updates 17–22 (feedback van 2026-10-26) staan
-vóór 13–15. Een latere update kan steunen op een eerdere; dat staat er
+die volgorde niet helemaal: updates 17–24 (feedback van 2026-10-26 en
+2026-10-27) staan vóór 13–15. Een latere update kan steunen op een eerdere; dat staat er
 dan bij. Alle bronnen zijn feedback van 2026-10-22, tenzij anders vermeld.
 
 ### Update 3: Overzicht & bediening
@@ -540,6 +540,35 @@ verhuist niets vanzelf). De wonderen krijgen meteen eigen pixel-sprites.
       vrije plek voor dat gebouw, met alles erop en eraan
       (`makeRoomForSenate`). In het echte dorp gaan de Hut en de Schuur dus
       vanzelf een stukje naar achter zodra de server opnieuw start.
+
+### Update 23: Ontwikkelaarsmenu
+Status: gepland.
+
+Alleen voor Richard, op zijn eigen computer: gewone spelers kunnen het niet
+zien of gebruiken, ook niet als ze het bericht zelf sturen.
+
+- [ ] Een menu 🛠️ om te testen zonder lang te wachten: bouwen en kopen
+      zonder grondstoffen en zonder stemming, de bouwfases van een wonder
+      overslaan, naar het volgende tijdperk, de opslag vol. (bron: Richard,
+      2026-10-27, "een menu waar ik bouwfases kan skippen en resources niet
+      hoef te verbruiken want dit testen duurt te lang")
+- [ ] Het werkt alleen als de server met `IDLE_DEV=1` draait (in `.env`, staat
+      nooit in de echte omgeving) én de browser op dezelfde computer zit. De
+      server controleert het, niet de browser. (bron: idem, "Ik wil NIET dat
+      deze optie mogelijk is voor gewone gebruikers, alleen hier lokaal bij
+      mij")
+
+### Update 24: Pixel-art HUD
+Status: gepland. Pixel-art, zoals in update 16.
+
+- [ ] De HUD bovenin, de menu's, de panelen en de popups in één pixel-art
+      stijl: harde randen, pixelranden en -schaduwen, geen ronde hoeken of
+      zachte verlopen. (bron: Richard, 2026-10-27, "De volledige HUD, menu's
+      en zelfs het lettertype moet 1 pixel art achtig thema hebben, zelfs de
+      HUD vanboven en de popups")
+- [ ] Een pixel-lettertype (met een open licentie, in de repo, zodat het
+      zonder internet werkt), dat Nederlandse tekst en de getallen goed leest.
+      (bron: idem)
 
 ### Update 22: Gereedschap
 Status: gepland. Eerst met Richard afstemmen: welke werkplaats wat maakt,

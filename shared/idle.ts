@@ -20,8 +20,10 @@
 // the longer they last), which slowly grow back; hunters catch less where the
 // forest is cut down. Mines dug into the mountain never run out; the players
 // vote which ore each one digs. Smiths turn iron and coal into weapons and
-// armor. From the Bronze Age on, enemies raid the town about once a day,
-// seen coming an hour before: walls, towers, villagers and guards with
+// armor. Days and nights take 20 minutes each, by the clock; at night most
+// villagers sleep and everything is made at half speed. From the Bronze Age on,
+// enemies raid the town a few times a day, always at night, seen coming an
+// hour before: walls (with gates for the villagers), towers, villagers and guards with
 // weapons and armor hold them off, or they steal, kill and set a building on
 // fire (it does nothing until the players vote to repair it). Building (on a tile someone
 // clicked), laying or removing paths (drawn tile by tile, through nature and
@@ -88,6 +90,10 @@ import {
   REPAIR_SHARE,
   TOWER_POINTS,
   WALL_NAMES,
+  GATE_TILE_COST,
+  DAY_MS,
+  NIGHT_MS,
+  NIGHT_WORK,
   WALL_POINTS,
   WALL_SPECIAL_COST,
   WALL_TILE_COST,
@@ -262,6 +268,8 @@ export interface IdleWorld {
   /** Wall tiles (y × MAP_SIZE + x), sorted, and the level of the whole wall. */
   walls: number[];
   wallLevel: number;
+  /** The wall tiles that are a gate (sorted): villagers only walk through those. */
+  gates: number[];
   /** Enemies seen coming, if any. */
   raid: Raid | null;
   /** When the next raid arrives (0: not planned yet); it's seen coming RAID_WARNING_MS before. */
@@ -298,6 +306,8 @@ export type ProposalAction =
   /** Put a wall on these tiles, or take it off for a bit back. */
   | { kind: "walls"; tiles: number[] }
   | { kind: "unwall"; tiles: number[] }
+  /** Make these wall tiles a gate. */
+  | { kind: "gate"; tiles: number[] }
   /** Bring the whole wall up to the current era. */
   | { kind: "fortify" }
   /** Fix a building the raiders set on fire. */
@@ -346,7 +356,7 @@ export function newIdleState(now: number): IdleState {
   let s: IdleState = {
     v: STATE_VERSION, era: 0, resources: { food: 150, wood: 200, stone: 100 }, buildings: [], nextBuildingId: 1,
     lastTick: now, boostUntil: 0, boosts: [], perks: {}, roadLevel: 0, roads: [], nature: {}, gatherers: {}, population: 0, happiness: HAPPY_BASE, drops: [], nextDropId: 1, lastLucky: 0,
-    walls: [], wallLevel: 0, raid: null, nextRaid: 0, lastRaid: null, nextNewcomer: 0, nextBirth: 0, proposals: [], nextProposalId: 1, players: {},
+    walls: [], wallLevel: 0, gates: [], raid: null, nextRaid: 0, lastRaid: null, nextNewcomer: 0, nextBirth: 0, proposals: [], nextProposalId: 1, players: {},
   };
   for (const type of ["center", "house", "storage"]) s = addBuilding(s, type, 0, placeBuilding(s.buildings, type)!).state;
   return { ...s, roads: classicStreets(s.buildings), population: bedsOf(s) };
@@ -686,13 +696,37 @@ export function populationTarget(s: Town, now: number): number {
 const autoRate = (s: Pick<IdleWorld, "perks" | "era">, res: ResourceId): number =>
   0.25 * perkOf(s, "auto") * clickAmount(s.era) * toolsOf(s, res);
 
-/** Production per second without boosts, as happy as the town is at `lastTick`. */
+// ---------- day and night ----------
+
+const CYCLE_MS = DAY_MS + NIGHT_MS;
+/** Where in its day `ms` is: from 0 the day, from DAY_MS the night. */
+const phaseOf = (ms: number): number => ((ms % CYCLE_MS) + CYCLE_MS) % CYCLE_MS;
+
+/** Is it night in the town at `ms`? Days and nights go by the clock, the same for everyone. */
+export const isNight = (ms: number): boolean => phaseOf(ms) >= DAY_MS;
+
+/** When the next night begins, `ms` itself if one begins right then. */
+export const nextNightAt = (ms: number): number => ms + ((DAY_MS - phaseOf(ms) + CYCLE_MS) % CYCLE_MS);
+
+/** When the day after `ms` begins (`ms` itself in the daytime). */
+export const nextDayAt = (ms: number): number => (isNight(ms) ? ms + CYCLE_MS - phaseOf(ms) : ms);
+
+/** Night from the start of the clock up to `ms`. */
+const nightsUpTo = (ms: number): number => Math.floor(ms / CYCLE_MS) * NIGHT_MS + Math.max(0, phaseOf(ms) - DAY_MS);
+
+/** The work done from `from` to `to`, in ms of daytime work: a night counts for NIGHT_WORK. */
+export function workMs(from: number, to: number): number {
+  if (to <= from) return 0;
+  return to - from - (1 - NIGHT_WORK) * (nightsUpTo(to) - nightsUpTo(from));
+}
+
+/** Production per second without boosts, as happy as the town is at `lastTick` (and at that time of day). */
 export function ratesOf(s: Town & Pick<IdleWorld, "lastTick"> & { resources?: Amounts }): Amounts {
   const rates: Amounts = {};
-  const { mult } = happinessOf(s, s.lastTick);
+  const mult = happinessOf(s, s.lastTick).mult * (isNight(s.lastTick) ? NIGHT_WORK : 1);
   const all = outputs(s);
   for (const { res, rate, uses } of all) if (!uses) rates[res] = (rates[res] ?? 0) + rate * mult;
-  if (perkOf(s, "auto")) for (const id of unlockedResources(s.era)) rates[id] = (rates[id] ?? 0) + autoRate(s, id);
+  if (perkOf(s, "auto")) for (const id of unlockedResources(s.era)) rates[id] = (rates[id] ?? 0) + autoRate(s, id) * (isNight(s.lastTick) ? NIGHT_WORK : 1);
   // The smiths: only while there's iron and coal (in stock or coming in); the HUD shows what's left of those.
   for (const { res, rate, uses } of all) {
     if (!uses) continue;
@@ -774,7 +808,9 @@ export function advance<T extends IdleWorld>(s: T, now: number): T {
   if (elapsed === 0) return next;
   const caps: Amounts = {};
   const cap = (res: ResourceId) => (caps[res] ??= capOf(s, res));
-  const seconds = (res: ResourceId) => (elapsed + boostedMs(s, res, s.lastTick, s.lastTick + elapsed)) / 1000;
+  // At night everything goes at NIGHT_WORK: the share of real work in this stretch.
+  const work = workMs(s.lastTick, s.lastTick + elapsed) / elapsed;
+  const seconds = (res: ResourceId) => ((elapsed + boostedMs(s, res, s.lastTick, s.lastTick + elapsed)) * work) / 1000;
   const used = regrow(s.nature, next.lastTick - s.lastTick);
   const click = clickAmount(s.era);
   const add = (res: ResourceId, amount: number): number => {
@@ -1139,6 +1175,12 @@ export function fortifyCost(s: Pick<IdleWorld, "era" | "perks">): Amounts {
   return scaled(cost, scaleOf(s.era) * discountOf(s));
 }
 
+/** Making these wall tiles a gate, at the wall's level. */
+export function gateCost(s: Pick<IdleWorld, "wallLevel" | "perks">, tiles: readonly number[]): Amounts {
+  const base = Object.fromEntries(Object.entries(GATE_TILE_COST).map(([id, a]) => [id, a * tiles.length]));
+  return scaled(base, scaleOf(s.wallLevel) * discountOf(s));
+}
+
 /** Why a wall can't go on all of these tiles, or null. */
 export function wallsError(s: Pick<IdleWorld, "buildings" | "roads" | "walls">, tiles: readonly number[]): string | null {
   const err = tilesError(tiles);
@@ -1192,13 +1234,17 @@ export function dutchHour(ms: number): number {
   return Number(hourFormat.format(ms));
 }
 
-/** When the raid after `from` arrives: about a day later, in the daytime. */
+/** How far into a night raiders arrive: it's dark by then. */
+const RAID_INTO_NIGHT_MS = 2 * 60_000;
+
+/** When the raid after `from` arrives: a few hours later, in a night of the town, while people are up. */
 export function nextRaidAt(from: number, rand: () => number): number {
   let at = Math.round(from + RAID_GAP_MS + rand() * RAID_GAP_SPREAD_MS);
-  for (let i = 0; i < 24; i++) {
+  for (let i = 0; i < 100; i++) {
     const h = dutchHour(at);
-    if (h >= RAID_HOURS[0] && h < RAID_HOURS[1]) break;
-    at += 60 * 60_000;
+    if (h < RAID_HOURS[0] || h >= RAID_HOURS[1]) at += 60 * 60_000;
+    else if (!isNight(at)) at = nextNightAt(at) + RAID_INTO_NIGHT_MS;
+    else break;
   }
   return at;
 }
@@ -1221,7 +1267,7 @@ export type RaidStage = "coming" | "won" | "lost";
 /**
  * Move the raids along at `lastTick` (advance first): plan the next one, see it
  * coming an hour before (never with less warning, also after a long time
- * nobody was around), and fight it when it arrives. `rand` (0..1) decides;
+ * nobody was around; and always arriving at night), and fight it when it arrives. `rand` (0..1) decides;
  * the server passes Math.random. Returns what happened, if anything.
  */
 export interface RaidNews {
@@ -1237,7 +1283,10 @@ export function stepRaid<T extends IdleWorld>(s: T, rand: () => number): { state
   if (!s.raid && !s.nextRaid) return { state: { ...s, nextRaid: nextRaidAt(now, rand) } };
   if (!s.raid) {
     if (now < s.nextRaid - RAID_WARNING_MS) return null;
-    const raid: Raid = { at: Math.max(s.nextRaid, now + RAID_WARNING_MS), strength: raidStrength(s, rand()), from: raidOrigin(rand) };
+    // Seen late (nobody was around): still an hour's warning, and still at night.
+    let at = Math.max(s.nextRaid, now + RAID_WARNING_MS);
+    if (!isNight(at)) at = nextNightAt(at) + RAID_INTO_NIGHT_MS;
+    const raid: Raid = { at, strength: raidStrength(s, rand()), from: raidOrigin(rand) };
     const label = `⚔️ Vijanden in aantocht! Over ${durationText(raid.at - now)} vallen ze aan: ⚔️ ${raid.strength} tegen onze 🛡️ ${defenseOf(s).total}`;
     return { state: { ...s, raid }, news: { stage: "coming", label } };
   }
@@ -1398,6 +1447,7 @@ export function actionCost(s: IdleWorld, action: ProposalAction): Amounts | null
   if (action.kind === "paths") return pathCost(s, action.tiles);
   if (action.kind === "unpave" || action.kind === "demolish" || action.kind === "ore" || action.kind === "unwall" || action.kind === "newcomer") return {};
   if (action.kind === "walls") return wallCost(s, action.tiles);
+  if (action.kind === "gate") return gateCost(s, action.tiles);
   if (action.kind === "fortify") return fortifyCost(s);
   if (action.kind === "buy") {
     const item = shopItem(action.item);
@@ -1442,6 +1492,11 @@ export function actionError(s: IdleWorld, action: ProposalAction): string | null
     const err = tilesError(action.tiles);
     if (err) return err;
     if (!action.tiles.every((i) => s.walls.includes(i))) return "daar staat geen muur";
+  } else if (action.kind === "gate") {
+    const err = tilesError(action.tiles);
+    if (err) return err;
+    if (!action.tiles.every((i) => s.walls.includes(i))) return "een poort komt in een muur";
+    if (action.tiles.some((i) => s.gates.includes(i))) return "daar is al een poort";
   } else if (action.kind === "fortify") {
     if (!s.walls.length) return "er staan nog geen muren";
     if (s.wallLevel >= s.era) return "al up-to-date";
@@ -1487,7 +1542,7 @@ export function applyAction<T extends IdleWorld>(s: T, action: ProposalAction): 
   }
   if (action.kind === "unwall") {
     const gone = new Set(action.tiles);
-    return { state: { ...receive(s, refundOf(s, action)), walls: s.walls.filter((i) => !gone.has(i)) } };
+    return { state: { ...receive(s, refundOf(s, action)), walls: s.walls.filter((i) => !gone.has(i)), gates: s.gates.filter((i) => !gone.has(i)) } };
   }
   if (action.kind === "ore") {
     const { ore: _, ...rest } = s.buildings.find((b) => b.id === action.building)!;
@@ -1504,6 +1559,7 @@ export function applyAction<T extends IdleWorld>(s: T, action: ProposalAction): 
   if (action.kind === "roads") return { state: { ...paid, roadLevel: s.era } };
   if (action.kind === "paths") return { state: { ...paid, roads: [...s.roads, ...action.tiles].sort((a, b) => a - b) } };
   if (action.kind === "walls") return { state: { ...paid, walls: [...s.walls, ...action.tiles].sort((a, b) => a - b) } };
+  if (action.kind === "gate") return { state: { ...paid, gates: [...s.gates, ...action.tiles].sort((a, b) => a - b) } };
   if (action.kind === "fortify") return { state: { ...paid, wallLevel: s.era } };
   if (action.kind === "repair") {
     const { damaged: _, ...building } = s.buildings.find((b) => b.id === action.building)!;
@@ -1540,6 +1596,7 @@ export function actionLabel(s: Pick<IdleWorld, "buildings" | "era" | "roadLevel"
   if (action.kind === "unpave") return `⛏️ ${tilesText(action.tiles.length)} pad weghalen`;
   if (action.kind === "walls") return `🧱 ${tilesText(action.tiles.length)} ${wallName(s.wallLevel).toLowerCase()} bouwen`;
   if (action.kind === "unwall") return `⛏️ ${tilesText(action.tiles.length)} muur weghalen`;
+  if (action.kind === "gate") return action.tiles.length === 1 ? "🚪 Poort in de muur" : `🚪 ${action.tiles.length} poorten in de muur`;
   if (action.kind === "fortify") return `🧱 ${wallName(s.wallLevel)} → ${wallName(s.era)}`;
   const b = s.buildings.find((x) => x.id === action.building);
   if (action.kind === "demolish") return b ? `🧨 ${buildingName(b.type, b.level)} afbreken` : "afbreken";

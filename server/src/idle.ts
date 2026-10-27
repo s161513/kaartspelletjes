@@ -244,6 +244,8 @@ function parseIdle(raw: unknown, now: number): IdleState | null {
   // Walls on free land, not on a street.
   const streets = new Set(s.roads);
   s.walls = parseRoads(r.walls, s.buildings).filter((i) => !streets.has(i) && isLand(i % MAP_SIZE, Math.floor(i / MAP_SIZE)));
+  const walls = new Set(s.walls);
+  s.gates = parseRoads(r.gates, s.buildings).filter((i) => walls.has(i));
   if (finite(r.nextRaid) && r.nextRaid > 0) s.nextRaid = r.nextRaid;
   if (finite(r.nextNewcomer) && r.nextNewcomer > 0) s.nextNewcomer = Math.min(r.nextNewcomer, now + MOVE_MS);
   if (finite(r.nextBirth) && r.nextBirth > 0) s.nextBirth = Math.min(r.nextBirth, now + BIRTH_MS * 2);
@@ -302,7 +304,7 @@ function parseAction(a: unknown): ProposalAction | null {
     const [name, trade, from] = [text(who.name), text(who.trade), text(who.from)];
     if (name && trade && from) return { kind: "newcomer", who: { name, trade, from } };
   }
-  if ((r.kind === "paths" || r.kind === "unpave" || r.kind === "walls" || r.kind === "unwall") && Array.isArray(r.tiles) && r.tiles.length <= MAX_PATH_TILES) {
+  if ((r.kind === "paths" || r.kind === "unpave" || r.kind === "walls" || r.kind === "unwall" || r.kind === "gate") && Array.isArray(r.tiles) && r.tiles.length <= MAX_PATH_TILES) {
     const tiles = r.tiles.filter((i): i is number => Number.isInteger(i) && i >= 0 && i < MAP_SIZE * MAP_SIZE);
     if (tiles.length === r.tiles.length) return { kind: r.kind, tiles: [...new Set(tiles)] };
   }

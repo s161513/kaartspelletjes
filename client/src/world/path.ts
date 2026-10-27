@@ -1,6 +1,8 @@
 // A* over the tile grid so villagers walk around water, mountains and
 // buildings (and over the bridges), and prefer the streets: a step on a road
-// costs half a step on the grass. Paths are cached until the town changes.
+// costs half a step on the grass. Walls are closed: villagers go through the
+// gates. Only if there is no way round do they climb over, as raiders do (slowly).
+// Paths are cached until the town changes.
 
 import { MAP_SIZE, isWalkable, terrainAt } from "@app/shared/idle";
 import type { Point } from "./iso";
@@ -16,6 +18,8 @@ let roads: readonly number[] = [];
 /** Tiles with a building: only the start or the end of a walk. */
 let blocked = new Set<number>();
 let onRoad = new Set<number>();
+/** Wall tiles that aren't a gate. */
+let walled = new Set<number>();
 
 function canWalk(x: number, y: number): boolean {
   if (x < 0 || y < 0 || x >= MAP_SIZE || y >= MAP_SIZE) return false;
@@ -28,15 +32,19 @@ function canWalk(x: number, y: number): boolean {
   return walkable[y * MAP_SIZE + x] === 1;
 }
 
-/** Walkable and no building in the way. */
-const isOpen = (x: number, y: number): boolean => canWalk(x, y) && !blocked.has(y * MAP_SIZE + x);
+/** Walkable and no building in the way (nor a wall, unless climbing). */
+const isOpen = (x: number, y: number, climb = 0): boolean =>
+  canWalk(x, y) && !blocked.has(y * MAP_SIZE + x) && (climb > 0 || !walled.has(y * MAP_SIZE + x));
 
-/** The town changed: streets are quicker, bridges cross the river, buildings are in the way. */
-export function setTown(buildings: readonly Point[], streets: readonly number[]): void {
+const sameSet = (a: Set<number>, b: Set<number>) => a.size === b.size && [...a].every((i) => b.has(i));
+
+/** The town changed: streets are quicker, bridges cross the river, buildings and walls are in the way. */
+export function setTown(buildings: readonly Point[], streets: readonly number[], walls: readonly number[] = [], gates: readonly number[] = []): void {
   const next = new Set(buildings.map((b) => b.y * MAP_SIZE + b.x));
-  const same = next.size === blocked.size && [...next].every((i) => blocked.has(i));
-  if (same && streets.length === roads.length && streets.every((i, k) => i === roads[k])) return;
+  const shut = new Set(walls.filter((i) => !gates.includes(i)));
+  if (sameSet(next, blocked) && sameSet(shut, walled) && streets.length === roads.length && streets.every((i, k) => i === roads[k])) return;
   blocked = next;
+  walled = shut;
   roads = [...streets];
   onRoad = new Set(streets);
   walkable = null;
@@ -70,11 +78,14 @@ const DIRS = [
   [1, 1, 1.414], [1, -1, 1.414], [-1, 1, 1.414], [-1, -1, 1.414],
 ] as const;
 
-/** Tiles from `from` to `to` (both included), or null if unreachable. */
-export function findPath(from: Point, to: Point): Point[] | null {
+/**
+ * Tiles from `from` to `to` (both included), or null if unreachable. With
+ * `climb` a wall can be climbed over, a step on it costing that much.
+ */
+export function findPath(from: Point, to: Point, climb = 0): Point[] | null {
   const a = nearestWalkable(from.x, from.y);
   const b = nearestWalkable(to.x, to.y);
-  const key = `${a.x},${a.y}>${b.x},${b.y}`;
+  const key = `${a.x},${a.y}>${b.x},${b.y}|${climb}`;
   if (cache.has(key)) return cache.get(key)!;
 
   const N = MAP_SIZE * MAP_SIZE;
@@ -132,11 +143,11 @@ export function findPath(from: Point, to: Point): Point[] | null {
       const nx = cx + dx;
       const ny = cy + dy;
       const n = ny * MAP_SIZE + nx;
-      // Into a building only if that's where you're going.
-      if (!canWalk(nx, ny) || (n !== goal && blocked.has(n))) continue;
-      // No cutting corners past water, rock walls or buildings.
+      // Into a building only if that's where you're going; over a wall only when climbing.
+      if (!canWalk(nx, ny) || (n !== goal && blocked.has(n)) || (!climb && walled.has(n))) continue;
+      // No cutting corners past water, rock walls, buildings or the town wall.
       if (dx && dy && (!isOpen(cx + dx, cy) || !isOpen(cx, cy + dy))) continue;
-      const ng = g[cur] + cost * (onRoad.has(n) ? ROAD_COST : 1);
+      const ng = g[cur] + cost * (walled.has(n) ? climb : onRoad.has(n) ? ROAD_COST : 1);
       if (ng < g[n]) {
         g[n] = ng;
         came[n] = cur;

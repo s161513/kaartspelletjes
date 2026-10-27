@@ -10,6 +10,9 @@
 // Everyone online also has their own NPC (id "p:<player>"), dressed as they
 // chose, wandering around town with a name tag. A newcomer who knocked waits
 // at the edge of town (id "n:<name>") until the players voted.
+// At night (update 20) most of the townsfolk sleep: at home, or by the fire
+// without a bed. The night shift (about half of them, which is why work goes
+// at half speed) keeps working.
 
 import {
   CENTER,
@@ -39,6 +42,11 @@ import {
 import { rand2, type VillagerLook } from "./draw";
 import type { Point } from "./iso";
 import { findPath, nearestOpen, nearestWalkable } from "./path";
+
+/** A villager who can't get somewhere through a gate climbs the wall: a step on it costs this. */
+const CLIMB = 8;
+/** At night, asleep at home: checks every this often whether it's morning. */
+const SLEEP_CHECK_MS = 30_000;
 
 /** For every player online this many townsfolk walk around, picked from all of them. */
 export const NPCS_PER_PLAYER = 1;
@@ -86,6 +94,7 @@ const CHAT = {
   photo: ["📸 67!", "story-waardig", "cheese 🧀"],
   pose: ["🗿", "mewing 🤫", "kijk mij"],
   sit: ["gezellig hier", "🔥 warm", "marshmallows?"],
+  sleep: ["😴", "zzz…", "welterusten", "nog vijf minuutjes"],
   cheer: ["67!!", "SIX SEVEN", "🤲 67 🤲", "6️⃣7️⃣", "67 67 67", "six… SEVENNN"],
   sixseven: ["🤲 67 🤲", "6️⃣7️⃣"],
   knock: ["mag ik hier wonen? 🧳", "hallo? 👋", "ik kan hard werken!", "is er nog een bed vrij?", "stem op mij fr"],
@@ -145,6 +154,8 @@ export class Population {
   private spots = new Map<number, Point>();
   /** Players online, set by setPeople; decides how many townsfolk are on the map. */
   private online = 1;
+  /** Is it night in town (set every update)? */
+  private night = false;
 
   /** Match the people to the current town: beds first, jobs from assignWorkers, a few of them on the map. */
   sync(world: IdleWorld, now: number): void {
@@ -347,7 +358,8 @@ export class Population {
 
   private walkTo(v: Villager, to: Point): void {
     const from = { x: Math.round(v.x), y: Math.round(v.y) };
-    v.path = findPath(from, to) ?? [nearestWalkable(to.x, to.y)];
+    // Through the gates; over the wall only when there's no way round.
+    v.path = findPath(from, to) ?? findPath(from, to, CLIMB) ?? [nearestWalkable(to.x, to.y)];
     v.pathI = 0;
   }
 
@@ -375,11 +387,37 @@ export class Population {
     }
   }
 
+  /** The night shift: about half the townsfolk keep working at night. */
+  private nightShift(v: Villager): boolean {
+    return Math.abs(hashStr(v.id)) % 2 === 0;
+  }
+
+  /** Go to bed: home, or by the fire for whoever has no bed. */
+  private toBed(v: Villager, now: number): void {
+    const home = this.byId.get(v.home);
+    v.carry = null;
+    if (home) {
+      v.task = { kind: "go", then: "home", duration: SLEEP_CHECK_MS };
+      this.walkTo(v, home);
+    } else {
+      const a = Math.random() * Math.PI * 2;
+      v.task = { kind: "go", then: "sleep", duration: SLEEP_CHECK_MS };
+      this.walkTo(v, nearestOpen(Math.round(CENTER.x + Math.cos(a) * 2), Math.round(CENTER.y + Math.sin(a) * 2)));
+    }
+    if (Math.random() < 0.2) v.bubble = { text: pick(CHAT.sleep), until: now + 2500 };
+  }
+
   /** What to do once the current task is done. */
   private next(v: Villager, now: number): void {
     // A newcomer stays put until the vote is over.
     if (v.visitor) return void (v.task = { kind: "stay", until: Infinity, action: "none" });
     const job = v.job === null ? undefined : this.byId.get(v.job);
+    const asleep = v.task.kind === "inside" || (v.task.kind === "stay" && v.task.action === "sleep");
+    if (this.night && !v.player && !(this.nightShift(v) && (job || v.gather))) {
+      // Bedtime (or still night: sleep on).
+      if (asleep) return void (v.task = v.task.kind === "inside" ? { kind: "inside", until: now + SLEEP_CHECK_MS } : { kind: "stay", until: now + SLEEP_CHECK_MS, action: "sleep" });
+      return this.toBed(v, now);
+    }
     v.hidden = false;
     v.action = "none";
     const res = job ? producesOf(job) ?? null : v.gather?.resource ?? null;
@@ -409,7 +447,8 @@ export class Population {
     }
   }
 
-  update(dt: number, now: number): void {
+  update(dt: number, now: number, night = false): void {
+    this.night = night;
     let bubbles = 0;
     for (const v of this.villagers.values()) {
       if (v.bubble && v.bubble.until < now) v.bubble = null;
@@ -459,6 +498,7 @@ export class Population {
           // Only the jobless say they're out of work.
           const pool =
             v.visitor ? CHAT.knock
+            : v.action === "sleep" ? CHAT.sleep
             : v.task.kind === "work" ? CHAT.work
             : v.job !== null || v.gather ? CHAT.walk
             : v.action !== "none" && v.action !== "work" ? CHAT[v.action]
@@ -513,7 +553,7 @@ export class Population {
     let doing: string;
     if (v.visitor) doing = "🧳 klopt aan: mag die in het dorp komen wonen? Stem rechts bij de stemmingen";
     else if (now < v.sixSevenUntil) doing = "🤲 doet de 67";
-    else if (v.hidden || task.kind === "inside") doing = "🏠 is thuis";
+    else if (v.hidden || task.kind === "inside") doing = this.night ? "😴 slaapt thuis" : "🏠 is thuis";
     else if (task.kind === "toWork") doing = job ? "🚶 loopt naar het werk" : `🚶 gaat ${emoji(res)} verzamelen`;
     else if (task.kind === "work") doing = job ? `${emoji(res)} is aan het werk` : `${emoji(res)} is aan het verzamelen`;
     else if (task.kind === "toStore") doing = `📦 brengt ${emoji(v.carry)} naar de opslag`;
@@ -522,7 +562,8 @@ export class Population {
       const what = task.kind === "go" ? task.then : task.action;
       const going = task.kind === "go";
       doing =
-        what === "home" ? "🏠 gaat naar huis"
+        what === "home" ? (this.night ? "😴 gaat naar huis om te slapen" : "🏠 gaat naar huis")
+        : what === "sleep" ? (going ? "😴 gaat bij het vuur slapen (geen bed)" : "😴 slaapt bij het vuur (geen bed)")
         : what === "sit" && (job || v.gather) && this.full(res ?? null) ? `🔥 de opslag voor ${emoji(res)} is vol: pauze bij het kampvuur`
         : what === "sit" ? (going ? "🔥 gaat bij het kampvuur zitten" : "🔥 zit bij het kampvuur")
         : what === "dance" ? (going ? "💃 gaat dansen" : "💃 danst")

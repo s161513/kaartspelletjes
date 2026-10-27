@@ -32,7 +32,7 @@ thema (zie [ROADMAP.md](ROADMAP.md)):
     "decoraties verbeteren": Update 19 (PR #42)
   - "dag/nacht cycle van 20 minuten, vijanden om de paar nachten, licht in
     de nacht", "mensen moeten slapen in hun eigen huis", "poorten in de
-    muur": Update 20
+    muur": Update 20 (PR #43)
   - "de tijdperk monumenten moeten groter zijn (meerdere tegels)", "De
     Senaat, het middelste gebouw, meerdere tegels groot": Update 21
   - "de werkplaatsen hebben individuele tools nodig (rarity, crafting

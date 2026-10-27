@@ -1152,13 +1152,68 @@ function wallStyle(level: number): { kind: "stakes" | "stone" | "energy"; color:
  * A wall tile standing on (cx, cy): a post, and a half-segment towards every
  * neighboring wall tile (`links`: tile steps), so the wall joins up.
  */
-export function drawWall(ctx: Ctx, cx: number, cy: number, level: number, links: readonly (readonly [number, number])[], t: number): void {
+export function drawWall(ctx: Ctx, cx: number, cy: number, level: number, links: readonly (readonly [number, number])[], t: number, gate = false): void {
   const f = frameOf(t);
   const box = { left: HW + 6, right: HW + 6, up: 64, down: HH + 6 };
-  drawBaked(ctx, `w${level}|${links.join(";")}|${f.i}`, cx, cy, box, cx, cy, (g) => wallShapes(g, cx, cy, level, links, f.t));
+  drawBaked(ctx, `w${level}|${links.join(";")}|${gate ? "g" : ""}|${f.i}`, cx, cy, box, cx, cy, (g) => {
+    wallShapes(g, cx, cy, level, links, f.t, gate);
+    if (gate) gateShapes(g, cx, cy, level, links);
+  });
 }
 
-function wallShapes(ctx: Ctx, cx: number, cy: number, level: number, links: readonly (readonly [number, number])[], t: number): void {
+/**
+ * A gate in the wall: the wall stops at two tall posts with a beam over them,
+ * and the doors stand open (villagers walk through here).
+ */
+function gateShapes(ctx: Ctx, cx: number, cy: number, level: number, links: readonly (readonly [number, number])[]): void {
+  const st = wallStyle(level);
+  // The gate runs along the wall: across x if the wall goes that way, else across y.
+  const [ax, ay] = links.some(([dx]) => dx) ? [1, 0] : links.some(([, dy]) => dy) ? [0, 1] : [1, 0];
+  const along = (k: number): [number, number] => [cx + ((ax - ay) * HW * k), cy + ((ax + ay) * HH * k)];
+  const [lx, ly] = along(-0.4);
+  const [rx, ry] = along(0.4);
+  const h = st.h + 8;
+  // Clear the wall where the opening is.
+  ctx.save();
+  ctx.globalCompositeOperation = "destination-out";
+  const [ox, oy] = along(-0.3);
+  const [px, py] = along(0.3);
+  poly(ctx, [ox, oy + 6, px, py + 6, px, py - h - 6, ox, oy - h - 6], "#000");
+  ctx.restore();
+  const wood = st.kind === "stakes" ? st.color : "#6b4423";
+  const post = st.kind === "energy" ? "#334155" : st.color;
+  // The doors, swung open towards the town (perpendicular to the wall).
+  if (st.kind !== "energy") {
+    // A step across the wall in tile space is (ay, ax): on screen that's this.
+    const [nx, ny] = [(ay - ax) * HW * 0.28, (ay + ax) * HH * 0.28];
+    for (const [x, y] of [[lx, ly], [rx, ry]] as const) {
+      poly(ctx, [x, y, x + nx, y + ny, x + nx, y + ny - st.h + 2, x, y - st.h + 2], shade(wood, -0.1));
+      for (let k = 1; k < 3; k++) {
+        ctx.strokeStyle = shade(wood, -0.35);
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(x + (nx * k) / 3, y + (ny * k) / 3);
+        ctx.lineTo(x + (nx * k) / 3, y + (ny * k) / 3 - st.h + 2);
+        ctx.stroke();
+      }
+    }
+  }
+  box(ctx, lx, ly, 0.13, h, post, shade(post, 0.2));
+  box(ctx, rx, ry, 0.13, h, post, shade(post, 0.2));
+  if (st.kind === "energy") {
+    // A shimmering gateway between the pillars.
+    ctx.globalAlpha = 0.35;
+    poly(ctx, [lx, ly, rx, ry, rx, ry - h + 4, lx, ly - h + 4], st.color);
+    ctx.globalAlpha = 1;
+    return;
+  }
+  // The beam over the top, and a little roof on the wooden ones.
+  poly(ctx, [lx - 2, ly - h, rx + 2, ry - h, rx + 2, ry - h - 4, lx - 2, ly - h - 4], shade(wood, 0.05));
+  if (st.kind === "stakes") poly(ctx, [lx - 4, ly - h - 3, rx + 4, ry - h - 3, (lx + rx) / 2, (ly + ry) / 2 - h - 11], shade("#a07a3a", 0));
+  else poly(ctx, [lx - 3, ly - h - 4, rx + 3, ry - h - 4, rx + 3, ry - h - 8, lx - 3, ly - h - 8], shade(st.color, 0.15));
+}
+
+function wallShapes(ctx: Ctx, cx: number, cy: number, level: number, links: readonly (readonly [number, number])[], t: number, gate = false): void {
   const st = wallStyle(level);
   const ends = links.length ? links : [[0, 0] as const];
   for (const [dx, dy] of ends) {
@@ -1198,7 +1253,8 @@ function wallShapes(ctx: Ctx, cx: number, cy: number, level: number, links: read
       poly(ctx, [x - 2, y, x + 2, y, x + 2, y - 3, x - 2, y - 3], shade(st.color, 0.05));
     }
   }
-  // The post where segments meet.
+  // The post where segments meet (a gate has its own two).
+  if (gate) return;
   box(ctx, cx, cy, 0.12, st.h + 3, st.kind === "energy" ? "#334155" : st.color, shade(st.kind === "energy" ? "#334155" : st.color, 0.2));
   if (st.kind === "energy") ellipse(ctx, cx, cy - st.h - 5, 2, 2, st.color);
 }
@@ -1637,7 +1693,8 @@ export interface VillagerLook {
   /** Animation clock in ms. */
   phase: number;
   /** "sixseven": both hands up, palms flat, bouncing up and down in turn. */
-  action: "none" | "work" | "dance" | "photo" | "pose" | "sit" | "sixseven";
+  /** "sleep": sitting by the fire at night, without a bed. */
+  action: "none" | "work" | "dance" | "photo" | "pose" | "sit" | "sleep" | "sixseven";
   tool: "axe" | "pick" | "hoe" | "spear" | "rod" | "none";
   carry: ResourceId | null;
   jump: number;
@@ -1652,11 +1709,26 @@ export function drawVillager(ctx: Ctx, x: number, y: number, v: VillagerLook): v
   const look = { ...v, phase: f.t, jump: 0 };
   const key = `v${JSON.stringify(look)}`;
   drawBaked(ctx, key, x, y - v.jump, { left: 16, right: 16, up: 44, down: 6 }, x, y, (g) => villagerShapes(g, x, y, look));
+  if (v.action === "sleep") sleepZ(ctx, x, y, v.phase);
+}
+
+/** A little "z" drifting up over someone asleep, in pixels. */
+function sleepZ(ctx: Ctx, x: number, y: number, phase: number): void {
+  const p = (phase % 2400) / 2400;
+  const zx = Math.round(x + 5 + p * 4);
+  const zy = Math.round(y - 30 - p * 8);
+  ctx.globalAlpha = 1 - p * 0.8;
+  ctx.fillStyle = "#e8eefc";
+  ctx.fillRect(zx, zy, 4, 1);
+  ctx.fillRect(zx + 2, zy + 1, 1, 1);
+  ctx.fillRect(zx + 1, zy + 2, 1, 1);
+  ctx.fillRect(zx, zy + 3, 4, 1);
+  ctx.globalAlpha = 1;
 }
 
 function villagerShapes(ctx: Ctx, x: number, y: number, v: VillagerLook): void {
   const lift = v.jump + (v.action === "dance" ? Math.abs(Math.sin(v.phase / 180)) * 4 : 0);
-  const sit = v.action === "sit" ? 3 : 0;
+  const sit = v.action === "sit" || v.action === "sleep" ? 3 : 0;
   const by = y - lift + sit;
   ellipse(ctx, x, y + 1, 4.5, 2, "rgba(0,0,0,0.25)");
   // Legs.

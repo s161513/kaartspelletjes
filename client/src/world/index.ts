@@ -37,6 +37,7 @@ export function createTown(send: (msg: IdleClientMsg) => void): Town {
     onVillager: (id) => panels.inspectVillager(id),
     onTile: (x, y, px, py) => panels.tile(x, y, px, py),
     onPaint: (x, y, first) => panels.paint(x, y, first),
+    now: serverNow,
   });
 
   const panels = createPanels({

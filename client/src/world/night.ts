@@ -1,0 +1,136 @@
+// The night over the town (update 20): days and nights take 20 minutes each, by
+// the clock (shared/idle.ts: isNight). At night a dark blue lies over
+// everything, and only what gives light breaks through it: fires and torches,
+// lit windows, street lamps in the later eras, the raiders' torches, and a
+// lantern for every player. The dark is drawn at a coarse resolution and
+// scaled up with hard edges, so the pools of light are pixel art too.
+
+import { NIGHT_MS, buildingType, isNight, nextDayAt, type PlacedBuilding } from "@app/shared/idle";
+import { rand2 } from "./draw";
+import type { Camera } from "./iso";
+import { toWorld } from "./iso";
+
+/** How long the dusk and the dawn take, at the edges of the night. */
+const DUSK_MS = 75_000;
+/** How dark the night gets (the alpha of the dark), and its color. */
+const NIGHT_ALPHA = 0.62;
+const NIGHT_RGB = "10, 14, 44";
+/** World px per pixel of the dark: the pools of light have steps this big. */
+const CELL = 2;
+
+/** 0 in the daytime, 1 in the dead of night, in between at dusk and dawn. */
+export function darknessAt(ms: number): number {
+  if (!isNight(ms)) return 0;
+  const end = nextDayAt(ms);
+  const since = ms - (end - NIGHT_MS);
+  return Math.min(1, since / DUSK_MS, (end - ms) / DUSK_MS);
+}
+
+export type LightKind = "fire" | "window" | "lamp" | "lantern" | "magic";
+
+export interface Light {
+  /** World px. */
+  x: number;
+  y: number;
+  r: number;
+  kind: LightKind;
+  /** For the flicker of flames. */
+  seed: number;
+}
+
+const TINT: Record<LightKind, string> = {
+  fire: "255, 150, 60",
+  window: "255, 210, 120",
+  lamp: "230, 236, 255",
+  lantern: "255, 220, 140",
+  magic: "120, 220, 255",
+};
+
+/**
+ * The light a building gives at night, if any: the campfire and fires, lit
+ * windows in houses, shops and the center, torches on the towers. Storage and
+ * most work buildings stay dark; the smith's forge glows.
+ */
+export function buildingLights(b: PlacedBuilding, out: Light[]): void {
+  const type = buildingType(b.type);
+  if (!type) return;
+  const c = toWorld(b.x + 0.5, b.y + 0.5);
+  const seed = b.id * 7.3;
+  const cat = type.category;
+  if (b.damaged) out.push({ x: c.x, y: c.y - 14, r: 46, kind: "fire", seed });
+  if (cat === "center") out.push(b.level === 0 ? { x: c.x, y: c.y - 4, r: 70, kind: "fire", seed } : { x: c.x, y: c.y - 10, r: 62, kind: b.level >= 8 ? "lamp" : "window", seed });
+  else if (cat === "house" || cat === "shop") out.push({ x: c.x, y: c.y - 6, r: b.level <= 1 ? 30 : 36, kind: b.level <= 1 ? "fire" : b.level >= 8 ? "lamp" : "window", seed });
+  else if (cat === "defense") out.push({ x: c.x, y: c.y - 20, r: 44, kind: b.level >= 7 ? "lamp" : "fire", seed });
+  else if (cat === "wonder") out.push({ x: c.x, y: c.y - 20, r: 70, kind: b.level >= 8 ? "magic" : "fire", seed });
+  else if (b.type === "smith") out.push({ x: c.x, y: c.y - 4, r: 34, kind: "fire", seed });
+  else if (cat === "decor" && (b.type === "decor_neon" || b.type === "decor_hologram" || b.type === "decor_monument67")) {
+    out.push({ x: c.x, y: c.y - 20, r: 34, kind: "magic", seed });
+  }
+}
+
+/** Street lamps from the industrial era on: on some of the street tiles. */
+export function streetLights(roads: Iterable<string>, era: number, out: Light[]): void {
+  if (era < 6) return;
+  for (const key of roads) {
+    const [x, y] = key.split(",").map(Number);
+    if (rand2(x, y, 70) > 0.22) continue;
+    const c = toWorld(x + 0.5, y + 0.5);
+    out.push({ x: c.x, y: c.y, r: 30, kind: "lamp", seed: x * 3 + y });
+  }
+}
+
+let dark: HTMLCanvasElement | null = null;
+
+/**
+ * Lay the night over what's drawn (call with the screen transform reset):
+ * dark everywhere but round the lights, with a warm or cold tint near them.
+ */
+export function drawNight(ctx: CanvasRenderingContext2D, cam: Camera, dpr: number, amount: number, lights: readonly Light[], t: number): void {
+  if (amount <= 0) return;
+  const k = CELL * cam.zoom; // screen px per dark px
+  const w = Math.ceil(cam.width / (cam.zoom * CELL)) + 2;
+  const h = Math.ceil(cam.height / (cam.zoom * CELL)) + 2;
+  dark ??= document.createElement("canvas");
+  if (dark.width !== w || dark.height !== h) {
+    dark.width = w;
+    dark.height = h;
+  }
+  const g = dark.getContext("2d")!;
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.globalCompositeOperation = "source-over";
+  g.clearRect(0, 0, w, h);
+  g.fillStyle = `rgba(${NIGHT_RGB}, ${NIGHT_ALPHA * amount})`;
+  g.fillRect(0, 0, w, h);
+  // World px → dark px (snapped to whole cells, so the steps don't crawl).
+  const left = Math.floor((cam.x - cam.width / 2 / cam.zoom) / CELL) * CELL;
+  const top = Math.floor((cam.y - cam.height / 2 / cam.zoom) / CELL) * CELL;
+  g.setTransform(1 / CELL, 0, 0, 1 / CELL, -left / CELL, -top / CELL);
+  const view = { x0: left - 80, y0: top - 80, x1: left + w * CELL + 80, y1: top + h * CELL + 80 };
+  const seen = lights.filter((l) => l.x > view.x0 && l.x < view.x1 && l.y > view.y0 && l.y < view.y1);
+  const radius = (l: Light) => l.r + (l.kind === "fire" ? Math.sin(t / 90 + l.seed) * 2 + Math.sin(t / 37 + l.seed * 2) : 0);
+  const circle = (l: Light, f: number) => {
+    g.beginPath();
+    g.ellipse(l.x, l.y, radius(l) * f, radius(l) * f * 0.62, 0, 0, Math.PI * 2);
+    g.fill();
+  };
+  // Cut the pools of light out of the dark, in three steps.
+  g.globalCompositeOperation = "destination-out";
+  for (const [f, a] of [[1, 0.35], [0.72, 0.45], [0.45, 0.7]] as const) {
+    g.fillStyle = `rgba(0,0,0,${a})`;
+    for (const l of seen) circle(l, f);
+  }
+  // And a tint of their color.
+  g.globalCompositeOperation = "source-over";
+  for (const l of seen) {
+    g.fillStyle = `rgba(${TINT[l.kind]}, ${0.16 * amount})`;
+    circle(l, 0.8);
+  }
+  ctx.save();
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.imageSmoothingEnabled = false;
+  // Back to screen px: dark px (0,0) is world (left, top).
+  const sx = (left - cam.x) * cam.zoom + cam.width / 2;
+  const sy = (top - cam.y) * cam.zoom + cam.height / 2;
+  ctx.drawImage(dark, sx, sy, w * k, h * k);
+  ctx.restore();
+}

@@ -173,7 +173,8 @@ export const BUILDING_TYPES: readonly BuildingType[] = [
   {
     id: "center", category: "center", emoji: "🔥", minEra: 0, unique: true, specialCost: 30,
     baseCost: { wood: 100, stone: 100, food: 50 },
-    names: ["Kampvuur", "Dorpsplein", "Stamhoofdhal", "Forum", "Marktplein", "Raadhuis", "Stadhuis", "Gemeentehuis", "Smart City Hub", "Ruimtehaven", "Galactische Senaat"],
+    // From the Bronze Age on, the council meets in De Senaat (3×3 tiles, see footprintOffsets).
+    names: ["Kampvuur", ...Array<string>(10).fill("De Senaat")],
   },
   {
     id: "house", category: "house", emoji: "🛖", minEra: 0, specialCost: 10,
@@ -686,6 +687,46 @@ const TYPE_BY_ID: Record<string, BuildingType> = Object.fromEntries(BUILDING_TYP
 
 export const resourceDef = (id: ResourceId): ResourceDef | undefined => RESOURCE_BY_ID[id];
 export const buildingType = (id: string): BuildingType | undefined => TYPE_BY_ID[id];
+
+// ---------- big buildings ----------
+
+type Offsets = readonly (readonly [number, number])[];
+const square = (from: number, to: number, rows: readonly number[] = []): Offsets => {
+  const out: [number, number][] = [];
+  for (const dy of rows.length ? rows : Array.from({ length: to - from + 1 }, (_, i) => from + i)) {
+    for (let dx = from; dx <= to; dx++) out.push([dx, dy]);
+  }
+  return out;
+};
+const SQUARE_3: Offsets = square(-1, 1);
+const SQUARE_2: Offsets = square(0, 1);
+const CROSS: Offsets = [[0, 0], [-1, 0], [1, 0], [0, -1], [0, 1]];
+/** A world wonder's tiles, around the tile it was put on. */
+const WONDER_TILES: Record<WonderShape, Offsets> = {
+  stonehenge: SQUARE_3,
+  pyramid: SQUARE_3,
+  colossus: SQUARE_2,
+  colosseum: SQUARE_3,
+  cathedral: CROSS,
+  dome: SQUARE_3,
+  eiffel: SQUARE_3,
+  skyscraper: SQUARE_2,
+  computer: square(-1, 1, [0, 1]),
+  rocket: SQUARE_3,
+};
+const ONE: Offsets = [[0, 0]];
+
+/**
+ * The tiles a building stands on, as steps from its own tile (b.x, b.y): one
+ * for most; De Senaat (the center from the Bronze Age on) 3×3; every world
+ * wonder its own shape (update 21).
+ */
+export function footprintOffsets(typeId: string, level: number): Offsets {
+  const t = buildingType(typeId);
+  if (t?.category === "center") return level >= 1 ? SQUARE_3 : ONE;
+  if (t?.wonder) return WONDER_TILES[t.wonder.shape];
+  return ONE;
+}
 const ITEM_BY_ID: Record<string, ShopItem> = Object.fromEntries(SHOP_ITEMS.map((i) => [i.id, i]));
 export const shopItem = (id: string): ShopItem | undefined => ITEM_BY_ID[id];
 const OUTFIT_BY_ID: Record<string, Outfit> = Object.fromEntries(OUTFITS.map((o) => [o.id, o]));

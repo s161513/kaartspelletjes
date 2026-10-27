@@ -7,7 +7,8 @@
 # that goes on the middle of its tile; scale is how big it is drawn (the City Sim
 # sprites are made for 128 px tiles, ours are 64). Sources and licenses: CREDITS.md.
 # Our own sprites are drawn by code: the Stone and Bronze Age by pixelart.py, water,
-# banks and flowers by pixelnature.py, the decorations by pixeldecor.py.
+# banks and flowers by pixelnature.py, the decorations by pixeldecor.py, De Senaat
+# and the world wonders by pixelbig.py.
 
 import json
 import os
@@ -16,6 +17,7 @@ from PIL import Image
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import pixelart  # noqa: E402
+import pixelbig  # noqa: E402
 import pixeldecor  # noqa: E402
 import pixelnature  # noqa: E402
 
@@ -141,7 +143,7 @@ def main() -> None:
         scale = 1.5 if w <= 40 else 1.25 if w <= 56 else 1.0
         sprites.append((name, im, w / 2, h - 3 - w / 4 * 0.95, scale))
 
-    sprites += pixelart.all_sprites() + pixelnature.all_sprites() + pixeldecor.all_sprites()
+    sprites += pixelart.all_sprites() + pixelnature.all_sprites() + pixeldecor.all_sprites() + pixelbig.all_sprites()
 
     # Shelf packing, tallest first, 2 px apart.
     sprites.sort(key=lambda s: -s[1].height)

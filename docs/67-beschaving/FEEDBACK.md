@@ -34,7 +34,7 @@ thema (zie [ROADMAP.md](ROADMAP.md)):
     de nacht", "mensen moeten slapen in hun eigen huis", "poorten in de
     muur": Update 20 (PR #43)
   - "de tijdperk monumenten moeten groter zijn (meerdere tegels)", "De
-    Senaat, het middelste gebouw, meerdere tegels groot": Update 21
+    Senaat, het middelste gebouw, meerdere tegels groot": Update 21 (PR #44)
   - "de werkplaatsen hebben individuele tools nodig (rarity, crafting
     minigame)": Update 22
   - "je kan mannetjes aansturen (server-sided, iedereen ziet hetzelfde)":

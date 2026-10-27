@@ -278,6 +278,37 @@ def campfire() -> Sprite:
     return s
 
 
+def log_seat(s: Sprite, x: float, y: float, dx: float, dy: float) -> None:
+    """A log to sit on, lying along (dx, dy) with its middle at (x, y): bark, and a light cut end."""
+    n = math.hypot(dx, dy)
+    ux, uy = dx / n, dy / n
+    half = 11
+    for k in range(-half, half + 1):
+        px, py = x + ux * k, y + uy * k
+        for j in range(-2, 2):
+            c = WOOD[1] if j < -1 else WOOD[2] if j < 1 else WOOD[3]
+            if hash2(int(px), int(py + j), 13) < 0.12:
+                c = WOOD[3]
+            s.set(px, py + j, c)
+    # The cut end facing us.
+    ex, ey = (x + ux * half, y + uy * half) if uy > 0 or (uy == 0 and ux > 0) else (x - ux * half, y - uy * half)
+    for j in range(-2, 2):
+        s.set(ex, ey + j, (214, 176, 120) if j in (-1, 0) else (176, 132, 84))
+        s.set(ex + (1 if ux * uy < 0 else -1), ey + j, (190, 150, 100))
+
+
+def camp_logs(front: bool) -> Sprite:
+    """The logs round the Kampvuur, one tile out (where people sit): the two behind or the two in front."""
+    s = Sprite()
+    # A tile away in each direction: up-left, up-right (behind), down-right, down-left (in front).
+    spots = [(-32, -16, 32, -16), (32, -16, 32, 16)] if not front else [(32, 16, 32, -16), (-32, 16, 32, 16)]
+    for ox, oy, dx, dy in spots:
+        s.shadow(AX + ox + 1, AY + oy + 2, 12, 4)
+        log_seat(s, AX + ox, AY + oy, dx, dy)
+    s.rim()
+    return s
+
+
 def flame(i: int) -> Sprite:
     """Four frames of a fire, to go on the campfire."""
     s = Sprite()
@@ -310,6 +341,8 @@ def all_sprites() -> list[tuple[str, Image.Image, int, int, float]]:
         ("lookout0", lookout(0)),
         ("lookout1", lookout(1)),
         ("campfire", campfire()),
+        ("campLogsBack", camp_logs(False)),
+        ("campLogsFront", camp_logs(True)),
     ] + [(f"flame{i}", flame(i)) for i in range(4)]
     result = []
     for name, s in out:

@@ -129,6 +129,7 @@ import {
   WORK_RANGE,
   buildingName,
   buildingType,
+  footprintOffsets,
   housingOf,
   outfit,
   resourceDef,
@@ -150,6 +151,8 @@ import {
   isRiver,
   isRoad,
   natureAt,
+  buildingOn,
+  footprintError,
   patchAt,
   patches,
   pathError,
@@ -1006,7 +1009,7 @@ export function addDrop<T extends IdleWorld>(s: T, rand: () => number): T {
   for (let i = 0; i < 60; i++) {
     const x = CENTER.x + Math.round((rand() - 0.5) * 12);
     const y = CENTER.y + Math.round((rand() - 0.5) * 12);
-    const taken = s.buildings.some((b) => b.x === x && b.y === y) || s.drops.some((d) => d.x === x && d.y === y);
+    const taken = !!buildingOn(s.buildings, x, y) || s.drops.some((d) => d.x === x && d.y === y);
     if (!isLand(x, y) || isRoad(s.roads, x, y) || isRoad(s.walls, x, y) || taken) continue;
     return { ...s, drops: [...s.drops, { id: s.nextDropId, x, y }], nextDropId: s.nextDropId + 1 };
   }
@@ -1524,6 +1527,9 @@ export function actionError(s: IdleWorld, action: ProposalAction): string | null
     if (buildingType(b.type)?.noUpgrade) return "kan niet upgraden";
     if (b.level >= s.era) return "al up-to-date";
     if (b.damaged) return "eerst herstellen";
+    // The Kampvuur grows into De Senaat: its 3×3 tiles must be free first.
+    const grow = footprintError(s.buildings, s.roads, s.walls, b.type, s.era, b.x, b.y, b.id);
+    if (grow && footprintOffsets(b.type, s.era).length > footprintOffsets(b.type, b.level).length) return grow;
   }
   if (!canAfford(s, actionCost(s, action)!)) return "te duur";
   return null;

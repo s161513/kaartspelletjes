@@ -22,7 +22,10 @@ import {
   type ProposalAction,
   type ResourceId,
   RAID_WARNING_MS,
+  buildingOn,
   isNight,
+  middleOf,
+  tilesOf,
   type RaidStage,
 } from "@app/shared/idle";
 import {
@@ -60,6 +63,8 @@ import { buildingLights, darknessAt, drawNight, streetLights, type Light } from 
 import { Population, type Gather, type VillagerInfo } from "./villagers";
 
 const DRAG_THRESHOLD = 6;
+/** Depth for sorting: the front-most tile a building stands on (big ones take several). */
+const depthOf = (b: PlacedBuilding): number => Math.max(...tilesOf(b).map((t) => t.x + t.y));
 /** What a step over a wall costs the raiders, against 1 on open ground: climbing is slow. */
 const RAID_CLIMB = 6;
 /** Players' NPCs are drawn this much bigger than the townsfolk. */
@@ -108,7 +113,7 @@ export interface TownWorld {
   lookAt(x: number, y: number): void;
   recenter(): void;
   /** Placing mode: every click picks a tile, the hovered one shows green/red by `ok`. Null ends it. */
-  setPlacing(ok: ((x: number, y: number) => boolean) | null): void;
+  setPlacing(ok: ((x: number, y: number) => boolean) | null, type?: string): void;
   /** Outline a tile (the build popup's), or none. */
   mark(tile: { x: number; y: number } | null): void;
   /** What a running vote would do, shown in the town (a see-through building, marked tiles). */
@@ -188,6 +193,8 @@ export function createWorld(opts: WorldOptions): TownWorld {
   let selected: number | null = null;
   let selectedVillager: string | null = null;
   let placing: ((x: number, y: number) => boolean) | null = null;
+  /** What's being placed: a big building shows all its tiles under the pointer. */
+  let placingType: string | null = null;
   let hover: { x: number; y: number } | null = null;
   /** The hovered tile is free land: a click opens the build popup there (outlined on top, also behind buildings). */
   let hoverLand = false;
@@ -380,7 +387,7 @@ export function createWorld(opts: WorldOptions): TownWorld {
     const t = toTileSpace(w.x, w.y);
     const tx = Math.floor(t.x);
     const ty = Math.floor(t.y);
-    const own = world?.buildings.find((b) => b.x === tx && b.y === ty);
+    const own = world ? buildingOn(world.buildings, tx, ty) : undefined;
     if (own) return { kind: "building", b: own };
     const natureHit = (x: number, y: number): Hit | null => {
       const res = roads.has(`${x},${y}`) ? null : natureAt(x, y, world?.era ?? 0, world?.nature);
@@ -391,7 +398,7 @@ export function createWorld(opts: WorldOptions): TownWorld {
     // …then free land, even behind a building or a tree that sticks up over it (2.5D): that tile gets the click.
     if (isFreeLand(tx, ty)) return null;
     // Anything else (water, the mountain): the building or tree drawn over it, front-most first.
-    const bs = [...(world?.buildings ?? [])].sort((a, b) => b.x + b.y - (a.x + a.y));
+    const bs = [...(world?.buildings ?? [])].sort((a, b) => depthOf(b) - depthOf(a));
     for (const b of bs) {
       const r = buildingBounds(b);
       if (w.x >= r.x1 && w.x <= r.x2 && w.y >= r.y1 && w.y <= r.y2) return { kind: "building", b };
@@ -663,17 +670,21 @@ export function createWorld(opts: WorldOptions): TownWorld {
     }
     if (draft) for (const i of draft.tiles) outline(tileOf(i).x, tileOf(i).y, draft.erase ? "#ff3b3b" : "#b6ff2e");
     const ok = placing ?? painting;
-    if (ok && hover) outline(hover.x, hover.y, ok(hover.x, hover.y) ? "#b6ff2e" : "#ff3b3b");
+    if (ok && hover) {
+      const color = ok(hover.x, hover.y) ? "#b6ff2e" : "#ff3b3b";
+      const tiles = placing && placingType ? tilesOf({ type: placingType, level: era, x: hover.x, y: hover.y }) : [hover];
+      for (const p of tiles) outline(p.x, p.y, color);
+    }
     if (marked) outline(marked.x, marked.y, "#ffe82e");
 
     for (const b of world?.buildings ?? []) {
       if (b.x < x0 - 1 || b.x > x1 || b.y < y0 - 1 || b.y > y1) continue;
       items.push({
-        d: b.x + b.y + 1.01,
+        d: depthOf(b) + 1.01,
         f: () => {
           const k = popScale(b.id, t);
           if (!k) return drawBuilding(ctx, b, t, b.id === selected);
-          const c = toWorld(b.x + 0.5, b.y + 0.5);
+          const c = toWorld(middleOf(b).x, middleOf(b).y);
           ctx.save();
           ctx.translate(c.x, c.y);
           ctx.scale(k.x, k.y);
@@ -709,8 +720,9 @@ export function createWorld(opts: WorldOptions): TownWorld {
     }
     if (ghost?.kind === "build") {
       const g = { id: -1, type: ghost.type, level: era, x: ghost.x, y: ghost.y };
+      for (const p of tilesOf(g)) outline(p.x, p.y, "#ffe82e");
       items.push({
-        d: g.x + g.y + 1.01,
+        d: depthOf(g) + 1.01,
         f: () => {
           ctx.globalAlpha = 0.45 + 0.15 * Math.sin(t / 250);
           drawBuilding(ctx, g, t, false);
@@ -927,7 +939,7 @@ export function createWorld(opts: WorldOptions): TownWorld {
     },
     built(b) {
       born.set(b.id, performance.now());
-      const p = toWorld(b.x + 0.5, b.y + 0.5);
+      const p = toWorld(middleOf(b).x, middleOf(b).y);
       burst(p.x, p.y - 10, "#d6c8a8", 24, 70, 1100);
       floatText(p.x, p.y - 40, "🎉", "#ffe82e");
     },
@@ -938,7 +950,7 @@ export function createWorld(opts: WorldOptions): TownWorld {
       trauma = Math.min(1, trauma + (stage === "lost" ? 0.9 : stage === "won" ? 0.4 : 0.3));
       const b = damaged === undefined ? undefined : world?.buildings.find((x) => x.id === damaged);
       if (b) {
-        const p = toWorld(b.x + 0.5, b.y + 0.5);
+        const p = toWorld(middleOf(b).x, middleOf(b).y);
         burst(p.x, p.y - 16, "#f97316", 30, 90, 1400);
         burst(p.x, p.y - 16, "#3f3f46", 20, 50, 1800);
       }
@@ -961,8 +973,9 @@ export function createWorld(opts: WorldOptions): TownWorld {
     },
     lookAt,
     recenter,
-    setPlacing(ok) {
+    setPlacing(ok, type) {
       placing = ok;
+      placingType = type ?? null;
       canvas.style.cursor = ok ? "pointer" : "grab";
     },
     mark(tile) {

@@ -13,6 +13,8 @@ import {
   STREET_RANGE,
   VILLAGE_RANGE,
   buildingType,
+  buildingName,
+  footprintOffsets,
   type ResourceId,
 } from "./idleContent.js";
 
@@ -278,7 +280,60 @@ function sourceOf(typeId: string): { ok: (x: number, y: number) => boolean; hint
   return null;
 }
 
-type Spot = { type: string; x: number; y: number };
+type Spot = { type: string; x: number; y: number; level?: number };
+
+/** The tiles a building stands on (most one; De Senaat and the world wonders more). */
+export function tilesOf(b: Spot): { x: number; y: number }[] {
+  return footprintOffsets(b.type, b.level ?? 0).map(([dx, dy]) => ({ x: b.x + dx, y: b.y + dy }));
+}
+
+/** Where a building's middle is, in tile space (the middle of its tiles). */
+export function middleOf(b: Spot): { x: number; y: number } {
+  const tiles = tilesOf(b);
+  return {
+    x: tiles.reduce((a, t) => a + t.x, 0) / tiles.length + 0.5,
+    y: tiles.reduce((a, t) => a + t.y, 0) / tiles.length + 0.5,
+  };
+}
+
+/** Every tile something stands on, as tile numbers. */
+export function takenTiles(buildings: readonly Spot[]): Set<number> {
+  const out = new Set<number>();
+  for (const b of buildings) for (const t of tilesOf(b)) out.add(t.y * MAP_SIZE + t.x);
+  return out;
+}
+
+/** The building standing on this tile, if any. */
+export function buildingOn<T extends Spot>(buildings: readonly T[], x: number, y: number): T | undefined {
+  return buildings.find((b) => tilesOf(b).some((t) => t.x === x && t.y === y));
+}
+
+/** The tiles round the Kampvuur that De Senaat will need: kept free while the center is still a campfire. */
+function reservedFor(buildings: readonly Spot[], x: number, y: number): string | null {
+  const c = buildings.find((b) => buildingType(b.type)?.category === "center");
+  if (!c || (c.level ?? 0) >= 1 || (x === c.x && y === c.y)) return null;
+  return Math.abs(x - c.x) <= 1 && Math.abs(y - c.y) <= 1 ? `hier komt later ${buildingName(c.type, 1)}` : null;
+}
+
+/**
+ * Why `type` at `level` can't stand with its tiles round (x, y), or null: every
+ * tile on the map, land, and free (no other building, path or wall). `self`
+ * is left out (the building that grows).
+ */
+export function footprintError(
+  buildings: readonly (Spot & { id?: number })[], roads: readonly number[], walls: readonly number[],
+  type: string, level: number, x: number, y: number, self?: number,
+): string | null {
+  const others = buildings.filter((b) => b.id === undefined || b.id !== self);
+  for (const t of tilesOf({ type, level, x, y })) {
+    if (!onMap(t.x, t.y) || !isLand(t.x, t.y)) return "niet genoeg land: het gebouw beslaat meer tegels";
+    const on = buildingOn(others, t.x, t.y);
+    if (on) return `eerst vrijmaken: ${buildingName(on.type, on.level ?? 0)} staat in de weg`;
+    if (isRoad(roads, t.x, t.y)) return "eerst vrijmaken: daar ligt een pad";
+    if (isRoad(walls, t.x, t.y)) return "eerst vrijmaken: daar staat een muur";
+  }
+  return null;
+}
 
 /** Grass or sand: land something could stand on (streets aside). */
 export const isLand = (x: number, y: number): boolean => ["grass", "sand"].includes(terrainAt(x, y));
@@ -302,13 +357,14 @@ export const isRoad = (roads: readonly number[], x: number, y: number): boolean 
  */
 export function classicStreets(buildings: readonly Spot[]): number[] {
   const out = new Set<number>();
+  const taken = takenTiles(buildings);
   for (const b of buildings) {
     if (buildingType(b.type)?.category === "decor") continue;
     for (let dy = -STREET_RANGE; dy <= STREET_RANGE; dy++) {
       for (let dx = -STREET_RANGE; dx <= STREET_RANGE; dx++) {
         const x = b.x + dx;
         const y = b.y + dy;
-        if (onMap(x, y) && isRoadTile(x, y) && isLand(x, y) && !buildings.some((o) => o.x === x && o.y === y)) out.add(tileIndex(x, y));
+        if (onMap(x, y) && isRoadTile(x, y) && isLand(x, y) && !taken.has(tileIndex(x, y))) out.add(tileIndex(x, y));
       }
     }
   }
@@ -328,7 +384,9 @@ export const canPave = (x: number, y: number): boolean => onMap(x, y) && (isLand
 export function pathError(buildings: readonly Spot[], roads: readonly number[], x: number, y: number, walls: readonly number[] = []): string | null {
   if (!onMap(x, y)) return "buiten de kaart";
   if (!canPave(x, y)) return "hier kan geen pad";
-  if (buildings.some((b) => b.x === x && b.y === y)) return "daar staat al iets";
+  if (buildingOn(buildings, x, y)) return "daar staat al iets";
+  const reserved = reservedFor(buildings, x, y);
+  if (reserved) return reserved;
   if (isRoad(roads, x, y)) return "daar ligt al een pad";
   if (isRoad(walls, x, y)) return "daar staat een muur";
   return nearBuilding(buildings, x, y, VILLAGE_RANGE) ? null : "te ver van het dorp";
@@ -338,7 +396,9 @@ export function pathError(buildings: readonly Spot[], roads: readonly number[], 
 export function wallError(buildings: readonly Spot[], roads: readonly number[], walls: readonly number[], x: number, y: number): string | null {
   if (!onMap(x, y)) return "buiten de kaart";
   if (!isLand(x, y)) return "een muur kan alleen op land";
-  if (buildings.some((b) => b.x === x && b.y === y)) return "daar staat al iets";
+  if (buildingOn(buildings, x, y)) return "daar staat al iets";
+  const reserved = reservedFor(buildings, x, y);
+  if (reserved) return reserved;
   if (isRoad(roads, x, y)) return "daar ligt een pad";
   if (isRoad(walls, x, y)) return "daar staat al een muur";
   return nearBuilding(buildings, x, y, VILLAGE_RANGE) ? null : "te ver van het dorp";
@@ -348,11 +408,20 @@ export function wallError(buildings: readonly Spot[], roads: readonly number[], 
 export function placeError(buildings: readonly Spot[], roads: readonly number[], typeId: string, x: number, y: number, walls: readonly number[] = []): string | null {
   if (!onMap(x, y)) return "buiten de kaart";
   if (!isLand(x, y)) return "hier kan je niet bouwen";
-  if (buildings.some((b) => b.x === x && b.y === y)) return "daar staat al iets";
+  if (buildingOn(buildings, x, y)) return "daar staat al iets";
   if (isRoad(roads, x, y)) return "daar ligt een pad";
   if (isRoad(walls, x, y)) return "daar staat een muur";
+  if (buildingType(typeId)?.wonder) {
+    // A wonder needs all its tiles: land, free, out of the way of De Senaat.
+    const err = footprintError(buildings, roads, walls, typeId, 0, x, y);
+    if (err) return err;
+    if (tilesOf({ type: typeId, x, y }).some((t) => reservedFor(buildings, t.x, t.y))) return `te dicht bij het ${buildingName("center", 0)}: daar komt later ${buildingName("center", 1)}`;
+  }
   const source = sourceOf(typeId);
-  if (source) return near(x, y, source.range ?? SOURCE_RANGE, source.ok) ? null : source.hint;
+  if (source && !near(x, y, source.range ?? SOURCE_RANGE, source.ok)) return source.hint;
+  const reserved = reservedFor(buildings, x, y);
+  if (reserved) return reserved;
+  if (source) return null;
   return nearBuilding(buildings, x, y, VILLAGE_RANGE) ? null : "te ver van het dorp";
 }
 
@@ -365,6 +434,8 @@ export function placeError(buildings: readonly Spot[], roads: readonly number[],
 export function placeBuilding(buildings: readonly { x: number; y: number }[], typeId: string): { x: number; y: number } | null {
   if (typeId === "center") return { ...CENTER };
   const taken = new Set(buildings.map((b) => `${b.x},${b.y}`));
+  // Round the center stays free for De Senaat.
+  for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) taken.add(`${CENTER.x + dx},${CENTER.y + dy}`);
   const anchor = anchorOf(typeId);
   let best: { x: number; y: number } | null = null;
   let bestD = Infinity;

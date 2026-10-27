@@ -95,6 +95,9 @@ import {
   pathError,
   placeBuilding,
   placeError,
+  buildingOn,
+  middleOf,
+  tilesOf,
   populationTarget,
   ratesOf,
   refundOf,
@@ -723,7 +726,8 @@ test("eras: goals first, then the world wonder in phases; its last phase starts 
     ["🍽️ 3 soorten voedsel", 2, false],
     ["🏚️ een Schuur", 0, false],
   ]);
-  const spot = (st: IdleState) => ({ kind: "build" as const, type: "wonder_0", ...placeBuilding(st.buildings, "decor_flowers")! });
+  // A wonder needs all its tiles free (Stonehenge 3×3).
+  const spot = (st: IdleState) => ({ kind: "build" as const, type: "wonder_0", ...findTile((x, y) => !placeError(st.buildings, st.roads, "wonder_0", x, y, st.walls)) });
   assert.equal(actionError(rich(fresh), spot(fresh)), "eerst de doelen van dit tijdperk halen");
   assert.equal(actionError(rich(fresh), { ...spot(fresh), type: "wonder_1" }), "nog niet ontgrendeld");
 
@@ -837,6 +841,39 @@ test("build: at the current era, unlocked types only, cost grows per copy, pays"
   assert.equal(applyAction(bronzeAge, at(bronzeAge, "house")).building!.level, 1);
   // A copper mine never costs copper.
   assert.equal(buildCost(bronzeAge, "mine_bronze")!.bronze, undefined);
+});
+
+test("big buildings: De Senaat takes 3×3 once the Kampvuur grows, wonders their own shape; the tiles must be cleared first", () => {
+  assert.deepEqual(tilesOf({ type: "center", level: 0, x: 42, y: 42 }), [{ x: 42, y: 42 }]);
+  assert.equal(tilesOf({ type: "center", level: 1, x: 42, y: 42 }).length, 9);
+  assert.equal(buildingName("center", 0), "Kampvuur");
+  assert.equal(buildingName("center", 3), "De Senaat");
+  assert.equal(tilesOf({ type: "wonder_0", x: 10, y: 10 }).length, 9, "Stonehenge 3×3");
+  assert.deepEqual(tilesOf({ type: "wonder_4", x: 10, y: 10 }).map((t) => [t.x - 10, t.y - 10]).sort(), [[-1, 0], [0, -1], [0, 0], [0, 1], [1, 0]], "the cathedral is a cross");
+  assert.deepEqual(middleOf({ type: "wonder_2", x: 10, y: 10 }), { x: 11, y: 11 }, "a 2×2 colossus");
+  assert.equal(buildingOn([{ id: 1, type: "wonder_0", level: 0, x: 10, y: 10 }], 11, 9)?.id, 1);
+
+  // A new town keeps the tiles round the Kampvuur free, and so does building.
+  const fresh = newIdleState(T0);
+  assert.ok(fresh.buildings.slice(1).every((b) => Math.max(Math.abs(b.x - CENTER.x), Math.abs(b.y - CENTER.y)) > 1));
+  assert.equal(placeError(fresh.buildings, fresh.roads, "house", CENTER.x + 1, CENTER.y), "hier komt later De Senaat");
+  assert.equal(placeError(fresh.buildings, [], "wonder_0", CENTER.x + 2, CENTER.y), "te dicht bij het Kampvuur: daar komt later De Senaat");
+
+  // An old town with a hut next to the fire: De Senaat waits until it's gone.
+  const hut = { id: 90, type: "house", level: 0, x: CENTER.x + 1, y: CENTER.y + 1 };
+  const old = rich(unlockEra({ ...fresh, buildings: [...fresh.buildings, hut] }, 1));
+  const center = old.buildings.find((b) => b.type === "center")!;
+  assert.equal(actionError(old, { kind: "upgrade", building: center.id }), "eerst vrijmaken: Hut staat in de weg");
+  const cleared = applyAction(old, { kind: "demolish", building: hut.id }).state;
+  assert.equal(actionError(cleared, { kind: "upgrade", building: center.id }), null);
+  const senaat = applyAction(cleared, { kind: "upgrade", building: center.id }).state;
+  assert.equal(tilesOf(senaat.buildings.find((b) => b.type === "center")!).length, 9);
+  assert.equal(placeError(senaat.buildings, senaat.roads, "house", CENTER.x + 1, CENTER.y), "daar staat al iets");
+
+  // A wonder on top of a building: clear it first.
+  const spot = findTile((x, y) => !placeError(fresh.buildings, fresh.roads, "wonder_0", x, y));
+  const inTheWay = [...fresh.buildings, { id: 91, type: "house", level: 0, x: spot.x + 1, y: spot.y }];
+  assert.equal(placeError(inTheWay, fresh.roads, "wonder_0", spot.x, spot.y), "eerst vrijmaken: Hut staat in de weg");
 });
 
 test("upgrade: old buildings go straight to the current era, decorations never", () => {

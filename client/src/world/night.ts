@@ -5,7 +5,7 @@
 // lantern for every player. The dark is drawn at a coarse resolution and
 // scaled up with hard edges, so the pools of light are pixel art too.
 
-import { NIGHT_MS, buildingType, isNight, nextDayAt, type PlacedBuilding } from "@app/shared/idle";
+import { NIGHT_MS, buildingType, isNight, middleOf, nextDayAt, tilesOf, type PlacedBuilding } from "@app/shared/idle";
 import { rand2 } from "./draw";
 import type { Camera } from "./iso";
 import { toWorld } from "./iso";
@@ -54,14 +54,15 @@ const TINT: Record<LightKind, string> = {
 export function buildingLights(b: PlacedBuilding, out: Light[]): void {
   const type = buildingType(b.type);
   if (!type) return;
-  const c = toWorld(b.x + 0.5, b.y + 0.5);
+  const m = middleOf(b);
+  const c = toWorld(m.x, m.y);
   const seed = b.id * 7.3;
   const cat = type.category;
   if (b.damaged) out.push({ x: c.x, y: c.y - 14, r: 46, kind: "fire", seed });
-  if (cat === "center") out.push(b.level === 0 ? { x: c.x, y: c.y - 4, r: 70, kind: "fire", seed } : { x: c.x, y: c.y - 10, r: 62, kind: b.level >= 8 ? "lamp" : "window", seed });
+  if (cat === "center") out.push(b.level === 0 ? { x: c.x, y: c.y - 4, r: 70, kind: "fire", seed } : { x: c.x, y: c.y - 10, r: 120, kind: b.level >= 8 ? "lamp" : "window", seed });
   else if (cat === "house" || cat === "shop") out.push({ x: c.x, y: c.y - 6, r: b.level <= 1 ? 30 : 36, kind: b.level <= 1 ? "fire" : b.level >= 8 ? "lamp" : "window", seed });
   else if (cat === "defense") out.push({ x: c.x, y: c.y - 20, r: 44, kind: b.level >= 7 ? "lamp" : "fire", seed });
-  else if (cat === "wonder") out.push({ x: c.x, y: c.y - 20, r: 70, kind: b.level >= 8 ? "magic" : "fire", seed });
+  else if (cat === "wonder") out.push({ x: c.x, y: c.y - 20, r: 30 + 34 * Math.sqrt(tilesOf(b).length), kind: b.level >= 8 ? "magic" : "fire", seed });
   else if (b.type === "smith") out.push({ x: c.x, y: c.y - 4, r: 34, kind: "fire", seed });
   else if (cat === "decor" && (b.type === "decor_neon" || b.type === "decor_hologram" || b.type === "decor_monument67")) {
     out.push({ x: c.x, y: c.y - 20, r: 34, kind: "magic", seed });

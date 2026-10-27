@@ -4,7 +4,7 @@
 // gates. Only if there is no way round do they climb over, as raiders do (slowly).
 // Paths are cached until the town changes.
 
-import { MAP_SIZE, isWalkable, terrainAt } from "@app/shared/idle";
+import { MAP_SIZE, isWalkable, terrainAt, tilesOf, type PlacedBuilding } from "@app/shared/idle";
 import type { Point } from "./iso";
 
 const MAX_CACHE = 600;
@@ -17,6 +17,8 @@ let walkable: Uint8Array | null = null;
 let roads: readonly number[] = [];
 /** Tiles with a building: only the start or the end of a walk. */
 let blocked = new Set<number>();
+/** Which building stands on a tile: walking to a big one ends at its edge. */
+let owner = new Map<number, number>();
 let onRoad = new Set<number>();
 /** Wall tiles that aren't a gate. */
 let walled = new Set<number>();
@@ -39,11 +41,14 @@ const isOpen = (x: number, y: number, climb = 0): boolean =>
 const sameSet = (a: Set<number>, b: Set<number>) => a.size === b.size && [...a].every((i) => b.has(i));
 
 /** The town changed: streets are quicker, bridges cross the river, buildings and walls are in the way. */
-export function setTown(buildings: readonly Point[], streets: readonly number[], walls: readonly number[] = [], gates: readonly number[] = []): void {
-  const next = new Set(buildings.map((b) => b.y * MAP_SIZE + b.x));
+export function setTown(buildings: readonly PlacedBuilding[], streets: readonly number[], walls: readonly number[] = [], gates: readonly number[] = []): void {
+  const tiles = new Map<number, number>();
+  for (const b of buildings) for (const t of tilesOf(b)) tiles.set(t.y * MAP_SIZE + t.x, b.id);
+  const next = new Set(tiles.keys());
   const shut = new Set(walls.filter((i) => !gates.includes(i)));
   if (sameSet(next, blocked) && sameSet(shut, walled) && streets.length === roads.length && streets.every((i, k) => i === roads[k])) return;
   blocked = next;
+  owner = tiles;
   walled = shut;
   roads = [...streets];
   onRoad = new Set(streets);
@@ -94,6 +99,9 @@ export function findPath(from: Point, to: Point, climb = 0): Point[] | null {
   const closed = new Uint8Array(N);
   const start = a.y * MAP_SIZE + a.x;
   const goal = b.y * MAP_SIZE + b.x;
+  // Going to a building that takes more tiles: any of its tiles will do (the nearest edge).
+  const target = owner.get(goal);
+  const arrived = (i: number) => i === goal || (target !== undefined && owner.get(i) === target);
   // Never more than the cheapest way there, all over roads.
   const h = (i: number) => Math.hypot((i % MAP_SIZE) - b.x, Math.floor(i / MAP_SIZE) - b.y) * ROAD_COST;
   // Small binary heap of [f, index].
@@ -128,12 +136,12 @@ export function findPath(from: Point, to: Point, climb = 0): Point[] | null {
     return top;
   };
   g[start] = 0;
-  let found = false;
+  let found = -1;
   while (heap.length) {
     const [, cur] = pop();
     if (closed[cur]) continue;
-    if (cur === goal) {
-      found = true;
+    if (arrived(cur)) {
+      found = cur;
       break;
     }
     closed[cur] = 1;
@@ -144,7 +152,7 @@ export function findPath(from: Point, to: Point, climb = 0): Point[] | null {
       const ny = cy + dy;
       const n = ny * MAP_SIZE + nx;
       // Into a building only if that's where you're going; over a wall only when climbing.
-      if (!canWalk(nx, ny) || (n !== goal && blocked.has(n)) || (!climb && walled.has(n))) continue;
+      if (!canWalk(nx, ny) || (!arrived(n) && blocked.has(n)) || (!climb && walled.has(n))) continue;
       // No cutting corners past water, rock walls, buildings or the town wall.
       if (dx && dy && (!isOpen(cx + dx, cy) || !isOpen(cx, cy + dy))) continue;
       const ng = g[cur] + cost * (walled.has(n) ? climb : onRoad.has(n) ? ROAD_COST : 1);
@@ -157,9 +165,9 @@ export function findPath(from: Point, to: Point, climb = 0): Point[] | null {
   }
 
   let path: Point[] | null = null;
-  if (found) {
+  if (found >= 0) {
     path = [];
-    for (let i = goal; i !== -1; i = came[i]) path.push({ x: i % MAP_SIZE, y: Math.floor(i / MAP_SIZE) });
+    for (let i = found; i !== -1; i = came[i]) path.push({ x: i % MAP_SIZE, y: Math.floor(i / MAP_SIZE) });
     path.reverse();
   }
   if (cache.size >= MAX_CACHE) cache.delete(cache.keys().next().value!);

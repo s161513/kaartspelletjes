@@ -321,7 +321,7 @@ export interface PanelDeps {
   villager(id: string): VillagerInfo | null;
   /** Show a villager's new task right away (the server confirms it). */
   setGather(id: string, g: Gather | null): void;
-  setPlacing(ok: ((x: number, y: number) => boolean) | null): void;
+  setPlacing(ok: ((x: number, y: number) => boolean) | null, type?: string): void;
   mark(tile: { x: number; y: number } | null): void;
   setGhost(action: ProposalAction | null): void;
   /** Move the view to a tile. */
@@ -414,7 +414,9 @@ export function createPanels(deps: PanelDeps): Panels {
       hud.append(popChip, happyChip, dayChip, raidChip, boostBox);
     }
     const rates = ratesOf(world);
-    const center = buildingName("center", world.era);
+    // "bij het Kampvuur", "bij De Senaat".
+    const centerLevel = world.buildings.find((b) => b.type === "center")?.level ?? 0;
+    const center = centerLevel >= 1 ? buildingName("center", centerLevel) : `het ${buildingName("center", 0)}`;
     for (const [id, { chip, text, fill }] of hudChips) {
       const have = world.resources[id] ?? 0;
       const cap = capOf(world, id);
@@ -429,12 +431,12 @@ export function createPanels(deps: PanelDeps): Panels {
     const wf = assignWorkers(world);
     popChip.textContent = `👥 ${wf.population} · 🛏️ ${wf.beds}${wf.homeless ? ` · ⛺ ${wf.homeless}` : ""}`;
     popChip.classList.toggle("sx-hud-full", wf.homeless > 0);
-    setTitle(popChip, `inwoners · bedden${wf.homeless ? " · slapen buiten: bouw huizen" : ""} · klik voor het overzicht bij het ${center}`);
+    setTitle(popChip, `inwoners · bedden${wf.homeless ? " · slapen buiten: bouw huizen" : ""} · klik voor het overzicht bij ${center}`);
     const mood = happinessOf(world, now);
     const arrow = mood.target > Math.round(mood.level) ? " ↗" : mood.target < Math.round(mood.level) ? " ↘" : "";
     happyChip.textContent = `${moodEmoji(mood.level)} ${Math.round(mood.level)}%${arrow}${arrow ? ` ${mood.target}%` : ""}`;
     happyChip.classList.toggle("sx-hud-full", mood.level < 35);
-    setTitle(happyChip, `geluk${arrow ? ", en waar het heen gaat" : ""} · klik voor wat het dorp blij maakt, bij het ${center}`);
+    setTitle(happyChip, `geluk${arrow ? ", en waar het heen gaat" : ""} · klik voor wat het dorp blij maakt, bij ${center}`);
 
     const night = isNight(now);
     const turn = night ? nextDayAt(now) : nextNightAt(now);
@@ -452,7 +454,7 @@ export function createPanels(deps: PanelDeps): Panels {
       const def = defenseOf(world).total;
       raidChip.textContent = raid.at > now ? `⚔️ aanval over ${timeLeft(raid.at - now)} · ⚔️ ${raid.strength} vs 🛡️ ${def}` : "⚔️ de aanval is bezig!";
       raidChip.classList.toggle("sx-hud-full", def < raid.strength);
-      setTitle(raidChip, `vijanden in aantocht: hun kracht tegen onze verdediging · klik voor de verdediging bij het ${center}`);
+      setTitle(raidChip, `vijanden in aantocht: hun kracht tegen onze verdediging · klik voor de verdediging bij ${center}`);
     }
 
     const boosts: string[] = [];
@@ -591,7 +593,7 @@ export function createPanels(deps: PanelDeps): Panels {
     deps.setPlacing((x, y) => {
       const w = deps.world();
       return !!w && !placeError(w.buildings, w.roads, t.id, x, y, w.walls);
-    });
+    }, t.id);
   }
 
   function stopPlacing(): void {
@@ -1386,7 +1388,10 @@ export function createPanels(deps: PanelDeps): Panels {
           const o = offer({
             emoji: "⬆️",
             name: `Upgrade naar ${buildingName(b.type, world.era)}`,
-            effect: `${ERAS[world.era].emoji} ${ERAS[world.era].name}`,
+            effect:
+              t.category === "center" && b.level === 0
+                ? `${ERAS[world.era].emoji} ${ERAS[world.era].name} · wordt 3×3 tegels groot: de tegels rond het vuur moeten leeg zijn`
+                : `${ERAS[world.era].emoji} ${ERAS[world.era].name}`,
             action: "🗳️ voorstellen",
             votes: true,
             onClick: () => propose({ kind: "upgrade", building: b.id }),

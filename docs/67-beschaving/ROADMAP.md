@@ -63,10 +63,10 @@ Daarnaast blijft gelden:
 | --- | --- |
 | Regels: productie (ook mijnen en smeden), dag en nacht, opslag per grondstof, geluk (de meter), inwoners, kosten, stemmen, paden, muren en poorten, afbreken, doelen en wonderen, supply drops, aanvallen | `shared/idle.ts` |
 | Getallen en content: grondstoffen, tijdperken (doelen, wonderen), gebouwen, winkels, gelukjes; de balans (`PRICE_MULT`, `BASE_RATE`, …) onderaan | `shared/idleContent.ts` |
-| Kaart, natuur, waar gebouwen en paden mogen | `shared/idleMap.ts` |
+| Kaart, natuur, waar gebouwen en paden mogen, welke tegels een gebouw beslaat (`tilesOf`) | `shared/idleMap.ts` |
 | Server: opslag (`data/idle.json`), invoercontrole, stemmen afhandelen | `server/src/idle.ts`, `server/src/counter.ts` |
 | Browser: wereld, panelen, NPC's, padvinden, de nacht en het licht (`night.ts`) | `client/src/world/*`, `client/src/counter.ts` |
-| Pixel-art: sprites, atlas, eigen sprites (`pixelart.py`: Steen- en Bronstijd, `pixelnature.py`: water, oevers, bloemen, `pixeldecor.py`: decoraties), licenties | `client/src/world/sprites/` (na een wijziging: `python client/src/world/sprites/build.py`), `sprites.ts`, `pixel.ts` |
+| Pixel-art: sprites, atlas, eigen sprites (`pixelart.py`: Steen- en Bronstijd, `pixelnature.py`: water, oevers, bloemen, `pixeldecor.py`: decoraties, `pixelbig.py`: De Senaat en de wonderen), licenties | `client/src/world/sprites/` (na een wijziging: `python client/src/world/sprites/build.py`), `sprites.ts`, `pixel.ts` |
 | Tests | `tests/idle.test.mts` |
 
 Volledig resetten om te testen: stop de server, verwijder `data/counter.json`
@@ -496,16 +496,39 @@ een stemming.
       "muren houden niemand tegen")
 
 ### Update 21: Grote gebouwen
-Status: gepland. Gebouwen beslaan nu één tegel; dit raakt de kaart, het
-plaatsen en het padvinden.
+Status: in review (PR #44). Steunt op update 19 en 20 (PR #42, #43).
 
-- [ ] Elk wereldwonder is groter, met een eigen vorm: Stonehenge 3×3, de
-      kathedraal in een kruisvorm, enzovoort. (bron: 2026-10-26, "de
-      tijdperk monumenten moeten groter zijn (meerdere tegels)")
-- [ ] Het centrum heet De Senaat en beslaat meerdere tegels; daar worden de
-      stemmen en de feedback verwerkt (zie update 13). Bij het Kampvuur is
-      het één tegel, met boomstammen eromheen waar mensen op zitten. (bron:
-      2026-10-26, "de council heeft een gebouw De Senaat")
+Afgesproken met Richard (2026-10-27): na het Kampvuur heet het centrum altijd
+De Senaat; het is 3×3. Staat er iets op de tegels, dan moet dat eerst weg (er
+verhuist niets vanzelf). De wonderen krijgen meteen eigen pixel-sprites.
+
+- [x] Elk wereldwonder is groter, met een eigen vorm (`footprintOffsets` in
+      `shared/idleContent.ts`): Stonehenge, de Piramide, het Colosseum, de
+      Sint-Pieter, de Eiffeltoren en de Ruimteraket 3×3; de Kolossus en de
+      Wolkenkrabber 2×2; de Kathedraal een kruis van 5 tegels; de
+      Supercomputer 3×2. Je klikt op het middelste vak; alle tegels moeten
+      land en vrij zijn ("eerst vrijmaken: … staat in de weg"). Bij het
+      plaatsen zie je alle tegels groen of rood. Alle tien zijn eigen
+      pixel-sprites (`sprites/pixelbig.py`); de Kolossus (fakkel), de
+      Eiffeltoren en de Wolkenkrabber (lampje), de Supercomputer (lichtjes) en
+      de Ruimteraket (stoom) bewegen. In aanbouw staat de sprite doorzichtig
+      met steigers en een kraan, op de maat van het wonder. (bron: 2026-10-26,
+      "de tijdperk monumenten moeten groter zijn (meerdere tegels)")
+- [x] Het centrum heet De Senaat en beslaat 3×3 tegels: precies het blok
+      tussen de straten. Vijf looks: een grote hal van vlechtwerk onder stro
+      (Bronstijd, IJzertijd), een marmeren tempel (Oudheid tot Renaissance),
+      een bakstenen parlement met koepel (Industriële revolutie, Moderne tijd),
+      glas met een glazen koepel (Digitale tijd) en een witte schotel (Ruimte,
+      Sci-fi). De upgrade van het Kampvuur kan pas als de 8 tegels eromheen
+      leeg zijn. Zolang het een Kampvuur is, kan daar niets meer gebouwd of
+      gelegd worden ("hier komt later De Senaat"), en een nieuw dorp zet zijn
+      hut en Schuur er niet meer naast. Het Kampvuur is één tegel, met vier
+      boomstammen eromheen waar de dorpelingen op gaan zitten. Het stemmen en
+      de feedback horen bij update 13. (bron: 2026-10-26, "de council heeft
+      een gebouw De Senaat")
+Let op voor het echte dorp: daar staan de eerste Hut en Schuur naast het
+Kampvuur. Die moeten afgebroken worden voordat het Kampvuur De Senaat kan
+worden.
 
 ### Update 22: Gereedschap
 Status: gepland. Eerst met Richard afstemmen: welke werkplaats wat maakt,

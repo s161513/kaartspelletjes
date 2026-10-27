@@ -450,8 +450,9 @@ Status: in review (PR #42). Pixel-art, zoals in update 16.
       tijdperken. Het Bloemperk is een verhoogd bed met een stenen rand en rijen
       tulpen. (bron: idem)
 - [x] Mooiere decoraties, als pixel-sprites. Gedaan: alle dertien
-      (`sprites/pixeldecor.py`): het 67-standbeeld (de handen gaan om de beurt
-      op en neer), een beschilderde totempaal met vleugels, een menhir met
+      (`sprites/pixeldecor.py`): het 67-standbeeld (staat stil, met de handen
+      in de 67-pose; Richard, 2026-10-27: "het 67 standbeeld mag niet
+      bewegen"), een beschilderde totempaal met vleugels, een menhir met
       korstmos en een spiraal, het krijgers-, ridder-, David- en
       astronautenbeeld op een sokkel, een marmeren fontein met spuitend water,
       een bakstenen klokkentoren (het is altijd 6:07), een neonbord dat soms

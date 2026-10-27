@@ -576,7 +576,7 @@ zien of gebruiken, ook niet als ze het bericht zelf sturen.
       mij")
 
 ### Update 24: Pixel-art HUD
-Status: in review. Pixel-art, zoals in update 16. Steunt op update 23 (PR #45).
+Status: in review (PR #46). Pixel-art, zoals in update 16. Steunt op update 23 (PR #45).
 
 - [x] De HUD bovenin, de menu's, de panelen en de popups in één pixel-art
       stijl: harde randen, pixelranden en -schaduwen, geen ronde hoeken of

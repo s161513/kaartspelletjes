@@ -606,7 +606,7 @@ Status: in review (PR #46). Pixel-art, zoals in update 16. Steunt op update 23 (
       🗳️, …) zijn nog de gewone emoji van het systeem, niet in pixel-art.
 
 ### Update 22: Gereedschap
-Status: in review. Steunt op update 24 (PR #46).
+Status: in review (PR #47). Steunt op update 24 (PR #46).
 
 Afgesproken met Richard (2026-10-27): de smeden maken het gereedschap.
 Zonder gereedschap werk je ×0,75, en het slijt in 3 dagen. Zeldzaamheid

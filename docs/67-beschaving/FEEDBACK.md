@@ -54,7 +54,7 @@ thema (zie [ROADMAP.md](ROADMAP.md)):
   - "de tijdperk monumenten moeten groter zijn (meerdere tegels)", "De
     Senaat, het middelste gebouw, meerdere tegels groot": Update 21 (PR #44)
   - "de werkplaatsen hebben individuele tools nodig (rarity, crafting
-    minigame)": Update 22
+    minigame)": Update 22 (PR #47)
   - "je kan mannetjes aansturen (server-sided, iedereen ziet hetzelfde)":
     Update 14
 

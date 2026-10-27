@@ -71,11 +71,6 @@ import {
   profileText,
   freeBedsOf,
   gateCost,
-  DAY_MS,
-  isNight,
-  nextDayAt,
-  nextNightAt,
-  NIGHT_WORK,
   BIRTH_HAPPY,
   BIRTH_MS,
   ratesOf,
@@ -377,7 +372,6 @@ export function createPanels(deps: PanelDeps): Panels {
   const boostBox = h("span");
   boostBox.style.display = "contents";
   const raidChip = h("span", "sx-hud-chip sx-hud-raid sx-hud-click");
-  const dayChip = h("span", "sx-hud-chip sx-hud-pop");
 
   /** Tooltips that change every tick flicker away under the mouse: only set them when the text really changes. */
   const setTitle = (el: HTMLElement, text: string) => {
@@ -412,7 +406,7 @@ export function createPanels(deps: PanelDeps): Panels {
         hud.append(chip);
         hudChips.set(r.id, { chip, text, fill });
       }
-      hud.append(popChip, happyChip, dayChip, raidChip, boostBox);
+      hud.append(popChip, happyChip, raidChip, boostBox);
     }
     const rates = ratesOf(world);
     // "bij het Kampvuur", "bij De Senaat".
@@ -438,17 +432,6 @@ export function createPanels(deps: PanelDeps): Panels {
     happyChip.textContent = `${moodEmoji(mood.level)} ${Math.round(mood.level)}%${arrow}${arrow ? ` ${mood.target}%` : ""}`;
     happyChip.classList.toggle("sx-hud-full", mood.level < 35);
     setTitle(happyChip, `geluk${arrow ? ", en waar het heen gaat" : ""} · klik voor wat het dorp blij maakt, bij ${center}`);
-
-    const night = isNight(now);
-    const turn = night ? nextDayAt(now) : nextNightAt(now);
-    const label = night ? "🌙 nacht" : turn - now <= 5 * 60_000 ? "🌇 avond" : now - (turn - DAY_MS) < 4 * 60_000 ? "🌅 ochtend" : "☀️ dag";
-    dayChip.textContent = `${label} · nog ${Math.max(1, Math.ceil((turn - now) / 60_000))} min`;
-    setTitle(
-      dayChip,
-      night
-        ? `nacht: de meeste inwoners slapen, het werk gaat ×${String(NIGHT_WORK).replace(".", ",")}; vijanden vallen 's nachts aan`
-        : "dag: iedereen werkt; dag en nacht duren elk 20 minuten",
-    );
 
     const raid = world.raid;
     raidChip.hidden = !raid;

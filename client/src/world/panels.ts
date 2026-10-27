@@ -7,6 +7,9 @@
 // are kept, not rebuilt, so buttons never vanish under a click.
 
 import {
+  IDEA_LENGTH,
+  councilText,
+  ideaError,
   FORGE_COOLDOWN_MS,
   RARITIES,
   TOOL_COST,
@@ -1206,6 +1209,84 @@ export function createPanels(deps: PanelDeps): Panels {
   }
 
   /** The campfire: who works, who gathers what, and choosing that for the whole town. */
+  // ---------- De raad (update 13): which update next, and ideas ----------
+
+  function councilPanel(): () => void {
+    const list = h("div", "sx-council");
+    const ideas = h("div", "sx-council-ideas");
+    const input = h("textarea", "sx-input sx-idea-input");
+    input.maxLength = IDEA_LENGTH;
+    input.rows = 2;
+    input.placeholder = "Jouw idee voor het spel…";
+    const send = button("sx-act sx-act-now", "💡 insturen", () => {
+      const err = ideaError(input.value);
+      if (err) return void (copied.textContent = err);
+      deps.send({ type: "idea", text: input.value, name: session.nickname });
+      input.value = "";
+    });
+    const copied = h("div", "sx-note");
+    const copy = button("sx-act", "📋 uitslag kopiëren", () => {
+      const view = deps.msg()?.council;
+      if (!view) return;
+      const text = councilText(view, deps.serverNow());
+      navigator.clipboard?.writeText(text).then(
+        () => (copied.textContent = "✓ gekopieerd: plak het in FEEDBACK.md"),
+        () => (copied.textContent = text),
+      ) ?? (copied.textContent = text);
+    });
+    insActions.append(
+      h("h4", "sx-h", "🗳️ De raad"),
+      h("p", "sx-note", "Welke update wil jij als volgende? Iedereen heeft één stem en kan die verzetten. Claude kijkt naar de uitslag en bouwt de updates in die volgorde."),
+      list,
+      h("h4", "sx-h", "💡 Ideeën"),
+      h("p", "sx-note", `Heb je zelf een idee? Stuur het in (hooguit ${IDEA_LENGTH} tekens); Claude neemt het mee als feedback.`),
+      input,
+      send,
+      ideas,
+      copy,
+      copied,
+    );
+    let sig = "";
+    return () => {
+      const msg = deps.msg();
+      const view = msg?.council;
+      if (!view) return;
+      send.disabled = !deps.connected() || !msg.me;
+      send.title = msg.me ? "" : "eerst inloggen";
+      const next = JSON.stringify([view, !!msg.me, deps.connected()]);
+      if (next === sig) return;
+      sig = next;
+      const most = Math.max(1, ...view.items.map((i) => i.votes));
+      list.replaceChildren(
+        ...view.items.map((item) => {
+          const mine = view.myVote === item.id;
+          const row = h("div", mine ? "sx-council-item sx-council-mine" : "sx-council-item");
+          const top = h("div", "sx-offer-top");
+          top.append(h("span", "sx-offer-emoji", item.emoji), h("span", "", item.title), h("span", "sx-offer-level", `${item.votes} ${item.votes === 1 ? "stem" : "stemmen"}`));
+          const bar = h("div", "sx-store-bar");
+          const fill = h("div", "sx-store-fill");
+          fill.style.width = `${(item.votes / most) * 100}%`;
+          bar.append(fill);
+          const vote = button(mine ? "sx-act sx-act-now" : "sx-act", mine ? "✓ jouw stem" : "🗳️ stem", () => deps.send({ type: "council", item: mine ? null : item.id }));
+          vote.disabled = !deps.connected() || !msg.me;
+          vote.title = !msg.me ? "eerst inloggen" : mine ? "klik om je stem terug te nemen" : "";
+          const row2 = h("div", "sx-offer-row");
+          row2.append(h("div", "sx-offer-effect", item.desc), vote);
+          row.append(top, bar, row2);
+          return row;
+        }),
+      );
+      ideas.replaceChildren(
+        ...view.ideas.map((idea) => {
+          const el = h("div", "sx-council-idea");
+          el.append(h("span", "sx-council-by", `${idea.by}: `), h("span", "", idea.text), h("span", "sx-council-tag", " · ingestuurd"));
+          if (idea.mine) el.append(button("sx-council-del", "✕", () => deps.send({ type: "unidea", id: idea.id })));
+          return el;
+        }),
+      );
+    };
+  }
+
   function workPanel(world: IdleWorld): () => void {
     const rows = gatherable(world.era).map((id) => {
       const text = h("span", "sx-gather-text");
@@ -1413,11 +1494,13 @@ export function createPanels(deps: PanelDeps): Panels {
         const work = workPanel(world);
         const store = storagePanel(world);
         const defense = defensePanel(world);
+        const council = councilPanel();
         insLive = () => {
           era();
           work();
           store();
           defense();
+          council();
         };
       }
       if (t.category === "storage" && t.stores) insLive = storagePanel(world, t.stores);

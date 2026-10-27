@@ -656,6 +656,31 @@ export const GATHER_RANGE = 15;
 /** …each this many clicks' worth per second (a job pays far better), using up a click per click. */
 export const GATHER_RATE = 0.05;
 
+// ---------- the council (update 13) ----------
+
+/**
+ * What the players vote on in De raad: the planned updates in
+ * docs/67-beschaving/ROADMAP.md (and open points worth an update of their
+ * own). Claude keeps this in step with the roadmap; a vote for an id that's
+ * gone from here simply stops counting.
+ */
+export interface CouncilItem {
+  id: string;
+  emoji: string;
+  title: string;
+  desc: string;
+}
+export const COUNCIL_ITEMS: readonly CouncilItem[] = [
+  { id: "u14", emoji: "🧍", title: "Je eigen dorpeling", desc: "Je eigen mannetje besturen (een baan of taak geven), vrienden maken, relaties tussen spelers." },
+  { id: "u15", emoji: "💍", title: "Liefde & trouwen", desc: "Romantiek, trouwen met een bruiloft in het dorp, en vreemdgaan. Komt na 'Je eigen dorpeling'." },
+  { id: "pixel-icons", emoji: "👾", title: "Pixel-iconen", desc: "De emoji in de HUD en de menu's vervangen door iconen in pixel-art." },
+  { id: "space-sprites", emoji: "🚀", title: "Ruimte en Sci-fi in pixel-art", desc: "Eigen gebouwen voor de Ruimte- en de Sci-fi-tijd, en stenen muren uit City Sim." },
+];
+/** Ideas the players sent in: at most this many kept (the oldest go), this long, one per player this often. */
+export const MAX_IDEAS = 40;
+export const IDEA_LENGTH = 200;
+export const IDEA_COOLDOWN_MS = 10 * MIN;
+
 // ---------- tools (update 22) ----------
 
 /** Every job has its own tool; the jobs without one (herding, books, oil, …) work as before. */

@@ -479,6 +479,62 @@ body.sx-era-10 { --sx-bg: #12002b; --sx-bg2: #2a0050; }
   background: var(--sx-yellow);
 }
 
+/* ---------- De raad (update 13) ---------- */
+
+.sx-council {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.sx-council-item {
+  padding: 8px;
+  border: 2px solid #000;
+  background: var(--sx-panel);
+  box-shadow: var(--sx-bevel);
+}
+
+.sx-council-mine {
+  border-color: var(--sx-yellow);
+}
+
+.sx-idea-input {
+  width: 100%;
+  resize: vertical;
+  margin-bottom: 6px;
+}
+
+.sx-council-ideas {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 8px 0;
+  font-size: 0.8rem;
+}
+
+.sx-council-idea {
+  padding: 4px 6px;
+  background: rgba(0, 0, 0, 0.3);
+}
+
+.sx-council-by {
+  color: var(--sx-cyan);
+}
+
+.sx-council-tag {
+  color: var(--sx-muted);
+}
+
+.sx-council-del {
+  margin-left: 6px;
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  color: var(--sx-red);
+  cursor: pointer;
+}
+
 /* ---------- tools (update 22): the stock and the smithing game ---------- */
 
 .sx-tools {

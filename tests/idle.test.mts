@@ -79,6 +79,9 @@ import {
   isRoad,
   isRoadTile,
   makeRoomForSenate,
+  COUNCIL_ITEMS,
+  IDEA_COOLDOWN_MS,
+  councilText,
   addTool,
   forgeError,
   forgeTool,
@@ -1442,6 +1445,63 @@ test("idle game: a town from an older version starts over; players keep their na
     const saved = JSON.parse(readFileSync(file, "utf8"));
     assert.equal(saved.v, 7);
     assert.deepEqual(saved.players["0123456789ab"], { ...ann, owned: [], look: { skin: 2, clothes: 5, hat: "none", pattern: "stripes" } });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("De raad: one vote per player for the next update, ideas sent in, kept in the town (even through a reset)", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "idle-"));
+  try {
+    const file = path.join(dir, "idle.json");
+    writeFileSync(file, JSON.stringify(town(T0)));
+    const game = createIdleGame(file, T0);
+    const [first, second] = COUNCIL_ITEMS;
+    assert.equal(game.councilVote("a", first.id).error, "eerst inloggen");
+    game.hello("a", "0123456789abcdef-annann", "Ann", T0);
+    game.hello("b", "0123456789abcdef-bobbob", "Bob", T0);
+    game.hello("b2", "0123456789abcdef-bobbob", "Bob", T0); // Bob's second tab
+    assert.equal(game.councilVote("a", "nope").error, "dat staat niet in de raad");
+    game.councilVote("a", second.id);
+    game.councilVote("b", second.id);
+    game.councilVote("b2", first.id); // Bob moves his one vote
+    let view = game.message("a", 0, 0, 2, T0).council;
+    assert.deepEqual(view.items.slice(0, 2).map((i) => [i.id, i.votes]), [[first.id, 1], [second.id, 1]], "ties in the roadmap's order");
+    assert.equal(view.myVote, second.id);
+    game.councilVote("b", null);
+    assert.equal(game.message("a", 0, 0, 2, T0).council.items.find((i) => i.id === first.id)!.votes, 0, "taken back");
+
+    // Ideas: one per player per IDEA_COOLDOWN_MS, only your own can be taken back.
+    assert.equal(game.idea("a", "   ", T0).error, "schrijf eerst je idee");
+    assert.equal(game.idea("a", "x".repeat(201), T0).error, "hooguit 200 tekens");
+    assert.deepEqual(game.idea("a", "  draken   in de bergen ", T0).events, [{ kind: "deal", label: "💡 een idee ingestuurd bij De raad", by: "Ann" }]);
+    assert.match(game.idea("a", "nog een", T0 + 1000).error!, /^één idee per/);
+    assert.equal(game.idea("a", "nog een", T0 + IDEA_COOLDOWN_MS).error, undefined);
+    view = game.message("b", 0, 0, 2, T0).council;
+    assert.deepEqual(view.ideas.map((i) => [i.by, i.text, i.mine]), [["Ann", "nog een", false], ["Ann", "draken in de bergen", false]]);
+    assert.equal(game.unidea("b", view.ideas[0].id).error, "dat idee is niet van jou");
+    game.unidea("a", view.ideas[0].id);
+    view = game.message("a", 0, 0, 2, T0).council;
+    assert.deepEqual(view.ideas.map((i) => [i.text, i.mine]), [["draken in de bergen", true]]);
+    assert.equal(
+      councilText(view, Date.UTC(2026, 9, 27, 12)),
+      [
+        "- 2026-10-27, uitslag van De raad:",
+        ...view.items.map((i) => `  - ${i.emoji} ${i.title}: ${i.votes} ${i.votes === 1 ? "stem" : "stemmen"}`),
+        '  - ingestuurd door Ann: "draken in de bergen"',
+      ].join("\n"),
+    );
+
+    // Saved with the town, and kept when an old file makes the town start over.
+    game.flush();
+    const saved = JSON.parse(readFileSync(file, "utf8"));
+    assert.equal(Object.keys(saved.council.votes).length, 1);
+    writeFileSync(file, JSON.stringify({ ...saved, v: 1 }));
+    const reset = createIdleGame(file, T0);
+    reset.hello("a", "0123456789abcdef-annann", "Ann", T0);
+    view = reset.message("a", 0, 0, 1, T0).council;
+    assert.equal(view.myVote, second.id);
+    assert.equal(view.ideas.length, 1);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

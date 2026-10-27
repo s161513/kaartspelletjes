@@ -16,6 +16,13 @@ import {
   RAID_WARNING_MS,
   STATE_VERSION,
   makeRoomForSenate,
+  COUNCIL_ITEMS,
+  IDEA_COOLDOWN_MS,
+  IDEA_LENGTH,
+  MAX_IDEAS,
+  councilView,
+  ideaError,
+  type Council,
   FORGE_COOLDOWN_MS,
   RARITIES,
   TOOLS,
@@ -109,6 +116,11 @@ export interface IdleGame {
   devDo(clientId: string, name: unknown, action: unknown, now: number): { error?: string; events: IdleEvent[] };
   /** Developer menu: wonders' builders ready, the next era, or full storage. */
   devCommand(clientId: string, name: unknown, cmd: unknown, now: number): { error?: string; events: IdleEvent[] };
+  /** De raad: this player's vote for the update they want next (null: none). */
+  councilVote(clientId: string, item: unknown): { error?: string; events: IdleEvent[] };
+  /** De raad: send in an idea (once per player per IDEA_COOLDOWN_MS), or take your own back. */
+  idea(clientId: string, text: unknown, now: number): { error?: string; events: IdleEvent[] };
+  unidea(clientId: string, id: unknown): { error?: string; events: IdleEvent[] };
   /** Smith a tool yourself at a smith (the game in the browser): once per player per FORGE_COOLDOWN_MS. */
   forge(clientId: string, name: unknown, building: unknown, score: unknown, now: number, rand?: () => number): { error?: string; events: IdleEvent[] };
   /** This connection is the player with this secret key (created if new). */
@@ -204,7 +216,8 @@ function parseProposals(raw: unknown, now: number): IdleProposal[] {
 function parseIdle(raw: unknown, now: number): IdleState | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const r = raw as Record<string, unknown>;
-  if (r.v !== STATE_VERSION) return { ...newIdleState(now), players: resetPlayers(parsePlayers(r.players)) };
+  // De raad survives a reset too: it's about the game, not this town.
+  if (r.v !== STATE_VERSION) return { ...newIdleState(now), players: resetPlayers(parsePlayers(r.players)), council: parseCouncil(r.council) };
   const s = newIdleState(now);
   if (Number.isInteger(r.era)) s.era = Math.max(0, Math.min(ERAS.length - 1, r.era as number));
   s.resources = {};
@@ -304,7 +317,22 @@ function parseIdle(raw: unknown, now: number): IdleState | null {
   if (Number.isInteger(r.nextProposalId) && (r.nextProposalId as number) >= 1) s.nextProposalId = r.nextProposalId as number;
   s.nextProposalId = Math.max(s.nextProposalId, ...s.proposals.map((p) => p.id + 1));
   s.players = parsePlayers(r.players);
+  s.council = parseCouncil(r.council);
   return makeRoomForSenate(s);
+}
+
+/** De raad: votes for items still on the list, ideas that make sense. */
+function parseCouncil(raw: unknown): Council {
+  const r = record(raw);
+  const votes: Record<string, string> = {};
+  for (const [player, item] of Object.entries(record(r.votes))) if (typeof item === "string" && COUNCIL_ITEMS.some((x) => x.id === item)) votes[player] = item;
+  const ideas: Council["ideas"] = [];
+  for (const i of Array.isArray(r.ideas) ? r.ideas.map(record) : []) {
+    if (!Number.isInteger(i.id) || typeof i.player !== "string" || typeof i.text !== "string" || !finite(i.at) || ideas.some((x) => x.id === i.id)) continue;
+    ideas.push({ id: i.id as number, player: i.player, by: cleanName(i.by), text: i.text.slice(0, IDEA_LENGTH), at: i.at });
+  }
+  const next = Number.isInteger(r.nextIdeaId) ? (r.nextIdeaId as number) : 1;
+  return { votes, ideas: ideas.slice(-MAX_IDEAS), nextIdeaId: Math.max(next, ...ideas.map((x) => x.id + 1)) };
 }
 
 /** Players after a reset: same name and colors, the free hat and pattern, nothing bought. */
@@ -405,7 +433,7 @@ export function createIdleGame(file: string, now = Date.now()): IdleGame {
 
   return {
     message(clientId, count, peak, online, now) {
-      const { proposals, nextProposalId: _, players, ...world } = advance(state, now);
+      const { proposals, nextProposalId: _, players, council: __, ...world } = advance(state, now);
       const ids = [...new Set(connected.values())].filter((id) => players[id]);
       const mine = playerOf(clientId);
       return {
@@ -424,6 +452,7 @@ export function createIdleGame(file: string, now = Date.now()): IdleGame {
         })),
         people: ids.map((id) => person(id, players[id])),
         me: mine && { ...person(...mine), owned: mine[1].owned },
+        council: councilView(state, mine?.[0] ?? null),
         count,
         peak,
         online,
@@ -535,6 +564,40 @@ export function createIdleGame(file: string, now = Date.now()): IdleGame {
       } else return { error: "onbekend", events: [] };
       saver.schedule();
       return { events: [{ kind: "deal", label: cmd === "phases" ? "🛠️ bouwers van de wonderen klaar" : "🛠️ opslag vol", by }] };
+    },
+
+    councilVote(clientId, item) {
+      const mine = playerOf(clientId);
+      if (!mine) return { error: "eerst inloggen", events: [] };
+      if (item !== null && !COUNCIL_ITEMS.some((x) => x.id === item)) return { error: "dat staat niet in de raad", events: [] };
+      const { [mine[0]]: _, ...votes } = state.council.votes;
+      state = { ...state, council: { ...state.council, votes: item === null ? votes : { ...votes, [mine[0]]: item as string } } };
+      saver.schedule();
+      return { events: [] };
+    },
+
+    idea(clientId, text, now) {
+      const mine = playerOf(clientId);
+      if (!mine) return { error: "eerst inloggen", events: [] };
+      if (typeof text !== "string") return { error: "schrijf eerst je idee", events: [] };
+      const err = ideaError(text);
+      if (err) return { error: err, events: [] };
+      const last = Math.max(0, ...state.council.ideas.filter((x) => x.player === mine[0]).map((x) => x.at));
+      if (last && now - last < IDEA_COOLDOWN_MS) return { error: `één idee per ${IDEA_COOLDOWN_MS / 60_000} minuten`, events: [] };
+      const idea = { id: state.council.nextIdeaId, player: mine[0], by: mine[1].name, text: text.trim().replace(/\s+/g, " "), at: now };
+      state = { ...state, council: { ...state.council, ideas: [...state.council.ideas, idea].slice(-MAX_IDEAS), nextIdeaId: idea.id + 1 } };
+      saver.schedule();
+      return { events: [{ kind: "deal", label: "💡 een idee ingestuurd bij De raad", by: mine[1].name }] };
+    },
+
+    unidea(clientId, id) {
+      const mine = playerOf(clientId);
+      if (!mine) return { error: "eerst inloggen", events: [] };
+      const idea = state.council.ideas.find((x) => x.id === id);
+      if (!idea || idea.player !== mine[0]) return { error: "dat idee is niet van jou", events: [] };
+      state = { ...state, council: { ...state.council, ideas: state.council.ideas.filter((x) => x !== idea) } };
+      saver.schedule();
+      return { events: [] };
     },
 
     forge(clientId, name, building, score, now, rand = Math.random) {

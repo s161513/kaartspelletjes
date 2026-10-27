@@ -817,7 +817,7 @@ export function createWorld(opts: WorldOptions): TownWorld {
       ctx.fillRect(p.x + p.vx * age - p.size / 2, p.y + p.vy * age + 120 * age * age - p.size / 2, p.size, p.size);
     }
     ctx.globalAlpha = 1;
-    ctx.font = "bold 13px system-ui, sans-serif";
+    ctx.font = "bold 13px Pixelify Sans, sans-serif";
     ctx.textAlign = "center";
     for (let i = floats.length - 1; i >= 0; i--) {
       const f = floats[i];

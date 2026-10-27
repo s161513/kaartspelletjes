@@ -66,6 +66,7 @@ Daarnaast blijft gelden:
 | Kaart, natuur, waar gebouwen en paden mogen, welke tegels een gebouw beslaat (`tilesOf`) | `shared/idleMap.ts` |
 | Server: opslag (`data/idle.json`), invoercontrole, stemmen afhandelen | `server/src/idle.ts`, `server/src/counter.ts` |
 | Browser: wereld, panelen, NPC's, padvinden, de nacht en het licht (`night.ts`) | `client/src/world/*`, `client/src/counter.ts` |
+| Uiterlijk van de pagina (HUD, panelen, popups; pixel-art onderaan) en het lettertype | `client/counter.css`, `client/fonts/` |
 | Pixel-art: sprites, atlas, eigen sprites (`pixelart.py`: Steen- en Bronstijd, `pixelnature.py`: water, oevers, bloemen, `pixeldecor.py`: decoraties, `pixelbig.py`: De Senaat en de wonderen), licenties | `client/src/world/sprites/` (na een wijziging: `python client/src/world/sprites/build.py`), `sprites.ts`, `pixel.ts` |
 | Tests | `tests/idle.test.mts` |
 
@@ -575,16 +576,24 @@ zien of gebruiken, ook niet als ze het bericht zelf sturen.
       mij")
 
 ### Update 24: Pixel-art HUD
-Status: gepland. Pixel-art, zoals in update 16.
+Status: in review. Pixel-art, zoals in update 16. Steunt op update 23 (PR #45).
 
-- [ ] De HUD bovenin, de menu's, de panelen en de popups in één pixel-art
+- [x] De HUD bovenin, de menu's, de panelen en de popups in één pixel-art
       stijl: harde randen, pixelranden en -schaduwen, geen ronde hoeken of
-      zachte verlopen. (bron: Richard, 2026-10-27, "De volledige HUD, menu's
+      zachte verlopen. Gedaan: overal vierkante hoeken; panelen en knoppen
+      met een pixelrand (licht links boven, donker rechts onder) en een harde
+      schaduw; ingedrukte knoppen draaien de rand om; effen kleuren in plaats
+      van verlopen; balken in blokjes; pixel-scrollbalken; de feestschermen
+      met harde stralen en ringen (`client/counter.css`, onderaan). (bron: Richard, 2026-10-27, "De volledige HUD, menu's
       en zelfs het lettertype moet 1 pixel art achtig thema hebben, zelfs de
       HUD vanboven en de popups")
-- [ ] Een pixel-lettertype (met een open licentie, in de repo, zodat het
+- [x] Een pixel-lettertype (met een open licentie, in de repo, zodat het
       zonder internet werkt), dat Nederlandse tekst en de getallen goed leest.
-      (bron: idem)
+      Gedaan: Pixelify Sans (SIL OFL, `client/fonts/`), voor alle tekst op
+      de pagina en ook in de wereld: naamkaartjes, tekstballonnen, de
+      feesttekst. (bron: idem)
+- [ ] Later, als Richard dat wil: de emoji in de HUD en de menu's (🪵, 🪨,
+      🗳️, …) zijn nog de gewone emoji van het systeem, niet in pixel-art.
 
 ### Update 22: Gereedschap
 Status: gepland. Eerst met Richard afstemmen: welke werkplaats wat maakt,

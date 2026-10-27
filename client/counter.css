@@ -1,7 +1,20 @@
 /* 67 Counter — Gen-Z brainrot edition, with the town of 67 Beschaving
-   full screen behind it. All classes prefixed `sx-`. */
+   full screen behind it. All classes prefixed `sx-`. Pixel art like the
+   town (update 24): a pixel font, square corners, hard edges and shadows,
+   flat colors with a light and a dark edge instead of gradients. */
+
+/* The pixel font (SIL OFL, see fonts/OFL.txt), in the repo so it works offline. */
+@font-face {
+  font-family: "Pixelify Sans";
+  src: url("./fonts/PixelifySans.ttf") format("truetype");
+  font-weight: 400 700;
+  font-display: swap;
+}
 
 :root {
+  /* A pixel bevel: a light edge top left, a dark one bottom right. */
+  --sx-bevel: inset 3px 3px 0 rgba(255, 255, 255, 0.18), inset -3px -3px 0 rgba(0, 0, 0, 0.35);
+  --sx-bevel-light: inset 3px 3px 0 rgba(255, 255, 255, 0.55), inset -3px -3px 0 rgba(0, 0, 0, 0.25);
   --sx-bg: #12002b;
   --sx-bg2: #2a0050;
   --sx-ink: #fff;
@@ -13,7 +26,7 @@
   --sx-red: #ff3b3b;
   --sx-panel: rgba(255, 255, 255, 0.08);
   --sx-glass: rgba(14, 8, 32, 0.9);
-  --sx-font: "Arial Black", "Segoe UI Black", Impact, system-ui, sans-serif;
+  --sx-font: "Pixelify Sans", "Courier New", monospace;
 }
 
 [hidden] {
@@ -108,10 +121,10 @@ body.sx-era-10 { --sx-bg: #12002b; --sx-bg2: #2a0050; }
   justify-self: start;
   color: var(--sx-ink);
   text-decoration: none;
-  font: 800 0.85rem system-ui, sans-serif;
+  font: 800 0.85rem var(--sx-font);
   padding: 5px 10px;
   border: 2px solid var(--sx-ink);
-  border-radius: 999px;
+  border-radius: 0;
   background: rgba(0, 0, 0, 0.3);
   white-space: nowrap;
 }
@@ -188,7 +201,7 @@ body.sx-era-10 { --sx-bg: #12002b; --sx-bg2: #2a0050; }
 .sx-btn {
   width: 44px;
   height: 44px;
-  border-radius: 12px;
+  border-radius: 0;
   border: 3px solid #000;
   font-family: var(--sx-font);
   font-size: 1.6rem;
@@ -202,11 +215,11 @@ body.sx-era-10 { --sx-bg: #12002b; --sx-bg2: #2a0050; }
 }
 
 .sx-btn-inc {
-  background: linear-gradient(135deg, var(--sx-lime), var(--sx-cyan));
+  background: var(--sx-lime);
 }
 
 .sx-btn-dec {
-  background: linear-gradient(135deg, var(--sx-pink), var(--sx-red));
+  background: var(--sx-pink);
 }
 
 .sx-btn:not(:disabled):hover {
@@ -230,7 +243,7 @@ body.sx-era-10 { --sx-bg: #12002b; --sx-bg2: #2a0050; }
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 6px;
-  font: 700 0.8rem system-ui, sans-serif;
+  font: 700 0.8rem var(--sx-font);
 }
 
 .sx-conn,
@@ -239,7 +252,7 @@ body.sx-era-10 { --sx-bg: #12002b; --sx-bg2: #2a0050; }
   align-items: center;
   gap: 6px;
   padding: 4px 9px;
-  border-radius: 999px;
+  border-radius: 0;
   background: var(--sx-panel);
   border: 1px solid rgba(255, 255, 255, 0.2);
   white-space: nowrap;
@@ -248,9 +261,8 @@ body.sx-era-10 { --sx-bg: #12002b; --sx-bg2: #2a0050; }
 .sx-dot {
   width: 9px;
   height: 9px;
-  border-radius: 50%;
+  border-radius: 0;
   background: var(--sx-yellow);
-  box-shadow: 0 0 8px currentColor;
 }
 
 .sx-conn[data-state="online"] .sx-dot {
@@ -274,7 +286,7 @@ body.sx-era-10 { --sx-bg: #12002b; --sx-bg2: #2a0050; }
   grid-column: 1 / -1;
   margin: 0;
   color: var(--sx-cyan);
-  font: 700 0.8rem system-ui, sans-serif;
+  font: 700 0.8rem var(--sx-font);
   text-align: center;
   min-height: 1.2em;
 }
@@ -287,12 +299,12 @@ body.sx-era-10 { --sx-bg: #12002b; --sx-bg2: #2a0050; }
   justify-content: center;
   gap: 6px;
   padding: 0 12px;
-  font: 700 0.85rem system-ui, sans-serif;
+  font: 700 0.85rem var(--sx-font);
 }
 
 .sx-hud-chip {
   padding: 4px 10px;
-  border-radius: 999px;
+  border-radius: 0;
   border: 1px solid rgba(255, 255, 255, 0.25);
   background: rgba(10, 8, 24, 0.82);
   color: #fff;
@@ -317,7 +329,7 @@ body.sx-era-10 { --sx-bg: #12002b; --sx-bg2: #2a0050; }
 
 .sx-hud-bar {
   height: 4px;
-  border-radius: 999px;
+  border-radius: 0;
   background: rgba(255, 255, 255, 0.15);
   overflow: hidden;
 }
@@ -325,7 +337,7 @@ body.sx-era-10 { --sx-bg: #12002b; --sx-bg2: #2a0050; }
 .sx-hud-fill {
   display: block;
   height: 100%;
-  border-radius: inherit;
+  border-radius: 0;
   background: var(--sx-lime);
   transition: width 0.3s;
 }
@@ -358,10 +370,10 @@ body.sx-era-10 { --sx-bg: #12002b; --sx-bg2: #2a0050; }
   max-width: calc(100vw - 32px);
   padding: 8px 8px 8px 14px;
   border: 3px solid #000;
-  border-radius: 999px;
+  border-radius: 0;
   background: var(--sx-yellow);
   color: #000;
-  font: 800 0.9rem system-ui, sans-serif;
+  font: 800 0.9rem var(--sx-font);
   box-shadow: 0 4px 0 #000;
   pointer-events: auto;
 }
@@ -370,7 +382,7 @@ body.sx-era-10 { --sx-bg: #12002b; --sx-bg2: #2a0050; }
 .sx-banner-paths {
   flex-wrap: wrap;
   justify-content: center;
-  border-radius: 18px;
+  border-radius: 0;
 }
 
 .sx-banner .sx-cost {
@@ -397,7 +409,7 @@ body.sx-era-10 { --sx-bg: #12002b; --sx-bg2: #2a0050; }
   margin: 0;
   font-size: 10px;
   color: rgba(255, 255, 255, 0.75);
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+  text-shadow: 1px 1px 0 #000;
   pointer-events: none;
 }
 .sx-credits a {
@@ -417,10 +429,10 @@ body.sx-era-10 { --sx-bg: #12002b; --sx-bg2: #2a0050; }
 .sx-fab {
   padding: 10px 12px;
   border: 3px solid #000;
-  border-radius: 999px;
+  border-radius: 0;
   background: #fff;
   color: #000;
-  font: 800 1rem system-ui, sans-serif;
+  font: 800 1rem var(--sx-font);
   box-shadow: 0 5px 0 #000;
   cursor: pointer;
   touch-action: manipulation;
@@ -458,7 +470,7 @@ body.sx-era-10 { --sx-bg: #12002b; --sx-bg2: #2a0050; }
   border: 2px solid #000;
   background: #fff;
   color: #000;
-  font: 700 0.8rem system-ui, sans-serif;
+  font: 700 0.8rem var(--sx-font);
   text-align: left;
   white-space: nowrap;
   cursor: pointer;
@@ -479,10 +491,10 @@ body.sx-era-10 { --sx-bg: #12002b; --sx-bg2: #2a0050; }
   width: min(320px, calc(100vw - 32px));
   max-height: calc(100vh - 150px - 90px);
   border: 3px solid #000;
-  border-radius: 16px;
+  border-radius: 0;
   background: var(--sx-cyan);
   color: #000;
-  font: 700 0.9rem system-ui, sans-serif;
+  font: 700 0.9rem var(--sx-font);
   box-shadow: 0 6px 0 #000;
 }
 
@@ -495,7 +507,7 @@ body.sx-era-10 { --sx-bg: #12002b; --sx-bg2: #2a0050; }
   border: 0;
   background: none;
   color: inherit;
-  font: 800 0.95rem system-ui, sans-serif;
+  font: 800 0.95rem var(--sx-font);
   text-align: left;
   cursor: pointer;
 }
@@ -511,7 +523,7 @@ body.sx-era-10 { --sx-bg: #12002b; --sx-bg2: #2a0050; }
   margin-top: 6px;
   padding: 8px;
   border: 2px solid #000;
-  border-radius: 12px;
+  border-radius: 0;
   background: rgba(255, 255, 255, 0.55);
 }
 
@@ -527,7 +539,7 @@ body.sx-era-10 { --sx-bg: #12002b; --sx-bg2: #2a0050; }
   border: 0;
   background: none;
   color: inherit;
-  font: 800 0.9rem system-ui, sans-serif;
+  font: 800 0.9rem var(--sx-font);
   text-align: left;
   cursor: pointer;
 }
@@ -564,10 +576,10 @@ body.sx-era-10 { --sx-bg: #12002b; --sx-bg2: #2a0050; }
 .sx-vote-btn {
   padding: 4px 10px;
   border: 3px solid #000;
-  border-radius: 12px;
+  border-radius: 0;
   background: #fff;
   color: #000;
-  font: 800 0.95rem system-ui, sans-serif;
+  font: 800 0.95rem var(--sx-font);
   box-shadow: 0 3px 0 #000;
   cursor: pointer;
 }
@@ -589,10 +601,10 @@ body.sx-era-10 { --sx-bg: #12002b; --sx-bg2: #2a0050; }
   overflow-y: auto;
   padding: 12px 14px;
   border: 3px solid #000;
-  border-radius: 16px;
+  border-radius: 0;
   background: rgba(18, 10, 40, 0.96);
   color: #fff;
-  font: 0.9rem system-ui, sans-serif;
+  font: 0.9rem var(--sx-font);
   box-shadow: 0 6px 0 #000;
 }
 
@@ -672,7 +684,7 @@ body.sx-era-10 { --sx-bg: #12002b; --sx-bg2: #2a0050; }
 .sx-wonder {
   padding: 6px 8px;
   border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 10px;
+  border-radius: 0;
   background: rgba(255, 255, 255, 0.06);
 }
 
@@ -695,7 +707,7 @@ body.sx-era-10 { --sx-bg: #12002b; --sx-bg2: #2a0050; }
   display: block;
   height: 6px;
   margin: 4px 0 2px;
-  border-radius: 999px;
+  border-radius: 0;
   background: rgba(255, 255, 255, 0.12);
   overflow: hidden;
 }
@@ -703,7 +715,7 @@ body.sx-era-10 { --sx-bg: #12002b; --sx-bg2: #2a0050; }
 .sx-store-fill {
   display: block;
   height: 100%;
-  border-radius: inherit;
+  border-radius: 0;
   background: var(--sx-cyan);
   transition: width 0.3s;
 }
@@ -781,7 +793,7 @@ body.sx-era-10 { --sx-bg: #12002b; --sx-bg2: #2a0050; }
 .sx-era-count {
   margin-left: auto;
   padding: 2px 8px;
-  border-radius: 999px;
+  border-radius: 0;
   background: rgba(255, 255, 255, 0.12);
   font-size: 0.75rem;
 }
@@ -815,7 +827,7 @@ body.sx-era-10 { --sx-bg: #12002b; --sx-bg2: #2a0050; }
   gap: 5px;
   padding: 8px 10px;
   border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 12px;
+  border-radius: 0;
   background: rgba(255, 255, 255, 0.07);
 }
 
@@ -877,17 +889,17 @@ body.sx-era-10 { --sx-bg: #12002b; --sx-bg2: #2a0050; }
   flex: none;
   padding: 6px 10px;
   border: 2px solid #000;
-  border-radius: 10px;
+  border-radius: 0;
   background: var(--sx-cyan);
   color: #000;
-  font: 800 0.82rem system-ui, sans-serif;
+  font: 800 0.82rem var(--sx-font);
   box-shadow: 0 3px 0 #000;
   cursor: pointer;
   white-space: nowrap;
 }
 
 .sx-act-now {
-  background: linear-gradient(135deg, var(--sx-yellow), var(--sx-lime));
+  background: var(--sx-yellow);
 }
 
 .sx-act:disabled,
@@ -900,10 +912,10 @@ body.sx-era-10 { --sx-bg: #12002b; --sx-bg2: #2a0050; }
 .sx-me {
   padding: 4px 10px;
   border: 2px solid #000;
-  border-radius: 999px;
+  border-radius: 0;
   background: var(--sx-yellow);
   color: #000;
-  font: 800 0.8rem system-ui, sans-serif;
+  font: 800 0.8rem var(--sx-font);
   cursor: pointer;
   white-space: nowrap;
   max-width: 160px;
@@ -921,10 +933,10 @@ body.sx-era-10 { --sx-bg: #12002b; --sx-bg2: #2a0050; }
   overflow-y: auto;
   padding: 12px 14px;
   border: 3px solid #000;
-  border-radius: 16px;
+  border-radius: 0;
   background: rgba(18, 10, 40, 0.97);
   color: #fff;
-  font: 0.9rem system-ui, sans-serif;
+  font: 0.9rem var(--sx-font);
   box-shadow: 0 6px 0 #000;
 }
 
@@ -943,18 +955,19 @@ body.sx-era-10 { --sx-bg: #12002b; --sx-bg2: #2a0050; }
   flex: none;
   width: 96px;
   height: 112px;
-  border-radius: 12px;
-  background: radial-gradient(circle at 50% 80%, rgba(182, 255, 46, 0.35), rgba(255, 255, 255, 0.06) 70%);
+  border-radius: 0;
+  background: rgba(182, 255, 46, 0.16);
+  border: 2px solid #000;
 }
 
 .sx-input {
   width: 100%;
   padding: 7px 10px;
   border: 2px solid #000;
-  border-radius: 10px;
+  border-radius: 0;
   background: #fff;
   color: #000;
-  font: 700 0.95rem system-ui, sans-serif;
+  font: 700 0.95rem var(--sx-font);
 }
 
 .sx-swatches {
@@ -967,7 +980,7 @@ body.sx-era-10 { --sx-bg: #12002b; --sx-bg2: #2a0050; }
   width: 28px;
   height: 28px;
   border: 2px solid #000;
-  border-radius: 50%;
+  border-radius: 0;
   cursor: pointer;
 }
 
@@ -988,17 +1001,17 @@ body.sx-era-10 { --sx-bg: #12002b; --sx-bg2: #2a0050; }
   gap: 4px;
   padding: 6px;
   border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 10px;
+  border-radius: 0;
   background: rgba(255, 255, 255, 0.07);
 }
 
 .sx-outfit-wear {
   padding: 4px 6px;
   border: 0;
-  border-radius: 8px;
+  border-radius: 0;
   background: none;
   color: #fff;
-  font: 700 0.85rem system-ui, sans-serif;
+  font: 700 0.85rem var(--sx-font);
   text-align: left;
   cursor: pointer;
 }
@@ -1092,7 +1105,7 @@ body.sx-era-10 { --sx-bg: #12002b; --sx-bg2: #2a0050; }
   pointer-events: none;
   opacity: 0;
   visibility: hidden;
-  background: radial-gradient(circle, rgba(255, 232, 46, 0.55), rgba(255, 47, 179, 0.35) 45%, transparent 75%);
+  background: radial-gradient(circle, rgba(255, 232, 46, 0.55) 0 22%, rgba(255, 47, 179, 0.35) 22% 45%, rgba(255, 47, 179, 0.15) 45% 62%, transparent 62%);
 }
 
 .sx-overlay.sx-play {
@@ -1147,7 +1160,8 @@ body.sx-era-10 { --sx-bg: #12002b; --sx-bg2: #2a0050; }
 }
 
 .sx-overlay.sx-mega {
-  background: conic-gradient(from 0deg, #ff2fb3, #ffe82e, #b6ff2e, #22f0ff, #a35bff, #ff2fb3);
+  /* Rays with hard edges, like a pixel poster. */
+  background: repeating-conic-gradient(from 0deg, #ff2fb3 0 15deg, #ffe82e 15deg 30deg, #b6ff2e 30deg 45deg, #22f0ff 45deg 60deg, #a35bff 60deg 75deg);
 }
 
 .sx-overlay.sx-mega.sx-play {
@@ -1270,4 +1284,121 @@ body.sx-era-10 { --sx-bg: #12002b; --sx-bg2: #2a0050; }
 @keyframes sx-fade-pop {
   0%, 80% { opacity: 1; }
   100% { opacity: 0; }
+}
+
+/* ---------- pixel art (update 24): bevels, hard edges, pixel scrollbars ---------- */
+
+body.sx-body,
+body.sx-body button,
+body.sx-body input,
+body.sx-body select,
+body.sx-body textarea {
+  font-family: var(--sx-font);
+  -webkit-font-smoothing: none;
+  font-smooth: never;
+}
+
+body.sx-body img,
+body.sx-body canvas {
+  image-rendering: pixelated;
+}
+
+/* Panels: dark with a bevel and a hard shadow. */
+.sx-inspect,
+.sx-place,
+.sx-avatar,
+.sx-dev,
+.sx-top,
+.sx-hud-chip,
+.sx-conn,
+.sx-online,
+.sx-offer,
+.sx-store,
+.sx-goal,
+.sx-wonder,
+.sx-outfit,
+.sx-input {
+  box-shadow: var(--sx-bevel), 0 4px 0 #000;
+}
+.sx-top {
+  box-shadow: var(--sx-bevel);
+}
+.sx-hud-chip,
+.sx-conn,
+.sx-online {
+  border: 2px solid #000;
+  box-shadow: var(--sx-bevel), 0 3px 0 #000;
+}
+.sx-hud-full {
+  border-color: var(--sx-red);
+}
+
+/* Light, colored things: buttons, the vote list, the banner, popups. */
+.sx-vote,
+.sx-banner,
+.sx-act,
+.sx-fab,
+.sx-btn,
+.sx-back,
+.sx-me,
+.sx-dev-btn,
+.sx-vote-btn {
+  box-shadow: var(--sx-bevel-light), 0 4px 0 #000;
+}
+.sx-pop {
+  box-shadow: var(--sx-bevel-light), 5px 5px 0 #000;
+}
+.sx-act:not(:disabled):active,
+.sx-fab:active,
+.sx-btn:not(:disabled):active,
+.sx-dev-btn:active,
+.sx-vote-btn:active {
+  transform: translateY(3px);
+  box-shadow: inset -3px -3px 0 rgba(255, 255, 255, 0.35), inset 3px 3px 0 rgba(0, 0, 0, 0.25), 0 1px 0 #000;
+}
+.sx-act:disabled {
+  box-shadow: inset 3px 3px 0 rgba(0, 0, 0, 0.2), 0 2px 0 #000;
+}
+
+/* Storage bars in pixel blocks. */
+.sx-hud-bar,
+.sx-store-bar {
+  border: 1px solid #000;
+}
+.sx-hud-fill,
+.sx-store-fill {
+  background-image: repeating-linear-gradient(90deg, transparent 0 4px, rgba(0, 0, 0, 0.25) 4px 5px);
+}
+
+/* Square dots. */
+.sx-dot {
+  border: 1px solid #000;
+}
+
+/* Pixel scrollbars. */
+.sx-inspect,
+.sx-place,
+.sx-avatar,
+.sx-votes-list {
+  scrollbar-width: thin;
+  scrollbar-color: var(--sx-yellow) rgba(0, 0, 0, 0.5);
+}
+.sx-inspect::-webkit-scrollbar,
+.sx-place::-webkit-scrollbar,
+.sx-avatar::-webkit-scrollbar,
+.sx-votes-list::-webkit-scrollbar {
+  width: 10px;
+}
+.sx-inspect::-webkit-scrollbar-thumb,
+.sx-place::-webkit-scrollbar-thumb,
+.sx-avatar::-webkit-scrollbar-thumb,
+.sx-votes-list::-webkit-scrollbar-thumb {
+  background: var(--sx-yellow);
+  border: 2px solid #000;
+}
+.sx-inspect::-webkit-scrollbar-track,
+.sx-place::-webkit-scrollbar-track,
+.sx-avatar::-webkit-scrollbar-track,
+.sx-votes-list::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.5);
 }

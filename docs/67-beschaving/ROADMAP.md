@@ -29,6 +29,15 @@ die elk een eigen branch en PR krijgen.
      Wordt hij groter, splits hem dan.
    - Feedback die over hetzelfde gaat, wordt één punt.
    - Wil je een punt niet doen, schrijf dan in FEEDBACK.md waarom.
+   - **De raad** (update 13): kijk ook naar de uitslag. Draait het echte
+     dorp op deze computer, dan staat die in `data/idle.json` onder
+     `council`: `votes` (speler → id uit `COUNCIL_ITEMS`; tel alleen
+     spelers die nog in `players` staan) en `ideas`. Anders plakt Richard
+     de tekst van de knop 📋 in FEEDBACK.md. Zet de geplande updates in de
+     volgorde van de stemmen, en behandel elk ingestuurd idee als nieuwe
+     feedback (met de naam erbij). Houd `COUNCIL_ITEMS` in
+     `shared/idleContent.ts` gelijk met de geplande updates: een nieuwe
+     update erbij, een gebouwde eruit.
 2. **Bij het verzamelen bouw je nog niets.** Werk alleen deze roadmap en
    FEEDBACK.md bij. Geef de gebruiker daarna een korte samenvatting: welke
    updates klaarstaan en wat erin zit.
@@ -640,22 +649,24 @@ door toeval, plus een minigame om zelf te smeden.
       hebben. (bron: idem)
 
 ### Update 13: De raad
-Status: gepland.
+Status: in review. Steunt op update 22 (PR #47).
 
-- [ ] In het centrum (het raadhuis) een blok 🗳️ De raad: de geplande updates
-      uit deze roadmap, met per speler één stem die je kan verzetten. De
-      stand is voor iedereen te zien. De lijst staat in
-      `shared/idleContent.ts`; Claude houdt hem bij als de roadmap verandert.
-      (bron: Richard, 2026-10-25, "soviet city council type beat")
-- [ ] De uitslag wordt bewaard in de staat van het dorp. Claude kijkt er aan
-      het begin van een sessie naar en zet de updates in die volgorde. Draait
-      de server niet op deze computer, dan is er een knop 📋 die de uitslag
+- [x] In het centrum (het Kampvuur, later De Senaat) een blok 🗳️ De raad: de
+      geplande updates uit deze roadmap, met per speler één stem die je kan
+      verzetten (nog eens klikken neemt hem terug). De stand is voor
+      iedereen te zien, met een balk. De lijst staat in `COUNCIL_ITEMS` in
+      `shared/idleContent.ts`: nu Je eigen dorpeling, Liefde & trouwen,
+      Pixel-iconen en Ruimte en Sci-fi in pixel-art. (bron: Richard,
+      2026-10-25, "soviet city council type beat")
+- [x] De uitslag wordt bewaard in de staat van het dorp (`council`), ook als
+      het dorp opnieuw begint. Er is een knop 📋 die de uitslag en de ideeën
       kopieert, om in FEEDBACK.md te plakken. (bron: idem, "wordt bij de
       volgende claude sessies naar gekeken")
-- [ ] Spelers kunnen in de raad zelf een idee insturen. Het komt in de raad
-      te staan als "ingestuurd", en Claude neemt het mee als feedback.
-- [ ] Werkwijze bijwerken: "verwerk de feedback" leest ook de uitslag van de
-      raad.
+- [x] Spelers kunnen in de raad zelf een idee insturen (hooguit 200 tekens,
+      één per 10 minuten per speler, de laatste 40 blijven staan). Het staat
+      er als "ingestuurd"; je eigen idee kan je weer weghalen.
+- [x] Werkwijze bijgewerkt: "verwerk de feedback" leest ook de uitslag van
+      de raad (zie Werkwijze, stap 1).
 
 ### Update 14: Je eigen dorpeling
 Status: gepland. Eerst met Richard afstemmen: hoe een relatie groeit (tijd

@@ -546,7 +546,7 @@ verhuist niets vanzelf). De wonderen krijgen meteen eigen pixel-sprites.
       vanzelf een stukje naar achter zodra de server opnieuw start.
 
 ### Update 23: Ontwikkelaarsmenu
-Status: in review. Steunt op update 21 (PR #44).
+Status: in review (PR #45). Steunt op update 21 (PR #44).
 
 Alleen voor Richard, op zijn eigen computer: gewone spelers kunnen het niet
 zien of gebruiken, ook niet als ze het bericht zelf sturen.

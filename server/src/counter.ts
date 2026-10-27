@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { IncomingMessage } from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocket, WebSocketServer } from "ws";
@@ -22,6 +23,24 @@ const IDLE_TICK_MS = 1000;
 /** Full idle state to everyone at least this often; browsers keep producing in between. */
 const IDLE_SYNC_MS = 5000;
 
+/**
+ * The developer menu (update 23) is for whoever runs the server, never for
+ * players: the server must run with IDLE_DEV=1 (never set in the real
+ * environment), and the browser must be on this same computer, straight or
+ * through the Vite dev server, not through a proxy or tunnel.
+ */
+export function isLocal(req: IncomingMessage | undefined): boolean {
+  if (!req) return false;
+  const addr = req.socket.remoteAddress ?? "";
+  const host = (req.headers.host ?? "").replace(/:\d+$/, "").toLowerCase();
+  return (
+    ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(addr) &&
+    ["localhost", "127.0.0.1", "[::1]"].includes(host) &&
+    !req.headers["x-forwarded-for"] &&
+    !req.headers.forwarded
+  );
+}
+
 interface CounterData {
   count: number;
   /** Highest count ever: supply drops come for every new 67 of it. */
@@ -42,6 +61,8 @@ export interface CounterServerOptions {
   file?: string;
   /** Defaults to $IDLE_FILE or idle.json next to the counter file. */
   idleFile?: string;
+  /** Allow the developer menu for browsers on this computer; defaults to $IDLE_DEV === "1". */
+  dev?: boolean;
 }
 
 export function createCounterServer(opts: CounterServerOptions = {}): WebSocketServer {
@@ -54,6 +75,10 @@ export function createCounterServer(opts: CounterServerOptions = {}): WebSocketS
   const saver = debouncedSaver(() => saveJsonFile(file, { count, peak }, "counter"), SAVE_DELAY_MS);
   const idle = createIdleGame(idleFile);
   const clientIds = new WeakMap<WebSocket, string>();
+  const devAllowed = opts.dev ?? process.env.IDLE_DEV === "1";
+  if (devAllowed) console.log("67 Beschaving: developer menu on for browsers on this computer (IDLE_DEV=1)");
+  /** Connections with the developer menu, and whether free mode is on for them. */
+  const devs = new Map<string, { free: boolean }>();
 
   // Don't lose the last half second of clicks on `docker stop` / Ctrl+C.
   for (const sig of ["SIGINT", "SIGTERM"] as const) {
@@ -76,7 +101,8 @@ export function createCounterServer(opts: CounterServerOptions = {}): WebSocketS
   const sendIdle = (client: WebSocket, now: number) => {
     const id = clientIds.get(client);
     if (id && client.readyState === WebSocket.OPEN) {
-      client.send(JSON.stringify(idle.message(id, count, peak, wss.clients.size, now)));
+      const dev = devs.get(id);
+      client.send(JSON.stringify({ ...idle.message(id, count, peak, wss.clients.size, now), ...(dev ? { dev: { ...dev } } : {}) }));
     }
   };
   const broadcastIdle = (events: IdleEvent[] = []) => {
@@ -103,9 +129,11 @@ export function createCounterServer(opts: CounterServerOptions = {}): WebSocketS
     }
   };
 
-  wss.on("connection", (ws) => {
+  wss.on("connection", (ws, req?: IncomingMessage) => {
     const clientId = randomUUID();
     clientIds.set(ws, clientId);
+    const dev = devAllowed && isLocal(req) ? { free: false } : null;
+    if (dev) devs.set(clientId, dev);
     let windowStart = Date.now();
     let inWindow = 0;
 
@@ -116,6 +144,7 @@ export function createCounterServer(opts: CounterServerOptions = {}): WebSocketS
     ws.on("error", () => ws.terminate());
     ws.on("close", () => {
       idle.leave(clientId, Date.now());
+      devs.delete(clientId);
       broadcast(0);
       broadcastIdle();
       updateTicker();
@@ -164,9 +193,19 @@ export function createCounterServer(opts: CounterServerOptions = {}): WebSocketS
         case "assign":
           return reply(idle.assign(msg.from, msg.to, now));
         case "propose":
+          if (dev?.free) return reply(idle.devDo(clientId, msg.name, msg.action, now));
           return reply(idle.propose(clientId, msg.name, msg.action, online, now));
         case "buy":
+          if (dev?.free) return reply(idle.devDo(clientId, msg.name, { kind: "buy", item: msg.item }, now));
           return reply(idle.buy(clientId, msg.name, msg.item, now));
+        // The developer menu: ignored unless this connection may use it.
+        case "dev":
+          if (!dev) return;
+          if (msg.cmd === "free") {
+            dev.free = !dev.free;
+            return sendIdle(ws, now);
+          }
+          return reply(idle.devCommand(clientId, msg.name, msg.cmd, now));
         case "open":
           return reply(idle.open(clientId, msg.name, msg.id, now));
         case "outfit":

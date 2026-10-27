@@ -1679,6 +1679,55 @@ export interface IdleProposalView {
   approved: boolean;
 }
 
+// ---------- the developer menu (update 23) ----------
+// Only for whoever runs the server with IDLE_DEV=1, from a browser on that
+// same computer (checked by the server, see server/src/counter.ts).
+
+/** What "plenty" is: more than anything costs. */
+const PLENTY = 1e12;
+
+/** The town as if it had plenty of everything and no builders to wait for: to check what free mode allows. */
+export function withPlenty<T extends IdleWorld>(s: T): T {
+  return {
+    ...s,
+    resources: Object.fromEntries(RESOURCES.map((r) => [r.id, PLENTY])),
+    buildings: s.buildings.map(({ ready: _, ...b }) => b),
+  };
+}
+
+/**
+ * Do it now, without a vote and without paying (free mode): the same checks,
+ * but every resource as if there were plenty. What it gives (a trade) is
+ * kept; a wonder's next phase can start right away.
+ */
+export function doForFree<T extends IdleWorld>(s: T, action: ProposalAction): { state: T; building?: PlacedBuilding } | string {
+  const plenty = withPlenty(s);
+  const err = actionError(plenty, action);
+  if (err) return err;
+  const done = applyAction(plenty, action);
+  const resources: Amounts = { ...s.resources };
+  for (const [id, n] of Object.entries(done.state.resources)) if ((n ?? 0) > PLENTY) resources[id] = (s.resources[id] ?? 0) + (n - PLENTY);
+  const buildings = done.state.buildings.map((b) => {
+    const was = s.buildings.find((x) => x.id === b.id);
+    // The builders of other wonders still need their time.
+    if (was?.ready !== undefined && was.stage === b.stage) return { ...b, ready: was.ready };
+    const { ready: _, ...rest } = b;
+    return rest;
+  });
+  const building = done.building && buildings.find((b) => b.id === done.building!.id);
+  return { state: { ...done.state, resources, buildings }, ...(building ? { building } : {}) };
+}
+
+/** Every wonder's builders ready for the next phase now. */
+export const finishPhases = <T extends IdleWorld>(s: T): T => ({ ...s, buildings: s.buildings.map(({ ready: _, ...b }) => b) });
+
+/** Every storage full. */
+export function fillStorage<T extends IdleWorld>(s: T): T {
+  return { ...s, resources: { ...s.resources, ...Object.fromEntries(unlockedResources(s.era).map((id) => [id, capOf(s, id)])) } };
+}
+
+export type DevCommand = "free" | "phases" | "era" | "fill";
+
 /** Someone online, as their NPC. */
 export interface IdlePerson {
   id: string;
@@ -1700,6 +1749,8 @@ export interface IdleStateMsg {
   online: number;
   /** Server clock when sent, to keep producing in the browser. */
   now: number;
+  /** Only for a developer on the server's own computer (IDLE_DEV=1): the developer menu, and whether free mode is on. */
+  dev?: { free: boolean };
 }
 
 export type IdleEvent =
@@ -1736,4 +1787,6 @@ export type IdleClientMsg =
   /** A small shop item (vote: false). */
   | { type: "buy"; item: string; name?: string }
   /** Open a supply drop. */
-  | { type: "open"; id: number; name?: string };
+  | { type: "open"; id: number; name?: string }
+  /** The developer menu (only when the server allows it for this browser). */
+  | { type: "dev"; cmd: DevCommand; name?: string };

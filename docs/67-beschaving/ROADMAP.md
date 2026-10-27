@@ -66,7 +66,7 @@ Daarnaast blijft gelden:
 | Kaart, natuur, waar gebouwen en paden mogen | `shared/idleMap.ts` |
 | Server: opslag (`data/idle.json`), invoercontrole, stemmen afhandelen | `server/src/idle.ts`, `server/src/counter.ts` |
 | Browser: wereld, panelen, NPC's, padvinden | `client/src/world/*`, `client/src/counter.ts` |
-| Pixel-art: sprites, atlas, eigen sprites, licenties | `client/src/world/sprites/` (na een wijziging: `python client/src/world/sprites/build.py`), `sprites.ts`, `pixel.ts` |
+| Pixel-art: sprites, atlas, eigen sprites (`pixelart.py`: Steen- en Bronstijd, `pixelnature.py`: water, oevers, bloemen, `pixeldecor.py`: decoraties), licenties | `client/src/world/sprites/` (na een wijziging: `python client/src/world/sprites/build.py`), `sprites.ts`, `pixel.ts` |
 | Tests | `tests/idle.test.mts` |
 
 Volledig resetten om te testen: stop de server, verwijder `data/counter.json`
@@ -315,7 +315,7 @@ in `~/.claude/skills`, niet in de repo.
       (bron: "Tijdperk voelt nu niet als prehistory")
 
 ### Update 12: Balans
-Status: in review (PR #39). Hierin zat ook een reset van het dorp.
+Status: gedaan (PR #39). Hierin zat ook een reset van het dorp.
 
 Afgesproken met Richard (2026-10-26): productie ÷2 en alles ×2 zo duur
 (optie "3–4 dagen"), maar de wonderfases blijven 24 uur uit elkaar. De
@@ -360,7 +360,7 @@ een Kampvuur, een Hut en een Schuur.
       hut en 1 Schuur als basisvoorziening")
 
 ### Update 17: Opslag & overzicht
-Status: in review (PR #40). Steunt op update 12.
+Status: gedaan (PR #40). Steunt op update 12.
 
 Afgesproken met Richard (2026-10-26): één opslaggebouw per grondstof.
 
@@ -402,7 +402,7 @@ Afgesproken met Richard (2026-10-26): één opslaggebouw per grondstof.
       2026-10-26, "geen melding dat je er niet op kan klikken")
 
 ### Update 18: Nieuwe inwoners
-Status: in review (PR #41). Steunt op update 12 en 17.
+Status: gedaan (PR #41). Steunt op update 12 en 17.
 
 Afgesproken met Richard (2026-10-26): een nieuwkomer gaat via een gewone
 stemming (24 uur, minstens 2 keer ja); het profiel is alleen voor de sfeer;
@@ -431,16 +431,32 @@ een koppel kiest zelf wanneer het een kind krijgt.
       "huidige inwoners kunnen kinderen maken")
 
 ### Update 19: Water, bloemen & decoraties
-Status: gepland. Pixel-art, zoals in update 16.
+Status: in review (PR #42). Pixel-art, zoals in update 16.
 
-- [ ] Nieuwe golven op het water: die zien er slecht uit. (bron:
-      2026-10-26, "de golven zien er slecht uit", "retexture de bloemen en de
-      golven")
-- [ ] Nieuwe bloemen in het gras en een nieuw bloemperk. (bron: idem)
-- [ ] Mooiere decoraties (standbeelden, totempaal, menhir, …), als
-      pixel-sprites. (bron: 2026-10-26, "decoraties verbeteren")
-- [ ] Oevers langs het water, als er een goed pakket voor is (staat nog
-      open uit update 16).
+- [x] Nieuwe golven op het water: die zien er slecht uit. Gedaan: het water
+      is een eigen pixel-tegel in de kleuren van Yar (`sprites/pixelnature.py`).
+      Korte golfjes komen op, glanzen en zakken weer, elk op een eigen moment,
+      in 4 beelden die voor de hele rivier tegelijk wisselen. Vroeger wisselde
+      elke tegel apart tussen drie tegels van Yar, waarvan er één een stukje
+      oever in een hoek had: dat waren de rare vlekjes. (bron: 2026-10-26, "de
+      golven zien er slecht uit", "retexture de bloemen en de golven")
+- [x] Nieuwe bloemen in het gras en een nieuw bloemperk. Gedaan: zes soorten
+      wilde bloemen (madeliefjes, boterbloemen, klaprozen, viooltjes, klaver,
+      vergeet-mij-nietjes) als plukjes op het gras, meer in de vroege
+      tijdperken. Het Bloemperk is een verhoogd bed met een stenen rand en rijen
+      tulpen. (bron: idem)
+- [x] Mooiere decoraties, als pixel-sprites. Gedaan: alle dertien
+      (`sprites/pixeldecor.py`): het 67-standbeeld (de handen gaan om de beurt
+      op en neer), een beschilderde totempaal met vleugels, een menhir met
+      korstmos en een spiraal, het krijgers-, ridder-, David- en
+      astronautenbeeld op een sokkel, een marmeren fontein met spuitend water,
+      een bakstenen klokkentoren (het is altijd 6:07), een neonbord dat soms
+      even uitvalt, een hologram dat boven zijn projector zweeft en het
+      Mega-67-monument dat gloeit. (bron: 2026-10-26, "decoraties verbeteren")
+- [x] Oevers langs het water. Gedaan: zelf getekend, want de oevers van Yar
+      passen niet op elkaar. Elke kant van het water die aan land grenst krijgt
+      een rand van zand en natte modder met schuim, dat meebeweegt met de
+      golven; ook de hoekjes (`drawWaterTile` in `draw.ts`).
 
 ### Update 20: Dag & nacht
 Status: gepland. Eerst met Richard afstemmen wat er 's nachts verandert aan
@@ -564,8 +580,8 @@ in dezelfde stijl. Eerst een stijlproef, die is goedgekeurd.
       "deze scherpe tipi's en tekeningen zijn qua stijl helemaal niet
       hetzelfde")
 - [ ] Later, als er goede pakketten voor zijn: de Ruimte- en de
-      Sci-fi-tijd, de stenen muren van City Sim (welk stuk hoort bij welke
-      richting?), en oevers langs het water.
+      Sci-fi-tijd, en de stenen muren van City Sim (welk stuk hoort bij welke
+      richting?). De oevers zijn gedaan in update 19.
 
 ### Update 2: Paden, bruggen, afbreken, stemmen
 Status: gedaan (PR #27)

@@ -671,8 +671,8 @@ export interface CouncilItem {
   desc: string;
 }
 export const COUNCIL_ITEMS: readonly CouncilItem[] = [
+  { id: "u26", emoji: "💬", title: "Chat & kapsels", desc: "Een chat voor de spelers in het dorp, kapsels voor de mannetjes, en w*rk gecensureerd." },
   { id: "u15", emoji: "💍", title: "Liefde & trouwen", desc: "Romantiek, trouwen met een bruiloft in het dorp, en vreemdgaan. Komt na 'Je eigen dorpeling'." },
-  { id: "pixel-icons", emoji: "👾", title: "Pixel-iconen", desc: "De emoji in de HUD en de menu's vervangen door iconen in pixel-art." },
   { id: "space-sprites", emoji: "🚀", title: "Ruimte en Sci-fi in pixel-art", desc: "Eigen gebouwen voor de Ruimte- en de Sci-fi-tijd, en stenen muren uit City Sim." },
 ];
 /** Ideas the players sent in: at most this many kept (the oldest go), this long, one per player this often. */

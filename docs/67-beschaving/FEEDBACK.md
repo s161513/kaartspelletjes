@@ -17,6 +17,19 @@ thema (zie [ROADMAP.md](ROADMAP.md)):
 
 ## Verwerkt
 
+- 2026-10-28, uitslag van De raad en ingestuurde ideeën:
+  - 👾 Pixel-iconen (3 stemmen, de rest 0): Update 25
+  - Richard: "andere font want "5" is onduidelijk": Update 25
+  - Soufiane: "De characters glitchen door de muren.. (Hackers!!)":
+    Update 25 (bugfix, meegenomen)
+  - Nathan: "ik mis een interne chat": Update 26
+  - Soufiane: "Haarstijlen toevoegen want nu is iedereen kaal xD": Update 26
+  - JJ: "het woord w*rk censureren": Update 26
+  - JJ: "waarom voegt Richard zelf dingen hieraan toe? Hij kan perfect gewoon
+    tegen Claude zeggen "doe dit"": geen update. De raad is er voor
+    iedereen, ook voor Richard: zo staan alle ideeën op één plek en kan
+    iedereen zien wat er gevraagd is.
+
 - 2026-10-27 (later), feedback ingedeeld (Richard):
   - "het 67 standbeeld mag niet bewegen, het is gewoon statisch":
     Update 19 (PR #42)

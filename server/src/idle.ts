@@ -16,6 +16,15 @@ import {
   RAID_WARNING_MS,
   STATE_VERSION,
   makeRoomForSenate,
+  FORGE_COOLDOWN_MS,
+  RARITIES,
+  TOOLS,
+  forgeError,
+  forgeTool,
+  isSmith,
+  stepForge,
+  toolText,
+  type ToolKind,
   doForFree,
   fillStorage,
   finishPhases,
@@ -100,6 +109,8 @@ export interface IdleGame {
   devDo(clientId: string, name: unknown, action: unknown, now: number): { error?: string; events: IdleEvent[] };
   /** Developer menu: wonders' builders ready, the next era, or full storage. */
   devCommand(clientId: string, name: unknown, cmd: unknown, now: number): { error?: string; events: IdleEvent[] };
+  /** Smith a tool yourself at a smith (the game in the browser): once per player per FORGE_COOLDOWN_MS. */
+  forge(clientId: string, name: unknown, building: unknown, score: unknown, now: number, rand?: () => number): { error?: string; events: IdleEvent[] };
   /** This connection is the player with this secret key (created if new). */
   hello(clientId: string, key: unknown, name: unknown, now: number): { error?: string };
   /** New name and NPC look for this connection's player. */
@@ -222,6 +233,7 @@ function parseIdle(raw: unknown, now: number): IdleState | null {
         building.ready = finite(b.ready) ? Math.min(b.ready, now + WONDER_BUILD_MS) : now;
       }
       if (b.damaged === true) building.damaged = true;
+      if (b.tools === true && isSmith(building.type)) building.tools = true;
       // A mine digging another ore than its type's.
       if (typeof b.ore === "string" && buildingType(b.type)!.ores?.includes(b.ore) && b.ore !== buildingType(b.type)!.produces) building.ore = b.ore;
       buildings.push(building);
@@ -273,6 +285,12 @@ function parseIdle(raw: unknown, now: number): IdleState | null {
       damaged: typeof last.damaged === "string" ? last.damaged.slice(0, 40) : null,
     };
   }
+  const tools = record(r.tools);
+  for (const t of TOOLS) {
+    const stock = tools[t.id];
+    if (Array.isArray(stock) && stock.length === RARITIES.length && stock.every((n) => finite(n) && n >= 0)) s.tools[t.id] = stock.map((n) => Math.min(n as number, 10_000));
+  }
+  if (finite(r.forged) && r.forged >= 0) s.forged = Math.min(r.forged, 20);
   s.proposals = parseProposals(r.proposals, now);
   s.population = finite(r.population) && r.population >= 0 ? Math.min(r.population, 100_000) : bedsOf(s);
   if (finite(r.happiness)) s.happiness = Math.max(0, Math.min(100, r.happiness));
@@ -307,6 +325,7 @@ function parseAction(a: unknown): ProposalAction | null {
   if (r.kind === "demolish" && Number.isInteger(r.building)) return { kind: "demolish", building: r.building as number };
   if (r.kind === "ore" && Number.isInteger(r.building) && typeof r.ore === "string" && resourceDef(r.ore)) return { kind: "ore", building: r.building as number, ore: r.ore };
   if (r.kind === "fortify") return { kind: "fortify" };
+  if (r.kind === "tools" && Number.isInteger(r.building) && typeof r.on === "boolean") return { kind: "tools", building: r.building as number, on: r.on };
   if (r.kind === "repair" && Number.isInteger(r.building)) return { kind: "repair", building: r.building as number };
   if (r.kind === "newcomer") {
     const who = record(r.who);
@@ -331,6 +350,8 @@ const amountText = (n: number) => (n >= 100 ? String(Math.floor(n)) : String(Mat
 export function createIdleGame(file: string, now = Date.now()): IdleGame {
   let state = loadJsonFile(file, (raw) => parseIdle(raw, now), () => newIdleState(now), "idle");
   const saver = debouncedSaver(() => saveJsonFile(file, state, "idle"), SAVE_DELAY_MS);
+  /** Player (or connection) → when they last smithed a tool themselves. */
+  const lastForge = new Map<string, number>();
   /** Connection → public player id, for everyone who said hello. */
   const connected = new Map<string, string>();
 
@@ -516,6 +537,21 @@ export function createIdleGame(file: string, now = Date.now()): IdleGame {
       return { events: [{ kind: "deal", label: cmd === "phases" ? "🛠️ bouwers van de wonderen klaar" : "🛠️ opslag vol", by }] };
     },
 
+    forge(clientId, name, building, score, now, rand = Math.random) {
+      if (!Number.isInteger(building) || !finite(score)) return { error: "onbekend", events: [] };
+      const who = voterOf(clientId);
+      const wait = (lastForge.get(who) ?? -Infinity) + FORGE_COOLDOWN_MS - now;
+      if (wait > 0) return { error: `de smidse is nog heet: nog ${Math.ceil(wait / 1000)} s`, events: [] };
+      const s = advance(state, now);
+      const err = forgeError(s, building as number);
+      if (err) return { error: err, events: [] };
+      const done = forgeTool(s, score, rand());
+      state = done.state;
+      lastForge.set(who, now);
+      saver.schedule();
+      return { events: [{ kind: "deal", label: `🔨 smeedde ${toolText(done.kind as ToolKind, done.rarity)}`, by: nameOf(clientId, name) }] };
+    },
+
     hello(clientId, key, name, now) {
       if (typeof key !== "string" || !KEY_RE.test(key)) return { error: "ongeldige sleutel" };
       // Only a hash is stored and shown, so nobody can take over someone else's NPC.
@@ -573,8 +609,8 @@ export function createIdleGame(file: string, now = Date.now()): IdleGame {
         saver.schedule();
         if (done.news) events.push({ kind: "raid", ...done.news });
       }
-      // Someone knocks on the door, or a couple has a child.
-      const steps: ((s: IdleState) => { state: IdleState; label?: string } | null)[] = [(s) => stepNewcomer(s, rand), (s) => stepBirth(s, rand)];
+      // Someone knocks on the door, or a couple has a child; the smiths hand out a tool.
+      const steps: ((s: IdleState) => { state: IdleState; label?: string } | null)[] = [(s) => stepNewcomer(s, rand), (s) => stepBirth(s, rand), (s) => stepForge(s, rand)];
       for (const step of steps) {
         const news = step(advance(state, now));
         if (!news) continue;

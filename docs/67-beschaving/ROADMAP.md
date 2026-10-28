@@ -450,8 +450,9 @@ Status: in review (PR #42). Pixel-art, zoals in update 16.
       tijdperken. Het Bloemperk is een verhoogd bed met een stenen rand en rijen
       tulpen. (bron: idem)
 - [x] Mooiere decoraties, als pixel-sprites. Gedaan: alle dertien
-      (`sprites/pixeldecor.py`): het 67-standbeeld (de handen gaan om de beurt
-      op en neer), een beschilderde totempaal met vleugels, een menhir met
+      (`sprites/pixeldecor.py`): het 67-standbeeld (staat stil, met de handen
+      in de 67-pose; Richard, 2026-10-27: "het 67 standbeeld mag niet
+      bewegen"), een beschilderde totempaal met vleugels, een menhir met
       korstmos en een spiraal, het krijgers-, ridder-, David- en
       astronautenbeeld op een sokkel, een marmeren fontein met spuitend water,
       een bakstenen klokkentoren (het is altijd 6:07), een neonbord dat soms
@@ -574,6 +575,15 @@ zien of gebruiken, ook niet als ze het bericht zelf sturen.
       herstarten. (bron: idem, "Ik wil NIET dat
       deze optie mogelijk is voor gewone gebruikers, alleen hier lokaal bij
       mij")
+- [x] Een tijdelijke pagina met de sprites van elk tijdperk, om te zien of
+      ze kloppen (Richard, 2026-10-27: "maak een tijdelijke map waar je de
+      sprites laat zien van elke tijdperk, want ik denk dat er sommige niet
+      kloppen"). Gedaan: `/sprites.html` in `npm run dev` (ook via de knop
+      "🖼️ sprites" in de ontwikkelaarsbalk): een tabel met per gebouw een rij
+      en per tijdperk een kolom, getekend met dezelfde code als het dorp; ook
+      de wonderen in aanbouw en de muren. Het hoort niet bij de build, dus
+      spelers kunnen het niet openen (`client/sprites.html`,
+      `client/src/spriteGallery.ts`).
 
 ### Update 24: Pixel-art HUD
 Status: in review (PR #46). Pixel-art, zoals in update 16. Steunt op update 23 (PR #45).
@@ -596,16 +606,38 @@ Status: in review (PR #46). Pixel-art, zoals in update 16. Steunt op update 23 (
       🗳️, …) zijn nog de gewone emoji van het systeem, niet in pixel-art.
 
 ### Update 22: Gereedschap
-Status: gepland. Eerst met Richard afstemmen: welke werkplaats wat maakt,
-hoe zeldzaamheid werkt, en of er een minigame bij komt.
+Status: in review (PR #47). Steunt op update 24 (PR #46).
 
-- [ ] Elke baan heeft eigen gereedschap: een houweel voor mijnwerkers, een
-      bijl voor houthakkers, pijl en boog of een speer voor jagers, een
-      hengel voor vissers. Zonder gereedschap werken ze trager. (bron:
-      2026-10-26, "de werkplaatsen hebben individuele tools nodig")
-- [ ] Werkplaatsen maken het gereedschap; het slijt. (bron: idem)
-- [ ] Gereedschap kan zeldzaam zijn, met een bonus, misschien via een
-      crafting-minigame. (bron: idem)
+Afgesproken met Richard (2026-10-27): de smeden maken het gereedschap.
+Zonder gereedschap werk je ×0,75, en het slijt in 3 dagen. Zeldzaamheid
+door toeval, plus een minigame om zelf te smeden.
+
+- [x] Elke baan heeft eigen gereedschap: een bijl (houthakkers), een houweel
+      (steengroeves, mijnen en ertsmijnen), pijl en boog (jagers), een hengel
+      (vissers), een sikkel (akkers). Verzamelaars hebben een bijl of houweel
+      nodig voor hout en steen; bessen pluk je met de hand. Zonder werk je
+      ×0,75. Gedaan vanaf de IJzertijd, als er smeden zijn; in de Steentijd en
+      Bronstijd redden ze zich met stenen werktuigen (geen straf). Banen
+      zonder gereedschap (veehouders, bibliotheek, olie, …) werken zoals
+      eerst. (`toolUseOf` in `shared/idle.ts`, de getallen in
+      `shared/idleContent.ts`.) (bron: 2026-10-26, "de werkplaatsen hebben
+      individuele tools nodig")
+- [x] De smeden maken het gereedschap; het slijt. Gedaan: een Wapensmid of
+      Harnassmid kan via een stemming omschakelen naar gereedschap. Met alle
+      werkers maakt die er 1 per 10 minuten, elk van 4 ijzer en 4 kolen. Een
+      stuk gaat 3 dagen werk mee ('s nachts telt half). De smeden geven
+      nieuw gereedschap aan de baan die het hardst nodig heeft. De oude
+      winkel-upgrades van de Smidse (Scherpere bijlen, …) blijven zoals ze
+      waren. (bron: idem)
+- [x] Gereedschap kan zeldzaam zijn, met een bonus, en er is een
+      crafting-minigame. Gedaan: 20% kans op zeldzaam (×1,25) en 5% op
+      episch (×1,5, gaat de helft langer mee); een zeldzaam of episch stuk
+      komt in het nieuws. Bij een smidse kan iedereen zelf smeden (zelfde
+      kosten, eens per 2 minuten per speler): sla drie keer als de vonk in
+      het gloeiende vak staat. Hoe beter, hoe groter de kans op zeldzaam
+      (tot 60%) en episch (tot 30%). Het overzicht van al het gereedschap
+      staat bij elke smidse; bij een werkgebouw staat hoeveel werkers er een
+      hebben. (bron: idem)
 
 ### Update 13: De raad
 Status: gepland.

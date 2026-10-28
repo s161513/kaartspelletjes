@@ -7,6 +7,17 @@
 // are kept, not rebuilt, so buttons never vanish under a click.
 
 import {
+  FORGE_COOLDOWN_MS,
+  RARITIES,
+  TOOL_COST,
+  TOOL_CRAFT_MS,
+  TOOLS,
+  TOOLS_FROM_ERA,
+  forgeError,
+  isSmith,
+  toolCount,
+  toolOf,
+  toolUseOf,
   BOOST_MULT,
   DECOR_POINTS,
   ERAS,
@@ -228,6 +239,10 @@ function menuText(world: IdleWorld): string {
 
 const moodEmoji = (level: number) => (level < 35 ? "😠" : level < 50 ? "😕" : level < 70 ? "🙂" : "😄");
 const multText = (mult: number) => `×${mult.toFixed(2).replace(".", ",")}`;
+/** Tools as people count them: a worn one is still one. */
+const whole = (n: number) => Math.ceil(n - 1e-6);
+/** "⛓️ 4 + ⚫ 4". */
+const costText = (a: Amounts) => Object.entries(a).map(([id, n]) => `${resourceDef(id)?.emoji ?? id} ${fmt(n)}`).join(" + ");
 
 /** "😊 62% geluk, gaat naar 70% · werken ×1,05": how happy the town is, where it's heading, and how hard they work for it. */
 function happyText(world: IdleWorld, now: number): string {
@@ -1251,6 +1266,128 @@ export function createPanels(deps: PanelDeps): Panels {
     };
   }
 
+  // ---------- tools (update 22): what a smith makes, the stock, smithing yourself ----------
+
+  let lastForge = -Infinity;
+
+  /** For a smith: switch to tools (vote), the town's tools, and the smithing game. Returns its refresh. */
+  function toolsPanel(world: IdleWorld, b: PlacedBuilding): () => void {
+    const made = resourceDef(producesOf(b)!)!;
+    insActions.append(
+      h("h4", "sx-h", "🔨 Gereedschap"),
+      h("p", "sx-note", "Elke baan heeft eigen gereedschap: een bijl, een houweel, pijl en boog, een hengel, een sikkel. Wie er geen heeft, werkt ×0,75; een zeldzaam stuk geeft ×1,25, een episch ×1,5 (en gaat langer mee). Het slijt in 3 dagen werk. De smeden geven nieuw gereedschap aan wie het het hardst nodig heeft."),
+    );
+    for (const on of [true, false]) {
+      const action: ProposalAction = { kind: "tools", building: b.id, on };
+      const o = offer({
+        emoji: on ? "🔨" : made.emoji,
+        name: on ? "Gereedschap maken" : `${made.name[0].toUpperCase()}${made.name.slice(1)} maken`,
+        effect: on ? `1 stuk per ${TOOL_CRAFT_MS / 60_000} min met alle werkers, van ${costText(TOOL_COST)}` : `zoals een ${buildingName(b.type, b.level)} altijd doet`,
+        action: "🗳️ voorstellen",
+        votes: true,
+        onClick: () => propose(action),
+        cost: () => ({}),
+        error: (w) => {
+          const err = actionError(w, action);
+          return err === "die maakt al gereedschap" || err?.startsWith("die maakt al ") ? "✓ dit maakt die nu" : err;
+        },
+      });
+      insActions.append(o.el);
+      insOffers.push(o);
+    }
+    const stock = h("div", "sx-tools");
+    const game = forgeGame(b);
+    insActions.append(h("h4", "sx-h", "🧰 Gereedschap in het dorp"), stock, h("h4", "sx-h", "⚒️ Zelf smeden"), game.el);
+    return () => {
+      const w = deps.world();
+      if (!w) return;
+      const use = toolUseOf(w);
+      stock.replaceChildren(
+        ...TOOLS.map((t) => {
+          const u = use[t.id];
+          const parts = RARITIES.map((r, i) => `${whole(w.tools[t.id]?.[i] ?? 0)} ${r.name}`).join(" · ");
+          const need = u ? ` — ${u.need} ${t.who} (${multText(u.mult)})` : "";
+          return h("div", "sx-tool-line", `${t.emoji} ${t.name}: ${parts}${need}`);
+        }),
+        h("div", "sx-note", `${whole(TOOLS.reduce((a, t) => a + toolCount(w, t.id), 0))} in totaal`),
+      );
+      game.update(w);
+    };
+  }
+
+  /**
+   * The smithing game: a spark runs over the anvil, hit three times when it's
+   * in the glowing spot. The better the hits, the likelier a rare or epic tool.
+   */
+  function forgeGame(b: PlacedBuilding): { el: HTMLElement; update(w: IdleWorld): void } {
+    const el = h("div", "sx-forge");
+    const bar = h("div", "sx-forge-bar");
+    const zone = h("div", "sx-forge-zone");
+    const spark = h("div", "sx-forge-spark");
+    bar.append(zone, spark);
+    const status = h("div", "sx-note", "");
+    const start = button("sx-act sx-act-now", "⚒️ smeden", () => begin());
+    const hit = button("sx-act sx-act-now", "🔨 slaan!", () => strike());
+    hit.hidden = true;
+    el.append(h("div", "sx-offer-effect", `Kost ${costText(TOOL_COST)}. Sla drie keer als de vonk in het gloeiende vak is.`), bar, status, start, hit);
+    let running = false;
+    let begun = 0;
+    let center = 0.5;
+    let hits: number[] = [];
+    let frame = 0;
+    const pos = (now: number) => {
+      // Back and forth, a bit faster with every hit.
+      const speed = 1 + hits.length * 0.35;
+      const x = (((now - begun) / 1100) * speed) % 2;
+      return x < 1 ? x : 2 - x;
+    };
+    const move = () => {
+      if (!running) return;
+      spark.style.left = `${pos(performance.now()) * 100}%`;
+      frame = requestAnimationFrame(move);
+    };
+    const newZone = () => {
+      center = 0.15 + Math.random() * 0.7;
+      zone.style.left = `${(center - 0.08) * 100}%`;
+    };
+    function begin(): void {
+      hits = [];
+      running = true;
+      begun = performance.now();
+      newZone();
+      start.hidden = true;
+      hit.hidden = false;
+      status.textContent = "🔥 sla 3 keer!";
+      cancelAnimationFrame(frame);
+      move();
+    }
+    function strike(): void {
+      if (!running) return;
+      const d = Math.abs(pos(performance.now()) - center);
+      hits.push(Math.max(0, 1 - d / 0.2));
+      newZone();
+      status.textContent = hits.map((s) => (s > 0.8 ? "🌟" : s > 0.4 ? "✅" : "💨")).join(" ");
+      if (hits.length < 3) return;
+      running = false;
+      hit.hidden = true;
+      start.hidden = false;
+      const score = hits.reduce((a, s) => a + s, 0) / hits.length;
+      status.textContent += `  ${Math.round(score * 100)}%`;
+      lastForge = Date.now();
+      deps.send({ type: "forge", building: b.id, score, name: session.nickname });
+    }
+    return {
+      el,
+      update(w) {
+        const err = forgeError(w, b.id);
+        const wait = lastForge + FORGE_COOLDOWN_MS - Date.now();
+        start.disabled = !deps.connected() || !!err || wait > 0;
+        start.title = err ?? (wait > 0 ? `de smidse is nog heet: nog ${Math.ceil(wait / 1000)} s` : "");
+        start.textContent = wait > 0 ? `⏳ nog ${Math.ceil(wait / 1000)} s` : "⚒️ smeden";
+      },
+    };
+  }
+
   function renderInspector(): void {
     if (villagerId !== null) {
       const v = deps.villager(villagerId);
@@ -1288,6 +1425,9 @@ export function createPanels(deps: PanelDeps): Panels {
         const o = wonderPhaseOffer();
         insActions.append(o.el);
         insOffers.push(o);
+      }
+      if (isSmith(b.type) && world.era >= TOOLS_FROM_ERA) {
+        insLive = toolsPanel(world, b);
       }
       if (t.ores) {
         insActions.append(h("h4", "sx-h", "⛏️ Wat delft de mijn?"), h("p", "sx-note", `Een steengroeve of een mijn bij de ertsader levert ${Math.round(1 / (t.oreShare ?? 1))}× zoveel op, maar deze mijn raakt nooit op. Omschakelen kost niets, wel een stemming.`));
@@ -1420,10 +1560,28 @@ export function createPanels(deps: PanelDeps): Panels {
     if (t.category === "defense") lines.push(`🛡️ +${TOWER_POINTS * (1 + b.level)} verdediging tegen aanvallen`);
     if (t.category === "house") lines.push(`🛏️ ${housingOf(b.level)} bedden`);
     const made = producesOf(b);
-    if (t.category === "work" && made) {
+    if (t.category === "work" && made && b.tools) {
+      // A smith on tools (update 22).
+      const w = assignWorkers(world).workers[b.id] ?? 0;
+      lines.push(`👷 ${w}/${slotsAt(world, b)} werkers`);
+      const perHour = (w / slotsOf(b.level)) * (3_600_000 / TOOL_CRAFT_MS);
+      lines.push(`🔨 maakt gereedschap: ${fmtRate(perHour)} per uur (zonder bonussen), elk van ${costText(TOOL_COST)}`);
+      const out = Object.keys(TOOL_COST).filter((id) => (world.resources[id] ?? 0) < TOOL_COST[id]);
+      if (out.length) lines.push(`⚠️ Niet genoeg ${out.map((id) => resourceDef(id)?.name ?? id).join(" en ")}: bouw een mijn die dat delft.`);
+    } else if (t.category === "work" && made) {
       const w = assignWorkers(world).workers[b.id] ?? 0;
       const slots = slotsAt(world, b);
       lines.push(`👷 ${w}/${slots} werkers`);
+      const tool = toolOf(world, b);
+      const use = tool && toolUseOf(world)[tool];
+      if (tool && use) {
+        const def = TOOLS.find((x) => x.id === tool)!;
+        const have = use.have.reduce((a, n) => a + n, 0);
+        lines.push(
+          `${def.emoji} ${whole(have)} van de ${use.need} ${def.who} hebben een ${def.name}: ze werken ${multText(use.mult)}` +
+            (have + 1e-9 < use.need ? " (zonder werken ze ×0,75; de smeden maken gereedschap)" : ""),
+        );
+      }
       const share = t.sparesSource ? sourceShareOf(world, b) : 1;
       const kind = t.foodKind ? ` ${foodKindText(t.foodKind)}` : "";
       const rate = ((fullRateOf(b) * w) / slotsOf(b.level)) * share;
@@ -1474,6 +1632,8 @@ export function createPanels(deps: PanelDeps): Panels {
     button("sx-dev-btn", "⏩ bouwfases klaar", () => devSend("phases")),
     button("sx-dev-btn", "🏛️ volgend tijdperk", () => devSend("era")),
     button("sx-dev-btn", "📦 opslag vol", () => devSend("fill")),
+    // The sprites of every era side by side (only with `npm run dev`: the build leaves that page out).
+    button("sx-dev-btn", "🖼️ sprites", () => window.open("/sprites.html", "_blank", "noopener")),
   );
 
   function renderDev(msg: IdleStateMsg): void {

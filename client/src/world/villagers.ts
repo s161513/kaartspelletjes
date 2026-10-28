@@ -41,10 +41,12 @@ import {
 } from "@app/shared/idle";
 import { rand2, type VillagerLook } from "./draw";
 import type { Point } from "./iso";
-import { findPath, nearestOpen, nearestWalkable } from "./path";
+import { findPath, nearestOpen, nearestWalkable, wallLift } from "./path";
 
 /** A villager who can't get somewhere through a gate climbs the wall: a step on it costs this. */
 const CLIMB = 8;
+/** Climbing over a wall goes this much slower than walking. */
+const CLIMB_SPEED = 0.3;
 /** At night, asleep at home: checks every this often whether it's morning. */
 const SLEEP_CHECK_MS = 30_000;
 
@@ -374,6 +376,14 @@ export class Population {
     v.pathI = 0;
   }
 
+  /** The town changed (a building, a path, a wall): whoever is walking takes a new route. */
+  reroute(): void {
+    for (const v of this.villagers.values()) {
+      if (v.pathI >= v.path.length) continue;
+      this.walkTo(v, v.path[v.path.length - 1]);
+    }
+  }
+
   private chooseIdle(v: Villager, now: number): void {
     const decor = this.world?.buildings.filter((b) => buildingType(b.type)?.category === "decor") ?? [];
     const home = this.byId.get(v.home);
@@ -480,7 +490,7 @@ export class Population {
       if (now < v.sixSevenUntil) {
         // Busy doing the 67: everything else waits.
       } else if (walking) {
-        let step = SPEED * dt;
+        let step = SPEED * dt * (wallLift(v.x, v.y) > 0 ? CLIMB_SPEED : 1);
         while (step > 0 && v.pathI < v.path.length) {
           const p = v.path[v.pathI];
           const dx = p.x - v.x;

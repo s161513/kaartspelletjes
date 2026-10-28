@@ -1018,7 +1018,7 @@ function drawShapes(ctx: Ctx, b: PlacedBuilding, t: number): void {
     const wave = Math.sin(t / 300) * 2;
     poly(ctx, [fx, fy - 18, fx + 12, fy - 15 + wave, fx, fy - 11], "#ff2fb3");
     ctx.fillStyle = "#fff";
-    ctx.font = "bold 5px Pixelify Sans, sans-serif";
+    ctx.font = '5px "Jersey 10", sans-serif';
     ctx.fillText("67", fx + 2, fy - 13);
   }
   if (style.glow && (type.category === "house" || type.category === "center")) {
@@ -1341,7 +1341,7 @@ function raiderShapes(ctx: Ctx, x: number, y: number, n: number, level: number, 
   ctx.stroke();
   poly(ctx, [x - 14, y - 40, x + 2, y - 37 + Math.sin(t / 200) * 2, x - 14, y - 30], "#111");
   ctx.fillStyle = "#e5e5e5";
-  ctx.font = "bold 7px Pixelify Sans, sans-serif";
+  ctx.font = '7px "Jersey 10", sans-serif';
   ctx.fillText("☠", x - 11, y - 33);
   for (const [i, [dx, dy]] of spots.entries()) {
     drawVillager(ctx, x + dx, y + dy, {
@@ -1386,7 +1386,7 @@ function shopSign(ctx: Ctx, emoji: string, x: number, y: number, t: number): voi
   ctx.beginPath();
   ctx.arc(x, y + sway, 9, 0, Math.PI * 2);
   ctx.stroke();
-  ctx.font = "11px Pixelify Sans, sans-serif";
+  ctx.font = '11px "Jersey 10", sans-serif';
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillText(emoji, x, y + sway + 1);
@@ -1663,7 +1663,7 @@ function dropShapes(ctx: Ctx, x: number, y: number, t: number): void {
   ctx.fillStyle = "#ff2fb3";
   ctx.fill();
   ctx.fillStyle = "#fff";
-  ctx.font = "bold 7px Pixelify Sans, sans-serif";
+  ctx.font = '7px "Jersey 10", sans-serif';
   ctx.textAlign = "center";
   ctx.fillText("67", c.x, py - 2);
   ctx.textAlign = "start";
@@ -1728,7 +1728,7 @@ function drawDecor(ctx: Ctx, b: PlacedBuilding, cx: number, cy: number, t: numbe
       const on = Math.sin(t / 200) > -0.6;
       poly(ctx, [cx - 18, cy - 22, cx + 18, cy - 22, cx + 18, cy - 42, cx - 18, cy - 42], "#111827");
       ctx.fillStyle = on ? col : "#4b5563";
-      ctx.font = "bold 14px Pixelify Sans, sans-serif";
+      ctx.font = '14px "Jersey 10", sans-serif';
       ctx.textAlign = "center";
       ctx.fillText("67", cx, cy - 27);
       ctx.textAlign = "start";
@@ -1738,7 +1738,7 @@ function drawDecor(ctx: Ctx, b: PlacedBuilding, cx: number, cy: number, t: numbe
       poly(ctx, [cx - 12, cy, cx, cy + 6, cx + 12, cy, cx, cy - 6], "#334155");
       ctx.globalAlpha = 0.55 + Math.sin(t / 150) * 0.2;
       ctx.fillStyle = col;
-      ctx.font = "bold 22px Pixelify Sans, sans-serif";
+      ctx.font = '22px "Jersey 10", sans-serif';
       ctx.textAlign = "center";
       ctx.fillText("67", cx, cy - 12 - Math.sin(t / 500) * 3);
       ctx.textAlign = "start";
@@ -1750,7 +1750,7 @@ function drawDecor(ctx: Ctx, b: PlacedBuilding, cx: number, cy: number, t: numbe
       ctx.save();
       ctx.translate(cx, cy - 14);
       ctx.fillStyle = col;
-      ctx.font = "bold 40px Pixelify Sans, sans-serif";
+      ctx.font = '40px "Jersey 10", sans-serif';
       ctx.textAlign = "center";
       ctx.shadowColor = col;
       ctx.shadowBlur = 12 + Math.sin(t / 300) * 6;
@@ -1764,7 +1764,7 @@ function drawDecor(ctx: Ctx, b: PlacedBuilding, cx: number, cy: number, t: numbe
       const y = cy - 10;
       if (d.shape === "statue67") {
         ctx.fillStyle = col;
-        ctx.font = "bold 18px Pixelify Sans, sans-serif";
+        ctx.font = '18px "Jersey 10", sans-serif';
         ctx.textAlign = "center";
         ctx.fillText("67", cx, y - 2);
         ctx.textAlign = "start";
@@ -1973,7 +1973,7 @@ function drawPattern(ctx: Ctx, x: number, y: number, pattern: string, base: stri
       return;
     case "sixseven":
       ctx.fillStyle = "#000";
-      ctx.font = "bold 4px Pixelify Sans, sans-serif";
+      ctx.font = '4px "Jersey 10", sans-serif';
       ctx.fillText("67", x + 0.5, y + 5.5);
       return;
     case "camo":
@@ -2063,7 +2063,7 @@ function drawHat(ctx: Ctx, x: number, y: number, hat: string): void {
 
 /** A name tag under a player's NPC; their own one stands out. */
 export function drawNameTag(ctx: Ctx, x: number, y: number, name: string, mine: boolean): void {
-  ctx.font = "bold 7px Pixelify Sans, sans-serif";
+  ctx.font = '7px "Jersey 10", sans-serif';
   const w = ctx.measureText(name).width + 6;
   ctx.fillStyle = mine ? "rgba(255,232,46,0.95)" : "rgba(10,8,24,0.75)";
   ctx.beginPath();
@@ -2077,7 +2077,7 @@ export function drawNameTag(ctx: Ctx, x: number, y: number, name: string, mine: 
 
 /** A speech bubble above a point. */
 export function drawBubble(ctx: Ctx, x: number, y: number, text: string): void {
-  ctx.font = "bold 9px Pixelify Sans, sans-serif";
+  ctx.font = '9px "Jersey 10", sans-serif';
   const w = ctx.measureText(text).width + 10;
   const bx = x - w / 2;
   const byTop = y - 34;

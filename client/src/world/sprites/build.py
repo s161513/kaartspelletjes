@@ -8,7 +8,8 @@
 # sprites are made for 128 px tiles, ours are 64). Sources and licenses: CREDITS.md.
 # Our own sprites are drawn by code: the Stone and Bronze Age by pixelart.py, water,
 # banks and flowers by pixelnature.py, the decorations by pixeldecor.py, De Senaat
-# and the world wonders by pixelbig.py.
+# and the world wonders by pixelbig.py. The page's resource icons (icons.png, icons.json)
+# come from pixelicons.py.
 
 import json
 import os
@@ -19,6 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import pixelart  # noqa: E402
 import pixelbig  # noqa: E402
 import pixeldecor  # noqa: E402
+import pixelicons  # noqa: E402
 import pixelnature  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -165,6 +167,13 @@ def main() -> None:
     with open(os.path.join(HERE, "atlas.json"), "w") as f:
         json.dump(dict(sorted(out.items())), f, separators=(",", ":"))
     print(f"{len(out)} sprites, atlas {atlas.size[0]}x{atlas.size[1]}")
+
+    # The hand-drawn icons for the page (not the town): their own little sheet.
+    sheet, index = pixelicons.all_icons()
+    sheet.save(os.path.join(HERE, "icons.png"), optimize=True)
+    with open(os.path.join(HERE, "icons.json"), "w", encoding="utf-8") as f:
+        json.dump(index, f, ensure_ascii=False, separators=(",", ":"))
+    print(f"{len(index)} icons")
 
 
 if __name__ == "__main__":

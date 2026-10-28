@@ -129,6 +129,9 @@ import {
   STORAGE_CAP,
   UPGRADE_SHARE,
   WORK_DRAIN,
+  RELATION_DECAY_PER_DAY,
+  RELATION_LEVELS,
+  RELATION_MAX,
   COUNCIL_ITEMS,
   IDEA_LENGTH,
   EPIC_CHANCE,
@@ -159,6 +162,7 @@ import {
   type ResourceId,
   type ShopItem,
   type ToolKind,
+  type SocialKind,
   type CouncilItem,
 } from "./idleContent.js";
 import {
@@ -307,6 +311,8 @@ export interface IdleWorld {
   tools: Partial<Record<ToolKind, number[]>>;
   /** Tools the smiths have made but nobody has looked at yet: the server turns every whole one into a tool. */
   forged: number;
+  /** The tasks of the players online right now: each is one more worker there (update 14). */
+  helpers: PlayerTask[];
 }
 
 /** Who knocks on the door, for the vote: only for the story. */
@@ -357,9 +363,14 @@ export interface IdleProposal {
 }
 
 /** Someone who ever came by, kept by a secret key in their browser. */
+/** What a player's own villager does while they're online (update 14): work at a building, or gather. */
+export type PlayerTask = { kind: "work"; building: number } | { kind: "gather"; res: ResourceId };
+
 export interface IdlePlayer {
   name: string;
   look: NpcLook;
+  /** What their villager does while they're online (none: walks around). */
+  task?: PlayerTask;
   /** Outfits bought at the tailor (free ones aren't listed). */
   owned: string[];
   /** Last time they were online (ms). */
@@ -392,7 +403,45 @@ export interface IdleState extends IdleWorld {
   /** Public player id → player. */
   players: Record<string, IdlePlayer>;
   council: Council;
+  /** Between two players (key: their ids, sorted, joined by "|"): points, and when they last saw each other. */
+  relations: Record<string, Relation>;
 }
+
+export interface Relation {
+  points: number;
+  last: number;
+}
+
+/** The key of a pair of players, the same both ways. */
+export const pairKey = (a: string, b: string): string => (a < b ? `${a}|${b}` : `${b}|${a}`);
+
+/** A relation's points at `now`: it slowly fades while the two don't see each other. */
+export const relationPoints = (r: Relation | undefined, now: number): number =>
+  r ? Math.max(0, r.points - (RELATION_DECAY_PER_DAY * Math.max(0, now - r.last)) / 86_400_000) : 0;
+
+/** "😊 vrienden". */
+export const relationLevel = (points: number) => [...RELATION_LEVELS].reverse().find((l) => points >= l.from) ?? RELATION_LEVELS[0];
+
+/** Two players got closer (or just saw each other, with 0). */
+export function meet<T extends Pick<IdleState, "relations">>(s: T, a: string, b: string, points: number, now: number): T {
+  const key = pairKey(a, b);
+  const r = s.relations[key];
+  if (!r && points <= 0) return s;
+  return { ...s, relations: { ...s.relations, [key]: { points: Math.min(RELATION_MAX, relationPoints(r, now) + points), last: now } } };
+}
+
+/** Why a player's villager can't take this task, or null. */
+export function taskError(s: IdleWorld, task: PlayerTask): string | null {
+  if (task.kind === "gather") return gatherable(s.era).includes(task.res) ? null : "dat groeit hier niet";
+  const b = s.buildings.find((x) => x.id === task.building);
+  if (!b || buildingType(b.type)?.category !== "work" || !producesOf(b)) return "daar is geen werk";
+  if (b.damaged) return "dat gebouw brandt";
+  return null;
+}
+
+/** Two players on the same task work side by side. */
+export const sameTask = (a: PlayerTask | undefined, b: PlayerTask | undefined): boolean =>
+  !!a && !!b && (a.kind === "work" ? b.kind === "work" && a.building === b.building : b.kind === "gather" && a.res === b.res);
 
 /** De raad as one browser sees it. */
 export interface CouncilView {
@@ -447,7 +496,7 @@ export function newIdleState(now: number): IdleState {
   let s: IdleState = {
     v: STATE_VERSION, era: 0, resources: { food: 150, wood: 200, stone: 100 }, buildings: [], nextBuildingId: 1,
     lastTick: now, boostUntil: 0, boosts: [], perks: {}, roadLevel: 0, roads: [], nature: {}, gatherers: {}, population: 0, happiness: HAPPY_BASE, drops: [], nextDropId: 1, lastLucky: 0,
-    walls: [], wallLevel: 0, gates: [], raid: null, nextRaid: 0, lastRaid: null, nextNewcomer: 0, nextBirth: 0, tools: {}, forged: 0, proposals: [], nextProposalId: 1, players: {}, council: { votes: {}, ideas: [], nextIdeaId: 1 },
+    walls: [], wallLevel: 0, gates: [], raid: null, nextRaid: 0, lastRaid: null, nextNewcomer: 0, nextBirth: 0, tools: {}, forged: 0, helpers: [], proposals: [], nextProposalId: 1, players: {}, council: { votes: {}, ideas: [], nextIdeaId: 1 }, relations: {},
   };
   for (const type of ["center", "house", "storage"]) s = addBuilding(s, type, 0, placeBuilding(s.buildings, type)!).state;
   return { ...s, roads: classicStreets(s.buildings), population: bedsOf(s) };
@@ -566,7 +615,11 @@ export interface ToolUse {
   mult: number;
 }
 
-type ToolTown = Pick<IdleWorld, "buildings" | "perks" | "era" | "gatherers" | "population"> & { tools?: IdleWorld["tools"]; resources?: Amounts };
+type ToolTown = Pick<IdleWorld, "buildings" | "perks" | "era" | "gatherers" | "population"> & {
+  tools?: IdleWorld["tools"];
+  resources?: Amounts;
+  helpers?: IdleWorld["helpers"];
+};
 
 /** Per tool kind that anyone needs: who has one, and how fast that makes them. */
 export function toolUseOf(s: ToolTown): Partial<Record<ToolKind, ToolUse>> {
@@ -811,6 +864,13 @@ function outputs(s: ToolTown & { nature?: Used }): Output[] {
   const { workers } = assignWorkers(s);
   const tools = toolUseOf(s);
   const toolMult = (k: ToolKind | null) => (k && tools[k]?.mult) || 1;
+  // Players online with a task are one more worker each (update 14); they bring their own tools.
+  const helpAt: Record<number, number> = {};
+  const helpOn: Amounts = {};
+  for (const t of s.helpers ?? []) {
+    if (t.kind === "work") helpAt[t.building] = (helpAt[t.building] ?? 0) + 1;
+    else helpOn[t.res] = (helpOn[t.res] ?? 0) + 1;
+  }
   const out: Output[] = [];
   const left = (src: Patch[] | null) => !s.nature || !src || src.some((p) => leftIn(p, s.nature!) > 0.01);
   for (const b of s.buildings) {
@@ -819,7 +879,8 @@ function outputs(s: ToolTown & { nature?: Used }): Output[] {
     // A smith on tools makes those instead (see advance).
     if (!t || !res || b.tools) continue;
     const src = sourcePatches(b);
-    const rate = ((fullRateOf(b) * (workers[b.id] ?? 0)) / slotsOf(b.level)) * toolsOf(s, res) * toolMult(toolOf(s, b));
+    const help = b.damaged ? 0 : (helpAt[b.id] ?? 0);
+    const rate = ((fullRateOf(b) * (workers[b.id] ?? 0) * toolMult(toolOf(s, b)) + fullRateOf(b) * help) / slotsOf(b.level)) * toolsOf(s, res);
     if (t.sparesSource) {
       // Hunters: as much as the forest around them still stands.
       const share = s.nature ? sourceShare(s.nature, src) : 1;
@@ -832,8 +893,10 @@ function outputs(s: ToolTown & { nature?: Used }): Output[] {
   const { chosen, auto } = gatheringOf(s);
   for (const res of gatherable(s.era)) {
     const n = (chosen[res] ?? 0) + (auto[res] ?? 0);
+    const help = helpOn[res] ?? 0;
     const src = gatherPatches(res);
-    if (n > 0 && left(src)) out.push({ res, kind: res === "food" ? "berries" : undefined, rate: n * GATHER_RATE * clickAmount(s.era) * toolsOf(s, res) * toolMult(s.era >= TOOLS_FROM_ERA ? gatherTool(res) : null), src, drain: 1 });
+    const tool = toolMult(s.era >= TOOLS_FROM_ERA ? gatherTool(res) : null);
+    if (n + help > 0 && left(src)) out.push({ res, kind: res === "food" ? "berries" : undefined, rate: (n * tool + help) * GATHER_RATE * clickAmount(s.era) * toolsOf(s, res), src, drain: 1 });
   }
   return out;
 }
@@ -1978,6 +2041,8 @@ export interface IdlePerson {
   id: string;
   name: string;
   look: NpcLook;
+  /** What their villager does (update 14). */
+  task?: PlayerTask;
 }
 
 export interface IdleStateMsg {
@@ -1998,6 +2063,8 @@ export interface IdleStateMsg {
   dev?: { free: boolean };
   /** De raad: the standings, this player's vote and the ideas sent in. */
   council: CouncilView;
+  /** This player's relations with the other players the town knows, best first (update 14). */
+  relations: { id: string; name: string; points: number }[];
 }
 
 export type IdleEvent =
@@ -2012,6 +2079,8 @@ export type IdleEvent =
   | { kind: "lucky"; label: string }
   /** Enemies: seen coming, or how the fight went (`damaged`: the building set on fire). */
   | { kind: "raid"; stage: RaidStage; label: string; damaged?: number }
+  /** Two players did something together (update 14): a bubble over both. */
+  | { kind: "social"; from: string; to: string; emoji: string; label: string }
   /** Only to the one connection whose request failed. */
   | { kind: "error"; message: string };
 
@@ -2035,6 +2104,10 @@ export type IdleClientMsg =
   | { type: "buy"; item: string; name?: string }
   /** Open a supply drop. */
   | { type: "open"; id: number; name?: string }
+  /** What your own villager does while you're online (null: walk around). */
+  | { type: "task"; task: PlayerTask | null }
+  /** Do something with another player online; "introduce" brings `target` and `other` together. */
+  | { type: "social"; kind: SocialKind; target: string; other?: string }
   /** De raad: vote for the update you want next (null: take your vote back). */
   | { type: "council"; item: string | null }
   /** De raad: send in an idea, or take your own back. */

@@ -669,21 +669,34 @@ Status: in review (PR #48). Steunt op update 22 (PR #47).
       de raad (zie Werkwijze, stap 1).
 
 ### Update 14: Je eigen dorpeling
-Status: gepland. Eerst met Richard afstemmen: hoe een relatie groeit (tijd
-samen online, iets doen voor elkaar, samen werken) en of ook de gewone
-inwoners meedoen of alleen spelers.
+Status: in review (PR #49). Steunt op update 13 (PR #48).
 
-- [ ] Je eigen mannetje besturen: zeg welke baan of taak het heeft. Het loopt
-      daarheen en werkt mee zolang je online bent. De server houdt bij waar
-      de mannetjes zijn, zodat iedereen hetzelfde ziet. (bron: Richard,
+Afgesproken met Richard (2026-10-27): een relatie groeit door samen dingen
+te doen; je kiest een baan of taak voor je mannetje; alleen spelers doen
+mee, niet de gewone inwoners.
+
+- [x] Je eigen mannetje besturen: zeg welke baan of taak het heeft. Het loopt
+      daarheen en werkt mee zolang je online bent. Gedaan: kies bij je eigen
+      mannetje (klik erop, of 🧍 → "🎯 jouw taak en vrienden") een
+      werkgebouw of een grondstof om te verzamelen. Zolang je online bent,
+      is dat één werker extra, met eigen gereedschap (`helpers` in de staat
+      van het dorp). De taak staat op de server en gaat naar iedereen, dus
+      iedereen ziet je daar werken; de looproute zelf rekent elke browser
+      uit. De taak blijft bewaard voor de volgende keer. (bron: Richard,
       2026-10-25, "alleen je eigen mannetje kan besturen"; 2026-10-26, "je
       kan mannetjes aansturen (ze worden ook server-sided)")
-- [ ] Vrienden maken: klik op een andere speler om iets samen te doen (praten,
-      helpen, iets geven). Elk paar spelers heeft een relatie die groeit, en
-      langzaam zakt als je elkaar niet ziet. (bron: idem, "vrienden kan maken")
-- [ ] Relaties tussen andere spelers verbeteren, zoals een koppelaar. (bron:
-      idem)
-- [ ] Een overzicht van je relaties, bij je NPC.
+- [x] Vrienden maken: klik op een andere speler om iets samen te doen.
+      Gedaan: 👋 zwaaien (+1, eens per minuut), 💬 praten (+3, eens per 5
+      min), 🎁 een cadeautje geven (+5, eens per 30 min, kost 20 voedsel ×
+      het tijdperk). Samen aan dezelfde taak werken geeft +1 per 5 minuten.
+      Wie elkaar niet ziet (niet tegelijk online), zakt 2 punten per dag.
+      Van 0 tot 100: kennissen, vrienden (10), goede vrienden (30), beste
+      vrienden (60). Iedereen ziet een wolkje boven de twee en een melding.
+      (bron: idem, "vrienden kan maken")
+- [x] Relaties tussen andere spelers verbeteren, zoals een koppelaar.
+      Gedaan: 🤝 stel een speler voor aan een andere speler die online is
+      (+3 voor hen samen, eens per 30 min). (bron: idem)
+- [x] Een overzicht van je relaties, bij je NPC.
 
 ### Update 15: Liefde & trouwen
 Status: gepland. Steunt op update 14. Beide spelers moeten zelf ja zeggen

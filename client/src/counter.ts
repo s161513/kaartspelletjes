@@ -170,6 +170,9 @@ function onIdleEvent(ev: IdleEvent): void {
       popup(ev.label, { big: true, x: 50, y: 30, color: ev.stage === "won" ? "#b6ff2e" : "#ff3b3b" });
       if (ev.stage === "won") emojiBurst(24);
       return;
+    case "social":
+      popup(ev.label, { y: rand(55, 80), color: "#ff9ad5" });
+      return;
     case "rejected":
       popup(`❌ ${ev.label}: ${ev.reason}`, { y: rand(30, 70), color: "#ff3b3b" });
       return;

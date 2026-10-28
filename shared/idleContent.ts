@@ -671,7 +671,6 @@ export interface CouncilItem {
   desc: string;
 }
 export const COUNCIL_ITEMS: readonly CouncilItem[] = [
-  { id: "u14", emoji: "🧍", title: "Je eigen dorpeling", desc: "Je eigen mannetje besturen (een baan of taak geven), vrienden maken, relaties tussen spelers." },
   { id: "u15", emoji: "💍", title: "Liefde & trouwen", desc: "Romantiek, trouwen met een bruiloft in het dorp, en vreemdgaan. Komt na 'Je eigen dorpeling'." },
   { id: "pixel-icons", emoji: "👾", title: "Pixel-iconen", desc: "De emoji in de HUD en de menu's vervangen door iconen in pixel-art." },
   { id: "space-sprites", emoji: "🚀", title: "Ruimte en Sci-fi in pixel-art", desc: "Eigen gebouwen voor de Ruimte- en de Sci-fi-tijd, en stenen muren uit City Sim." },
@@ -680,6 +679,43 @@ export const COUNCIL_ITEMS: readonly CouncilItem[] = [
 export const MAX_IDEAS = 40;
 export const IDEA_LENGTH = 200;
 export const IDEA_COOLDOWN_MS = 10 * MIN;
+
+// ---------- your own villager and friends (update 14) ----------
+
+/** Things you can do with another player online; each makes your relation better. */
+export type SocialKind = "wave" | "talk" | "gift" | "introduce";
+export interface SocialDef {
+  emoji: string;
+  /** "zwaaien": for the button. */
+  name: string;
+  /** "zwaait naar": for the news. */
+  verb: string;
+  points: number;
+  /** Per pair (for "introduce": per player who does it). */
+  cooldownMs: number;
+  /** Paid from the town's storage, × the era's scale. */
+  cost?: Amounts;
+}
+export const SOCIAL: Readonly<Record<SocialKind, SocialDef>> = {
+  wave: { emoji: "👋", name: "zwaaien", verb: "zwaait naar", points: 1, cooldownMs: MIN },
+  talk: { emoji: "💬", name: "praten", verb: "praat met", points: 3, cooldownMs: 5 * MIN },
+  gift: { emoji: "🎁", name: "cadeautje geven", verb: "geeft een cadeautje aan", points: 5, cooldownMs: 30 * MIN, cost: { food: 20 } },
+  // Matchmaking: two others get to know each other better.
+  introduce: { emoji: "🤝", name: "aan elkaar voorstellen", verb: "stelt voor aan", points: 3, cooldownMs: 30 * MIN },
+};
+/** Two players online on the same task grow closer by this much this often. */
+export const TOGETHER_POINTS = 1;
+export const TOGETHER_MS = 5 * MIN;
+/** Without seeing each other (online at the same time), a relation loses this much a day. */
+export const RELATION_DECAY_PER_DAY = 2;
+export const RELATION_MAX = 100;
+/** From how many points a relation is what, best last. */
+export const RELATION_LEVELS: readonly { from: number; name: string; emoji: string }[] = [
+  { from: 0, name: "kennissen", emoji: "🙂" },
+  { from: 10, name: "vrienden", emoji: "😊" },
+  { from: 30, name: "goede vrienden", emoji: "🤗" },
+  { from: 60, name: "beste vrienden", emoji: "💖" },
+];
 
 // ---------- tools (update 22) ----------
 

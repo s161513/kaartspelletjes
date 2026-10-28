@@ -16,6 +16,19 @@ import {
   RAID_WARNING_MS,
   STATE_VERSION,
   makeRoomForSenate,
+  SOCIAL,
+  TOGETHER_MS,
+  TOGETHER_POINTS,
+  canAfford,
+  meet,
+  pairKey,
+  relationPoints,
+  sameTask,
+  scaleOf,
+  taskError,
+  type PlayerTask,
+  type Relation,
+  type SocialKind,
   COUNCIL_ITEMS,
   IDEA_COOLDOWN_MS,
   IDEA_LENGTH,
@@ -116,6 +129,10 @@ export interface IdleGame {
   devDo(clientId: string, name: unknown, action: unknown, now: number): { error?: string; events: IdleEvent[] };
   /** Developer menu: wonders' builders ready, the next era, or full storage. */
   devCommand(clientId: string, name: unknown, cmd: unknown, now: number): { error?: string; events: IdleEvent[] };
+  /** What this player's own villager does while they're online (null: walk around). */
+  task(clientId: string, task: unknown, now: number): { error?: string; events: IdleEvent[] };
+  /** Do something with another player online (SOCIAL); "introduce" brings `target` and `other` together. */
+  social(clientId: string, kind: unknown, target: unknown, other: unknown, now: number): { error?: string; events: IdleEvent[] };
   /** De raad: this player's vote for the update they want next (null: none). */
   councilVote(clientId: string, item: unknown): { error?: string; events: IdleEvent[] };
   /** De raad: send in an idea (once per player per IDEA_COOLDOWN_MS), or take your own back. */
@@ -165,6 +182,26 @@ function parseBoosts(raw: unknown, now: number): ActiveBoost[] {
   return out;
 }
 
+/** The shape of a task; whether it can be done is taskError's job. */
+function parseTask(raw: unknown): PlayerTask | null {
+  const r = record(raw);
+  if (r.kind === "work" && Number.isInteger(r.building)) return { kind: "work", building: r.building as number };
+  if (r.kind === "gather" && typeof r.res === "string" && resourceDef(r.res)) return { kind: "gather", res: r.res };
+  return null;
+}
+
+/** Relations between players the town knows. */
+function parseRelations(raw: unknown, players: Record<string, IdlePlayer>): Record<string, Relation> {
+  const out: Record<string, Relation> = {};
+  for (const [key, v] of Object.entries(record(raw))) {
+    const [a, b] = key.split("|");
+    const r = record(v);
+    if (!players[a] || !players[b] || a >= b || !finite(r.points) || !finite(r.last)) continue;
+    out[key] = { points: Math.max(0, Math.min(100, r.points)), last: r.last };
+  }
+  return out;
+}
+
 /** The shape of a look; whether it may be worn is lookError's job. */
 function parseLook(raw: unknown): NpcLook | null {
   const r = record(raw);
@@ -181,6 +218,8 @@ function parsePlayers(raw: unknown): Record<string, IdlePlayer> {
     let look = parseLook(r.look);
     if (!look || lookError({ owned }, look)) look = defaultLook(parseInt(id, 16));
     out[id] = { name: cleanName(r.name), look, owned, seen: finite(r.seen) ? r.seen : 0 };
+    const task = parseTask(r.task);
+    if (task) out[id].task = task;
   }
   return out;
 }
@@ -217,7 +256,10 @@ function parseIdle(raw: unknown, now: number): IdleState | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const r = raw as Record<string, unknown>;
   // De raad survives a reset too: it's about the game, not this town.
-  if (r.v !== STATE_VERSION) return { ...newIdleState(now), players: resetPlayers(parsePlayers(r.players)), council: parseCouncil(r.council) };
+  if (r.v !== STATE_VERSION) {
+    const players = resetPlayers(parsePlayers(r.players));
+    return { ...newIdleState(now), players, council: parseCouncil(r.council), relations: parseRelations(r.relations, players) };
+  }
   const s = newIdleState(now);
   if (Number.isInteger(r.era)) s.era = Math.max(0, Math.min(ERAS.length - 1, r.era as number));
   s.resources = {};
@@ -318,6 +360,7 @@ function parseIdle(raw: unknown, now: number): IdleState | null {
   s.nextProposalId = Math.max(s.nextProposalId, ...s.proposals.map((p) => p.id + 1));
   s.players = parsePlayers(r.players);
   s.council = parseCouncil(r.council);
+  s.relations = parseRelations(r.relations, s.players);
   return makeRoomForSenate(s);
 }
 
@@ -335,11 +378,11 @@ function parseCouncil(raw: unknown): Council {
   return { votes, ideas: ideas.slice(-MAX_IDEAS), nextIdeaId: Math.max(next, ...ideas.map((x) => x.id + 1)) };
 }
 
-/** Players after a reset: same name and colors, the free hat and pattern, nothing bought. */
+/** Players after a reset: same name and colors, the free hat and pattern, nothing bought, no task (the buildings are gone). */
 function resetPlayers(players: Record<string, IdlePlayer>): Record<string, IdlePlayer> {
   const free = (id: string, fallback: string) => (outfit(id)?.cost ? fallback : id);
   return Object.fromEntries(
-    Object.entries(players).map(([id, p]) => [id, { ...p, owned: [], look: { ...p.look, hat: free(p.look.hat, "none"), pattern: free(p.look.pattern, "plain") } }]),
+    Object.entries(players).map(([id, { task: _, ...p }]) => [id, { ...p, owned: [], look: { ...p.look, hat: free(p.look.hat, "none"), pattern: free(p.look.pattern, "plain") } }]),
   );
 }
 
@@ -393,7 +436,25 @@ export function createIdleGame(file: string, now = Date.now()): IdleGame {
     state = { ...state, players: { ...state.players, [id]: p } };
     saver.schedule();
   };
-  const person = (id: string, p: IdlePlayer): IdlePerson => ({ id, name: p.name, look: p.look });
+  const person = (id: string, p: IdlePlayer): IdlePerson => ({ id, name: p.name, look: p.look, ...(p.task ? { task: p.task } : {}) });
+
+  /** Players online now (each once, however many tabs). */
+  const onlineIds = () => [...new Set(connected.values())].filter((id) => state.players[id]);
+  /**
+   * The workers the players online add (update 14). Produce up to now with
+   * the old ones first, so a change only counts from now on.
+   */
+  const syncHelpers = (now: number) => {
+    state = advance(state, now);
+    const helpers = onlineIds()
+      .map((id) => state.players[id].task)
+      .filter((t): t is PlayerTask => !!t && !taskError(state, t));
+    state = { ...state, helpers };
+  };
+  /** When players online on the same task last grew closer, and saw each other. */
+  let lastTogether = 0;
+  /** "<who>|<kind>|<pair or target>" → when it was last done (the cooldowns of SOCIAL). */
+  const lastSocial = new Map<string, number>();
 
   /** Whose vote this is: the player's, so a reload or a second tab doesn't vote twice. */
   const voterOf = (clientId: string) => connected.get(clientId) ?? clientId;
@@ -453,6 +514,12 @@ export function createIdleGame(file: string, now = Date.now()): IdleGame {
         people: ids.map((id) => person(id, players[id])),
         me: mine && { ...person(...mine), owned: mine[1].owned },
         council: councilView(state, mine?.[0] ?? null),
+        relations: mine
+          ? Object.keys(players)
+              .filter((id) => id !== mine[0] && state.relations[pairKey(mine[0], id)])
+              .map((id) => ({ id, name: players[id].name, points: relationPoints(state.relations[pairKey(mine[0], id)], now) }))
+              .sort((a, b) => b.points - a.points)
+          : [],
         count,
         peak,
         online,
@@ -631,6 +698,7 @@ export function createIdleGame(file: string, now = Date.now()): IdleGame {
       }
       connected.set(clientId, id);
       setPlayer(id, { ...p, seen: now });
+      syncHelpers(now);
       return {};
     },
 
@@ -662,9 +730,64 @@ export function createIdleGame(file: string, now = Date.now()): IdleGame {
       const mine = playerOf(clientId);
       connected.delete(clientId);
       if (mine) setPlayer(mine[0], { ...mine[1], seen: now });
+      syncHelpers(now);
+    },
+
+    task(clientId, raw, now) {
+      const mine = playerOf(clientId);
+      if (!mine) return { error: "eerst inloggen", events: [] };
+      const task = raw === null ? null : parseTask(raw);
+      if (raw !== null && !task) return { error: "onbekende taak", events: [] };
+      const err = task && taskError(state, task);
+      if (err) return { error: err, events: [] };
+      const { task: _, ...p } = mine[1];
+      setPlayer(mine[0], task ? { ...p, task } : p);
+      syncHelpers(now);
+      return { events: [] };
+    },
+
+    social(clientId, kind, target, other, now) {
+      const mine = playerOf(clientId);
+      if (!mine) return { error: "eerst inloggen", events: [] };
+      const def = typeof kind === "string" && Object.hasOwn(SOCIAL, kind) ? SOCIAL[kind as SocialKind] : null;
+      if (!def) return { error: "onbekend", events: [] };
+      const online = onlineIds();
+      const me = mine[0];
+      if (typeof target !== "string" || target === me || !online.includes(target)) return { error: "die speler is niet online", events: [] };
+      const intro = kind === "introduce";
+      if (intro && (typeof other !== "string" || other === me || other === target || !online.includes(other))) return { error: "kies een andere speler die online is", events: [] };
+      const pair = intro ? pairKey(target, other as string) : pairKey(me, target);
+      const key = `${me}|${kind}|${pair}`;
+      const wait = (lastSocial.get(key) ?? -Infinity) + def.cooldownMs - now;
+      if (wait > 0) return { error: `even wachten: nog ${Math.ceil(wait / 1000)} s`, events: [] };
+      let s = advance(state, now);
+      if (def.cost) {
+        const cost = Object.fromEntries(Object.entries(def.cost).map(([id, n]) => [id, n * scaleOf(s.era)]));
+        if (!canAfford(s, cost)) return { error: "te duur", events: [] };
+        s = { ...s, resources: Object.fromEntries(Object.entries(s.resources).map(([id, n]) => [id, n - (cost[id] ?? 0)])) };
+      }
+      state = intro ? meet(s, target, other as string, def.points, now) : meet(s, me, target, def.points, now);
+      lastSocial.set(key, now);
+      saver.schedule();
+      const [a, b] = intro ? [target, other as string] : [me, target];
+      const name = (id: string) => state.players[id]?.name ?? "iemand";
+      const label = intro ? `${def.emoji} ${mine[1].name} ${def.verb} ${name(a)} en ${name(b)}` : `${def.emoji} ${mine[1].name} ${def.verb} ${name(b)}`;
+      return { events: [{ kind: "social", from: a, to: b, emoji: def.emoji, label }] };
     },
 
     tick(online, now, rand = Math.random) {
+      // Players online see each other; on the same task they grow closer (update 14).
+      if (now - lastTogether >= TOGETHER_MS) {
+        lastTogether = now;
+        const ids = onlineIds();
+        for (let i = 0; i < ids.length; i++) {
+          for (let j = i + 1; j < ids.length; j++) {
+            const together = sameTask(state.players[ids[i]].task, state.players[ids[j]].task);
+            state = meet(state, ids[i], ids[j], together ? TOGETHER_POINTS : 0, now);
+          }
+        }
+        if (ids.length > 1) saver.schedule();
+      }
       const events = settle(online, now);
       const done = stepRaid(advance(state, now), rand);
       if (done) {

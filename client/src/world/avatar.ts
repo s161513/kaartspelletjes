@@ -42,6 +42,8 @@ export interface AvatarDeps {
   msg(): IdleStateMsg | null;
   world(): IdleWorld | null;
   connected(): boolean;
+  /** Show your own villager: your task and your friends (update 14). */
+  openMine(): void;
 }
 
 export interface AvatarEditor {
@@ -85,9 +87,14 @@ export function createAvatarEditor(deps: AvatarDeps): AvatarEditor {
   const fields = h("div", "sx-avatar-fields");
   fields.append(h("label", "sx-h", "Naam"), nameInput);
   top.append(preview, fields);
+  const mine = button("sx-act", "🎯 jouw taak en vrienden", () => {
+    panel.hidden = true;
+    deps.openMine();
+  });
   panel.append(
     close,
     h("h3", "sx-panel-title", "🧍 Jouw NPC"),
+    mine,
     top,
     h("h4", "sx-h", "Huid"),
     skins,

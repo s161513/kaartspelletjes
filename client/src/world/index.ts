@@ -59,7 +59,15 @@ export function createTown(send: (msg: IdleClientMsg) => void): Town {
     openAvatar: () => avatar.open(),
   });
 
-  const avatar = createAvatarEditor({ send, msg: () => latest, world: current, connected: () => connected });
+  const avatar = createAvatarEditor({
+    send,
+    msg: () => latest,
+    world: current,
+    connected: () => connected,
+    openMine: () => {
+      if (latest?.me) panels.inspectVillager(`p:${latest.me.id}`);
+    },
+  });
 
   window.addEventListener("sx-recenter", () => world.recenter());
 
@@ -81,6 +89,8 @@ export function createTown(send: (msg: IdleClientMsg) => void): Town {
         world.celebrate();
       } else if (ev.kind === "raid") {
         world.raid(ev.stage, ev.damaged);
+      } else if (ev.kind === "social") {
+        world.social(ev.from, ev.to, ev.emoji);
       }
     },
     setConnected(open) {

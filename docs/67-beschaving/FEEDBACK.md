@@ -18,7 +18,7 @@ thema (zie [ROADMAP.md](ROADMAP.md)):
 ## Verwerkt
 
 - 2026-10-28, uitslag van De raad en ingestuurde ideeën:
-  - 👾 Pixel-iconen (3 stemmen, de rest 0): Update 25
+  - 👾 Pixel-iconen (3 stemmen, de rest 0): Update 25 (PR #50)
   - Richard: "andere font want "5" is onduidelijk": Update 25
   - Soufiane: "De characters glitchen door de muren.. (Hackers!!)":
     Update 25 (bugfix, meegenomen)

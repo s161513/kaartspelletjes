@@ -703,7 +703,7 @@ mee, niet de gewone inwoners.
 - [x] Een overzicht van je relaties, bij je NPC.
 
 ### Update 25: Pixel-iconen & lettertype
-Status: in review. Gekozen door De raad (2026-10-28: 3 stemmen, de rest 0).
+Status: in review (PR #50). Gekozen door De raad (2026-10-28: 3 stemmen, de rest 0).
 
 - [x] Alle emoji op de pagina (HUD, menu's, panelen, popups, de knoppen en
       het feestscherm) worden pixel-art. Gedaan: een `MutationObserver`

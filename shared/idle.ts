@@ -129,6 +129,8 @@ import {
   STORAGE_CAP,
   UPGRADE_SHARE,
   WORK_DRAIN,
+  COUNCIL_ITEMS,
+  IDEA_LENGTH,
   EPIC_CHANCE,
   NO_TOOL_MULT,
   RARE_CHANCE,
@@ -157,6 +159,7 @@ import {
   type ResourceId,
   type ShopItem,
   type ToolKind,
+  type CouncilItem,
 } from "./idleContent.js";
 import {
   CENTER,
@@ -363,12 +366,73 @@ export interface IdlePlayer {
   seen: number;
 }
 
+/** An idea a player sent in to De raad. */
+export interface CouncilIdea {
+  id: number;
+  /** Public id of the player, and their name then. */
+  player: string;
+  by: string;
+  text: string;
+  at: number;
+}
+
+/** De raad (update 13): which planned update everyone wants next, and their own ideas. */
+export interface Council {
+  /** Public player id → the COUNCIL_ITEMS id they vote for (one each, they can change it). */
+  votes: Record<string, string>;
+  /** Oldest first. */
+  ideas: CouncilIdea[];
+  nextIdeaId: number;
+}
+
 export interface IdleState extends IdleWorld {
   /** Open votes, oldest first. */
   proposals: IdleProposal[];
   nextProposalId: number;
   /** Public player id → player. */
   players: Record<string, IdlePlayer>;
+  council: Council;
+}
+
+/** De raad as one browser sees it. */
+export interface CouncilView {
+  /** Every item with its votes, most votes first (ties: the roadmap's order). */
+  items: (CouncilItem & { votes: number })[];
+  myVote: string | null;
+  /** Newest first. */
+  ideas: { id: number; by: string; text: string; at: number; mine: boolean }[];
+}
+
+/** The standings: votes of players the town still knows, for items still on the list. */
+export function councilView(s: Pick<IdleState, "council" | "players">, me: string | null): CouncilView {
+  const count: Record<string, number> = {};
+  for (const [player, item] of Object.entries(s.council.votes)) if (s.players[player]) count[item] = (count[item] ?? 0) + 1;
+  const items = COUNCIL_ITEMS.map((item, i) => ({ ...item, votes: count[item.id] ?? 0, i }))
+    .sort((a, b) => b.votes - a.votes || a.i - b.i)
+    .map(({ i: _, ...item }) => item);
+  const mine = me ? (s.council.votes[me] ?? null) : null;
+  return {
+    items,
+    myVote: mine && COUNCIL_ITEMS.some((x) => x.id === mine) ? mine : null,
+    ideas: [...s.council.ideas].reverse().map((x) => ({ id: x.id, by: x.by, text: x.text, at: x.at, mine: x.player === me })),
+  };
+}
+
+/** The standings as text, to paste into FEEDBACK.md. */
+export function councilText(view: CouncilView, now: number): string {
+  const d = new Date(now);
+  const date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const lines = [`- ${date}, uitslag van De raad:`];
+  for (const item of view.items) lines.push(`  - ${item.emoji} ${item.title}: ${item.votes} ${item.votes === 1 ? "stem" : "stemmen"}`);
+  for (const idea of [...view.ideas].reverse()) lines.push(`  - ingestuurd door ${idea.by}: "${idea.text}"`);
+  return lines.join("\n");
+}
+
+/** Why this text can't be sent in as an idea, or null. */
+export function ideaError(text: string): string | null {
+  if (!text.trim()) return "schrijf eerst je idee";
+  if (text.trim().length > IDEA_LENGTH) return `hooguit ${IDEA_LENGTH} tekens`;
+  return null;
 }
 
 const perkOf = (s: Pick<IdleWorld, "perks">, id: string): number => s.perks[id] ?? 0;
@@ -383,7 +447,7 @@ export function newIdleState(now: number): IdleState {
   let s: IdleState = {
     v: STATE_VERSION, era: 0, resources: { food: 150, wood: 200, stone: 100 }, buildings: [], nextBuildingId: 1,
     lastTick: now, boostUntil: 0, boosts: [], perks: {}, roadLevel: 0, roads: [], nature: {}, gatherers: {}, population: 0, happiness: HAPPY_BASE, drops: [], nextDropId: 1, lastLucky: 0,
-    walls: [], wallLevel: 0, gates: [], raid: null, nextRaid: 0, lastRaid: null, nextNewcomer: 0, nextBirth: 0, tools: {}, forged: 0, proposals: [], nextProposalId: 1, players: {},
+    walls: [], wallLevel: 0, gates: [], raid: null, nextRaid: 0, lastRaid: null, nextNewcomer: 0, nextBirth: 0, tools: {}, forged: 0, proposals: [], nextProposalId: 1, players: {}, council: { votes: {}, ideas: [], nextIdeaId: 1 },
   };
   for (const type of ["center", "house", "storage"]) s = addBuilding(s, type, 0, placeBuilding(s.buildings, type)!).state;
   return { ...s, roads: classicStreets(s.buildings), population: bedsOf(s) };
@@ -1932,6 +1996,8 @@ export interface IdleStateMsg {
   now: number;
   /** Only for a developer on the server's own computer (IDLE_DEV=1): the developer menu, and whether free mode is on. */
   dev?: { free: boolean };
+  /** De raad: the standings, this player's vote and the ideas sent in. */
+  council: CouncilView;
 }
 
 export type IdleEvent =
@@ -1969,6 +2035,11 @@ export type IdleClientMsg =
   | { type: "buy"; item: string; name?: string }
   /** Open a supply drop. */
   | { type: "open"; id: number; name?: string }
+  /** De raad: vote for the update you want next (null: take your vote back). */
+  | { type: "council"; item: string | null }
+  /** De raad: send in an idea, or take your own back. */
+  | { type: "idea"; text: string; name?: string }
+  | { type: "unidea"; id: number }
   /** Smith a tool yourself at a smith: `score` (0..1) is how well the game went. */
   | { type: "forge"; building: number; score: number; name?: string }
   /** The developer menu (only when the server allows it for this browser). */

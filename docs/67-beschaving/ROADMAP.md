@@ -29,6 +29,15 @@ die elk een eigen branch en PR krijgen.
      Wordt hij groter, splits hem dan.
    - Feedback die over hetzelfde gaat, wordt één punt.
    - Wil je een punt niet doen, schrijf dan in FEEDBACK.md waarom.
+   - **De raad** (update 13): kijk ook naar de uitslag. Draait het echte
+     dorp op deze computer, dan staat die in `data/idle.json` onder
+     `council`: `votes` (speler → id uit `COUNCIL_ITEMS`; tel alleen
+     spelers die nog in `players` staan) en `ideas`. Anders plakt Richard
+     de tekst van de knop 📋 in FEEDBACK.md. Zet de geplande updates in de
+     volgorde van de stemmen, en behandel elk ingestuurd idee als nieuwe
+     feedback (met de naam erbij). Houd `COUNCIL_ITEMS` in
+     `shared/idleContent.ts` gelijk met de geplande updates: een nieuwe
+     update erbij, een gebouwde eruit.
 2. **Bij het verzamelen bouw je nog niets.** Werk alleen deze roadmap en
    FEEDBACK.md bij. Geef de gebruiker daarna een korte samenvatting: welke
    updates klaarstaan en wat erin zit.
@@ -435,7 +444,7 @@ een koppel kiest zelf wanneer het een kind krijgt.
       "huidige inwoners kunnen kinderen maken")
 
 ### Update 19: Water, bloemen & decoraties
-Status: in review (PR #42). Pixel-art, zoals in update 16.
+Status: gedaan (PR #42; het stilstaande 67-standbeeld komt mee met PR #47). Pixel-art, zoals in update 16.
 
 - [x] Nieuwe golven op het water: die zien er slecht uit. Gedaan: het water
       is een eigen pixel-tegel in de kleuren van Yar (`sprites/pixelnature.py`).
@@ -464,7 +473,7 @@ Status: in review (PR #42). Pixel-art, zoals in update 16.
       golven; ook de hoekjes (`drawWaterTile` in `draw.ts`).
 
 ### Update 20: Dag & nacht
-Status: in review (PR #43). Steunt op update 19 (PR #42).
+Status: gedaan (PR #43).
 
 Afgesproken met Richard (2026-10-27): een dag duurt 20 minuten en een nacht
 ook. 's Nachts gaat het werk half zo snel. Vijanden komen een paar keer per
@@ -509,7 +518,7 @@ een stemming.
       "muren houden niemand tegen")
 
 ### Update 21: Grote gebouwen
-Status: in review (PR #44). Steunt op update 19 en 20 (PR #42, #43).
+Status: gedaan (PR #44).
 
 Afgesproken met Richard (2026-10-27): na het Kampvuur heet het centrum altijd
 De Senaat; het is 3×3. Staat er iets op de tegels, dan moet dat eerst weg (er
@@ -548,7 +557,7 @@ verhuist niets vanzelf). De wonderen krijgen meteen eigen pixel-sprites.
       vanzelf een stukje naar achter zodra de server opnieuw start.
 
 ### Update 23: Ontwikkelaarsmenu
-Status: in review (PR #45). Steunt op update 21 (PR #44).
+Status: gedaan (PR #45; de sprite-pagina komt mee met PR #47).
 
 Alleen voor Richard, op zijn eigen computer: gewone spelers kunnen het niet
 zien of gebruiken, ook niet als ze het bericht zelf sturen.
@@ -586,7 +595,7 @@ zien of gebruiken, ook niet als ze het bericht zelf sturen.
       `client/src/spriteGallery.ts`).
 
 ### Update 24: Pixel-art HUD
-Status: in review (PR #46). Pixel-art, zoals in update 16. Steunt op update 23 (PR #45).
+Status: gedaan (PR #46). Pixel-art, zoals in update 16.
 
 - [x] De HUD bovenin, de menu's, de panelen en de popups in één pixel-art
       stijl: harde randen, pixelranden en -schaduwen, geen ronde hoeken of
@@ -606,7 +615,7 @@ Status: in review (PR #46). Pixel-art, zoals in update 16. Steunt op update 23 (
       🗳️, …) zijn nog de gewone emoji van het systeem, niet in pixel-art.
 
 ### Update 22: Gereedschap
-Status: in review (PR #47). Steunt op update 24 (PR #46).
+Status: in review (PR #47).
 
 Afgesproken met Richard (2026-10-27): de smeden maken het gereedschap.
 Zonder gereedschap werk je ×0,75, en het slijt in 3 dagen. Zeldzaamheid
@@ -640,22 +649,24 @@ door toeval, plus een minigame om zelf te smeden.
       hebben. (bron: idem)
 
 ### Update 13: De raad
-Status: gepland.
+Status: in review (PR #48). Steunt op update 22 (PR #47).
 
-- [ ] In het centrum (het raadhuis) een blok 🗳️ De raad: de geplande updates
-      uit deze roadmap, met per speler één stem die je kan verzetten. De
-      stand is voor iedereen te zien. De lijst staat in
-      `shared/idleContent.ts`; Claude houdt hem bij als de roadmap verandert.
-      (bron: Richard, 2026-10-25, "soviet city council type beat")
-- [ ] De uitslag wordt bewaard in de staat van het dorp. Claude kijkt er aan
-      het begin van een sessie naar en zet de updates in die volgorde. Draait
-      de server niet op deze computer, dan is er een knop 📋 die de uitslag
+- [x] In het centrum (het Kampvuur, later De Senaat) een blok 🗳️ De raad: de
+      geplande updates uit deze roadmap, met per speler één stem die je kan
+      verzetten (nog eens klikken neemt hem terug). De stand is voor
+      iedereen te zien, met een balk. De lijst staat in `COUNCIL_ITEMS` in
+      `shared/idleContent.ts`: nu Je eigen dorpeling, Liefde & trouwen,
+      Pixel-iconen en Ruimte en Sci-fi in pixel-art. (bron: Richard,
+      2026-10-25, "soviet city council type beat")
+- [x] De uitslag wordt bewaard in de staat van het dorp (`council`), ook als
+      het dorp opnieuw begint. Er is een knop 📋 die de uitslag en de ideeën
       kopieert, om in FEEDBACK.md te plakken. (bron: idem, "wordt bij de
       volgende claude sessies naar gekeken")
-- [ ] Spelers kunnen in de raad zelf een idee insturen. Het komt in de raad
-      te staan als "ingestuurd", en Claude neemt het mee als feedback.
-- [ ] Werkwijze bijwerken: "verwerk de feedback" leest ook de uitslag van de
-      raad.
+- [x] Spelers kunnen in de raad zelf een idee insturen (hooguit 200 tekens,
+      één per 10 minuten per speler, de laatste 40 blijven staan). Het staat
+      er als "ingestuurd"; je eigen idee kan je weer weghalen.
+- [x] Werkwijze bijgewerkt: "verwerk de feedback" leest ook de uitslag van
+      de raad (zie Werkwijze, stap 1).
 
 ### Update 14: Je eigen dorpeling
 Status: gepland. Eerst met Richard afstemmen: hoe een relatie groeit (tijd

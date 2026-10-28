@@ -208,6 +208,13 @@ export function createCounterServer(opts: CounterServerOptions = {}): WebSocketS
           return reply(idle.devCommand(clientId, msg.name, msg.cmd, now));
         case "open":
           return reply(idle.open(clientId, msg.name, msg.id, now));
+        // De raad: which update next, and ideas.
+        case "council":
+          return reply(idle.councilVote(clientId, msg.item));
+        case "idea":
+          return reply(idle.idea(clientId, msg.text, now));
+        case "unidea":
+          return reply(idle.unidea(clientId, msg.id));
         case "forge":
           return reply(idle.forge(clientId, msg.name, msg.building, msg.score, now));
         case "outfit":

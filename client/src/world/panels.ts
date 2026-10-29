@@ -1061,7 +1061,11 @@ export function createPanels(deps: PanelDeps): Panels {
   /** "👥 15 inwoners" → a block with 👥, the text and how far the town is. */
   function goalCard(g: GoalStatus): HTMLElement {
     const [icon, ...rest] = g.label.split(" ");
-    return meter(icon, rest.join(" "), g.need > 1 ? `${fmt(g.have)}/${fmt(g.need)}` : "nog niet", g.need ? g.have / g.need : 1, g.done);
+    const el = meter(icon, rest.join(" "), g.need > 1 ? `${fmt(g.have)}/${fmt(g.need)}` : "nog niet", g.need ? g.have / g.need : 1, g.done);
+    // What counts and what's missing, a line each, over the whole width while the goal isn't met.
+    if (g.note) el.querySelector(".sx-goal-text")!.append(...g.note.split(" · ").map((l) => h("div", "sx-store-sub", l)));
+    if (g.note && !g.done) el.classList.add("sx-goal-wide");
+    return el;
   }
 
   /** The town center: the goals for the next era and its world wonder. */

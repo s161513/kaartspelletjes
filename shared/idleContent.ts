@@ -675,10 +675,14 @@ export const COUNCIL_ITEMS: readonly CouncilItem[] = [
   { id: "u15", emoji: "💍", title: "Liefde & trouwen", desc: "Romantiek, trouwen met een bruiloft in het dorp, en vreemdgaan. Komt na 'Je eigen dorpeling'." },
   { id: "space-sprites", emoji: "🚀", title: "Ruimte en Sci-fi in pixel-art", desc: "Eigen gebouwen voor de Ruimte- en de Sci-fi-tijd, en stenen muren uit City Sim." },
 ];
-/** Ideas the players sent in: at most this many kept (the oldest go), this long, one per player this often. */
-export const MAX_IDEAS = 40;
+/** How long an idea the players send in may be (as many as they like). */
 export const IDEA_LENGTH = 200;
-export const IDEA_COOLDOWN_MS = 10 * MIN;
+/**
+ * Ideas sent in up to this moment (ms) are in FEEDBACK.md already: they go
+ * from De raad, so the next copy has only new ones. Claude sets it to the
+ * time in the copied result (`<!-- ideeën t/m … -->`) when sorting feedback.
+ */
+export const IDEAS_DONE_UNTIL = 1793269756000; // 2026-10-29 11:29 (Amsterdam)
 
 // ---------- your own villager and friends (update 14) ----------
 

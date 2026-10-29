@@ -38,9 +38,15 @@ die elk een eigen branch en PR krijgen.
      feedback (met de naam erbij). Houd `COUNCIL_ITEMS` in
      `shared/idleContent.ts` gelijk met de geplande updates: een nieuwe
      update erbij, een gebouwde eruit.
-2. **Bij het verzamelen bouw je nog niets.** Werk alleen deze roadmap en
-   FEEDBACK.md bij. Geef de gebruiker daarna een korte samenvatting: welke
-   updates klaarstaan en wat erin zit.
+   - **Ideeën uit De raad gaan weg zodra ze verwerkt zijn**, zodat de
+     volgende kopie alleen nieuwe heeft. De gekopieerde tekst eindigt op
+     `<!-- ideeën t/m <ms> -->`: zet `IDEAS_DONE_UNTIL` in
+     `shared/idleContent.ts` op dat getal (in de PR met de verwerkte
+     feedback). Ideeën van tot en met dat moment verdwijnen dan uit De raad
+     zodra de server opnieuw start met die versie.
+2. **Bij het verzamelen bouw je nog niets**, behalve bugfixes (zie 6). Werk
+   verder alleen deze roadmap en FEEDBACK.md bij. Geef de gebruiker daarna
+   een korte samenvatting: welke updates klaarstaan en wat erin zit.
 3. **Bouwen doe je één update tegelijk**, en alleen op verzoek ("doe update 3"
    of "doe de volgende update").
    - Eén branch `framework/idle-update-<n>-<kort>` en één PR.
@@ -55,8 +61,13 @@ die elk een eigen branch en PR krijgen.
    commits per update, bijvoorbeeld regels + tests, dan UI, dan docs.
 5. **Na de merge** zet je de update op *gedaan*. Verplaats de feedback in
    FEEDBACK.md naar **Verwerkt**, met "Update n (PR #x)" erbij.
-6. **Spoedgeval:** een bug die spelers blokkeert, mag een eigen kleine
-   fix-PR krijgen, buiten de updates om.
+6. **Bugs los je meteen op** (Richard, 2026-10-29), ook bij alleen
+   "verwerk de feedback": een bug wacht niet op een update. Eén kleine
+   fix-PR (`framework/idle-fix-<kort>`), met de verwerkte feedback erbij;
+   staat er een update open in review, dan mag de fix ook op die branch.
+   Kun je de bug niet vinden of nadoen, zeg dat dan eerlijk en maak het
+   in elk geval zichtbaar in het spel, zodat de volgende melding meer
+   zegt.
 
 Daarnaast blijft gelden:
 - Twijfel je over een spelregel (balans, wat wel of niet via een stemming
@@ -703,7 +714,7 @@ mee, niet de gewone inwoners.
 - [x] Een overzicht van je relaties, bij je NPC.
 
 ### Update 25: Pixel-iconen & lettertype
-Status: in review (PR #50). Gekozen door De raad (2026-10-28: 3 stemmen, de rest 0).
+Status: gedaan (PR #50). Gekozen door De raad (2026-10-28: 3 stemmen, de rest 0).
 
 - [x] Alle emoji op de pagina (HUD, menu's, panelen, popups, de knoppen en
       het feestscherm) worden pixel-art. Gedaan: een `MutationObserver`
@@ -733,8 +744,10 @@ Status: gepland. Ideeën van spelers via De raad (2026-10-28).
 
 - [ ] Een chat in het dorp, voor de spelers onder elkaar. (bron: Nathan,
       "ik mis een interne chat")
-- [ ] Kapsels voor de mannetjes, nu is iedereen kaal. (bron: Soufiane,
-      "Haarstijlen toevoegen want nu is iedereen kaal xD")
+- [ ] Kapsels voor de mannetjes, nu is iedereen kaal. Kaal blijft een
+      keuze, maar is niet meer verplicht. (bron: Soufiane, "Haarstijlen
+      toevoegen want nu is iedereen kaal xD" en 2026-10-29 "Kaal zijn moet
+      een optie zijn niet een verplichting!!")
 - [ ] Het woord "werk" gecensureerd als "w*rk". (bron: JJ, "het woord w*rk
       censureren")
 

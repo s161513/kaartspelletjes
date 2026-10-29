@@ -61,6 +61,10 @@ die elk een eigen branch en PR krijgen.
 Daarnaast blijft gelden:
 - Twijfel je over een spelregel (balans, wat wel of niet via een stemming
   gaat)? Vraag het eerst.
+- **Het dorp mag niet opnieuw beginnen bij een update** (Richard,
+  2026-10-28). Verhoog `STATE_VERSION` dus niet om te resetten: nieuwe
+  velden krijgen bij het laden een standaardwaarde, en oude dorpen werken
+  gewoon door.
 - Voor je commit: `npm test`, `npm run build` en `npm run typecheck`.
 - Raakt een update de UI, test dan ook in de browser (Playwright met Edge,
   venster van 1280×800), met een tijdelijke `COUNTER_FILE` zodat de echte
@@ -76,6 +80,7 @@ Daarnaast blijft gelden:
 | Server: opslag (`data/idle.json`), invoercontrole, stemmen afhandelen | `server/src/idle.ts`, `server/src/counter.ts` |
 | Browser: wereld, panelen, NPC's, padvinden, de nacht en het licht (`night.ts`) | `client/src/world/*`, `client/src/counter.ts` |
 | Uiterlijk van de pagina (HUD, panelen, popups; pixel-art onderaan) en het lettertype | `client/counter.css`, `client/fonts/` |
+| Pixel-iconen in plaats van emoji op de pagina | `client/src/pixelIcons.ts`; de grondstoffen met de hand in `sprites/pixelicons.py` |
 | Pixel-art: sprites, atlas, eigen sprites (`pixelart.py`: Steen- en Bronstijd, `pixelnature.py`: water, oevers, bloemen, `pixeldecor.py`: decoraties, `pixelbig.py`: De Senaat en de wonderen), licenties | `client/src/world/sprites/` (na een wijziging: `python client/src/world/sprites/build.py`), `sprites.ts`, `pixel.ts` |
 | Tests | `tests/idle.test.mts` |
 
@@ -96,8 +101,8 @@ Status: gepland | bezig | in review (PR #x) | gedaan (PR #x)
 
 Volgorde: van boven naar beneden, op volgorde van belangstelling. "Doe de
 volgende update" is de bovenste die nog gepland staat. De nummers volgen
-die volgorde niet helemaal: updates 17–24 (feedback van 2026-10-26 en
-2026-10-27) staan vóór 13–15. Een latere update kan steunen op een eerdere; dat staat er
+die volgorde niet helemaal: updates 17–26 (feedback van 2026-10-26 tot
+2026-10-28) staan vóór 15. Een latere update kan steunen op een eerdere; dat staat er
 dan bij. Alle bronnen zijn feedback van 2026-10-22, tenzij anders vermeld.
 
 ### Update 3: Overzicht & bediening
@@ -611,11 +616,10 @@ Status: gedaan (PR #46). Pixel-art, zoals in update 16.
       Gedaan: Pixelify Sans (SIL OFL, `client/fonts/`), voor alle tekst op
       de pagina en ook in de wereld: naamkaartjes, tekstballonnen, de
       feesttekst. (bron: idem)
-- [ ] Later, als Richard dat wil: de emoji in de HUD en de menu's (🪵, 🪨,
-      🗳️, …) zijn nog de gewone emoji van het systeem, niet in pixel-art.
+- [x] De emoji in de HUD en de menu's: naar update 25 (De raad koos het).
 
 ### Update 22: Gereedschap
-Status: in review (PR #47).
+Status: gedaan (PR #47).
 
 Afgesproken met Richard (2026-10-27): de smeden maken het gereedschap.
 Zonder gereedschap werk je ×0,75, en het slijt in 3 dagen. Zeldzaamheid
@@ -649,7 +653,7 @@ door toeval, plus een minigame om zelf te smeden.
       hebben. (bron: idem)
 
 ### Update 13: De raad
-Status: in review (PR #48). Steunt op update 22 (PR #47).
+Status: gedaan (PR #48).
 
 - [x] In het centrum (het Kampvuur, later De Senaat) een blok 🗳️ De raad: de
       geplande updates uit deze roadmap, met per speler één stem die je kan
@@ -669,7 +673,7 @@ Status: in review (PR #48). Steunt op update 22 (PR #47).
       de raad (zie Werkwijze, stap 1).
 
 ### Update 14: Je eigen dorpeling
-Status: in review (PR #49). Steunt op update 13 (PR #48).
+Status: gedaan (PR #49).
 
 Afgesproken met Richard (2026-10-27): een relatie groeit door samen dingen
 te doen; je kiest een baan of taak voor je mannetje; alleen spelers doen
@@ -697,6 +701,42 @@ mee, niet de gewone inwoners.
       Gedaan: 🤝 stel een speler voor aan een andere speler die online is
       (+3 voor hen samen, eens per 30 min). (bron: idem)
 - [x] Een overzicht van je relaties, bij je NPC.
+
+### Update 25: Pixel-iconen & lettertype
+Status: in review (PR #50). Gekozen door De raad (2026-10-28: 3 stemmen, de rest 0).
+
+- [x] Alle emoji op de pagina (HUD, menu's, panelen, popups, de knoppen en
+      het feestscherm) worden pixel-art. Gedaan: een `MutationObserver`
+      (`client/src/pixelIcons.ts`) zet elke emoji die op de pagina komt in een
+      `<span class="sx-ic">` met een icoon; niemand hoeft zijn tekst anders te
+      schrijven. De 15 grondstoffen zijn met de hand getekend, 16×16
+      (`sprites/pixelicons.py` → `icons.png`), dus overal hetzelfde. De
+      andere emoji worden in de browser één keer klein getekend en dan
+      pixel-art gemaakt: harde randen, minder kleuren, een donkere rand. De
+      emoji zelf blijft (onzichtbaar) in de tekst, voor kopiëren en
+      schermlezers. Niet in de wereld zelf (tekstballonnen, naamkaartjes):
+      dat is het canvas. (bron: De raad, "👾 Pixel-iconen"; update 24)
+- [x] Een ander lettertype, want de 5 leek op een S. Gedaan: Jersey 10 (SIL
+      OFL, `client/fonts/`), wat groter gezet (`size-adjust`) zodat het even
+      veel plek neemt als Pixelify Sans. Het heeft één dikte, dus geen
+      nep-vet meer. Ook in de wereld. (bron: Richard via De raad, "andere
+      font want 5 is onduidelijk")
+- [x] Bugfix, meegenomen: mensen liepen door muren. Gedaan: wie over een muur
+      moet (geen poort), klimt er nu zichtbaar over: omhoog, langzaam (×0,3),
+      vóór de muur getekend. En wie onderweg is als er een gebouw, pad of muur
+      bijkomt, kiest meteen een nieuwe route, in plaats van de oude dwars
+      erdoor af te lopen (was een bekende beperking). (bron: Soufiane via De
+      raad, "De characters glitchen door de muren")
+
+### Update 26: Chat & kapsels
+Status: gepland. Ideeën van spelers via De raad (2026-10-28).
+
+- [ ] Een chat in het dorp, voor de spelers onder elkaar. (bron: Nathan,
+      "ik mis een interne chat")
+- [ ] Kapsels voor de mannetjes, nu is iedereen kaal. (bron: Soufiane,
+      "Haarstijlen toevoegen want nu is iedereen kaal xD")
+- [ ] Het woord "werk" gecensureerd als "w*rk". (bron: JJ, "het woord w*rk
+      censureren")
 
 ### Update 15: Liefde & trouwen
 Status: gepland. Steunt op update 14. Beide spelers moeten zelf ja zeggen
@@ -774,9 +814,6 @@ een update worden opgenomen als het past.
 - **Natuur onder een pad:** de natuurplek houdt haar volle voorraad. Werkgebouwen
   en verzamelaars in de buurt kunnen er dus nog uit "putten". In het dorp lopen
   verzamelaars er wel omheen.
-- **Dorpelingen onderweg:** wie al aan het lopen is als er een gebouw of pad
-  bijkomt, loopt die ronde nog de oude route. Pas de volgende keer kiest die
-  een nieuwe.
 - **Straten upgraden:** dit kost een vast bedrag per tijdperk, hoe groot het
   wegennet ook is.
 - **Stemmen voor de hello:** een stem van een verbinding die nog geen `hello`

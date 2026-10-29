@@ -10,6 +10,7 @@
 // "67 Beschaving", the shared town (world/).
 
 import { ERAS, IDLE_MILESTONE, type IdleClientMsg, type IdleEvent, type IdleStateMsg } from "@app/shared/idle";
+import { startPixelIcons } from "./pixelIcons";
 import { createTown } from "./world";
 
 interface CountMessage {
@@ -135,6 +136,7 @@ function render(msg: CountMessage): void {
 
 // ---------- town ----------
 
+startPixelIcons();
 const town = createTown((msg) => send(msg));
 
 function onIdleEvent(ev: IdleEvent): void {

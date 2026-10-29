@@ -58,7 +58,7 @@ import { clearBaked, drawBaked } from "./pixel";
 import { drawSprite, spritesLoaded, variant } from "./sprites";
 import { Camera, TILE_H, TILE_W, toTileSpace, toWorld } from "./iso";
 import { Wildlife } from "./animals";
-import { findPath, setTown } from "./path";
+import { findPath, setTown, wallLift } from "./path";
 import { buildingLights, drawNight, drawSunGlow, skyAt, streetLights, type Light } from "./night";
 import { Population, type Gather, type VillagerInfo } from "./villagers";
 
@@ -67,6 +67,8 @@ const DRAG_THRESHOLD = 6;
 const depthOf = (b: PlacedBuilding): number => Math.max(...tilesOf(b).map((t) => t.x + t.y));
 /** What a step over a wall costs the raiders, against 1 on open ground: climbing is slow. */
 const RAID_CLIMB = 6;
+/** How far up (world px) a villager on top of a wall is drawn. */
+const CLIMB_PX = 10;
 /** Players' NPCs are drawn this much bigger than the townsfolk. */
 const PLAYER_SCALE = 1.3;
 const MAX_PARTICLES = 400;
@@ -747,10 +749,13 @@ export function createWorld(opts: WorldOptions): TownWorld {
       const fx = v.x + 0.5 + v.ox;
       const fy = v.y + 0.5 + v.oy;
       const p = toWorld(fx, fy);
+      // Crossing a wall: up and over it, drawn in front of it.
+      const lift = wallLift(v.x, v.y);
+      p.y -= lift * CLIMB_PX;
       const look = pop.look(v, now);
       const ringed = v.id === selectedVillager;
       items.push({
-        d: fx + fy + 0.02,
+        d: fx + fy + 0.02 + (lift > 0 ? 1.1 : 0),
         f: () => {
           if (ringed) {
             ctx.beginPath();
@@ -819,7 +824,7 @@ export function createWorld(opts: WorldOptions): TownWorld {
       ctx.fillRect(p.x + p.vx * age - p.size / 2, p.y + p.vy * age + 120 * age * age - p.size / 2, p.size, p.size);
     }
     ctx.globalAlpha = 1;
-    ctx.font = "bold 13px Pixelify Sans, sans-serif";
+    ctx.font = '13px "Jersey 10", sans-serif';
     ctx.textAlign = "center";
     for (let i = floats.length - 1; i >= 0; i--) {
       const f = floats[i];
@@ -916,7 +921,8 @@ export function createWorld(opts: WorldOptions): TownWorld {
         wallsKey = fence;
         changed = true;
       }
-      if (changed) setTown(w.buildings, w.roads, w.walls, w.gates);
+      // Whoever is on the way goes round what is new (no walking through it).
+      if (changed && setTown(w.buildings, w.roads, w.walls, w.gates)) pop.reroute();
       world = w;
       roadLevel = w.roadLevel;
       walls = new Set(w.walls.map((i) => `${tileOf(i).x},${tileOf(i).y}`));

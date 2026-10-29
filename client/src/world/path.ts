@@ -38,15 +38,30 @@ function canWalk(x: number, y: number): boolean {
 const isOpen = (x: number, y: number, climb = 0): boolean =>
   canWalk(x, y) && !blocked.has(y * MAP_SIZE + x) && (climb > 0 || !walled.has(y * MAP_SIZE + x));
 
+/**
+ * How high up a wall someone at tile-space (x, y) is: 1 on top of it, 0 off it.
+ * Whoever crosses a wall climbs over it, slowly and in sight, instead of walking
+ * through it (also on a route from before the wall was there).
+ */
+export function wallLift(x: number, y: number): number {
+  const tx = Math.round(x);
+  const ty = Math.round(y);
+  if (!walled.has(ty * MAP_SIZE + tx)) return 0;
+  return Math.max(0, 1 - Math.hypot(x - tx, y - ty) / 0.75);
+}
+
 const sameSet = (a: Set<number>, b: Set<number>) => a.size === b.size && [...a].every((i) => b.has(i));
 
-/** The town changed: streets are quicker, bridges cross the river, buildings and walls are in the way. */
-export function setTown(buildings: readonly PlacedBuilding[], streets: readonly number[], walls: readonly number[] = [], gates: readonly number[] = []): void {
+/**
+ * The town changed: streets are quicker, bridges cross the river, buildings and walls
+ * are in the way. Returns whether the ways round town are different now.
+ */
+export function setTown(buildings: readonly PlacedBuilding[], streets: readonly number[], walls: readonly number[] = [], gates: readonly number[] = []): boolean {
   const tiles = new Map<number, number>();
   for (const b of buildings) for (const t of tilesOf(b)) tiles.set(t.y * MAP_SIZE + t.x, b.id);
   const next = new Set(tiles.keys());
   const shut = new Set(walls.filter((i) => !gates.includes(i)));
-  if (sameSet(next, blocked) && sameSet(shut, walled) && streets.length === roads.length && streets.every((i, k) => i === roads[k])) return;
+  if (sameSet(next, blocked) && sameSet(shut, walled) && streets.length === roads.length && streets.every((i, k) => i === roads[k])) return false;
   blocked = next;
   owner = tiles;
   walled = shut;
@@ -54,6 +69,7 @@ export function setTown(buildings: readonly PlacedBuilding[], streets: readonly 
   onRoad = new Set(streets);
   walkable = null;
   cache.clear();
+  return true;
 }
 
 /** The nearest walkable tile (deposits next to water, villagers spawned oddly). */

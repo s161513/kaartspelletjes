@@ -255,7 +255,7 @@ function renderScores(state: HeartsState, ctx: GameContext): void {
   for (const round of state.history) {
     const row = body.insertRow();
     row.append(el("td", "", round.moon ? `${round.round} 🌙` : String(round.round)));
-    for (const id of state.players) row.append(el("td", "", String(round.points[id])));
+    for (const id of state.players) row.append(el("td", "", round.points[id] === undefined ? "—" : String(round.points[id])));
   }
   const total = table.createTFoot().insertRow();
   total.append(el("td", "", "Total"));

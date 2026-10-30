@@ -157,6 +157,67 @@ test("playerView hides other hands and passes", () => {
   assert.equal(view.passed.a, true, "but everyone sees who has passed");
 });
 
+test("joiners wait through each phase and receive the latest score at the next deal", () => {
+  let s = game.init(["a", "b", "c"]);
+  s.scores = { a: 10, b: 10, c: 10 };
+  s = game.addPlayer!(s, "d");
+  assert.deepEqual(s.joining, ["d"]);
+  assert.equal(game.addPlayer!(s, "d"), s);
+  assert.equal(game.addPlayer!(s, "a"), s);
+  s = passAll(s);
+  s = game.addPlayer!(s, "e");
+  const waitingView = game.playerView!(s, "d") as HeartsState;
+  assert.equal(waitingView.hands.d, undefined);
+  assert.ok(Object.values(waitingView.hands).every((h) => h.every((card) => card === null)));
+  while (s.phase === "playing") s = playRandom(s);
+  s = game.addPlayer!(s, "f");
+  const latestHighest = Math.max(...Object.values(s.scores));
+  assert.ok(latestHighest > 10, "the completed round changed the highest score");
+  const history = structuredClone(s.history);
+  s = move(s, "a", { type: "nextRound" });
+  assert.deepEqual(s.players, ["a", "b", "c", "d", "e", "f"]);
+  assert.deepEqual(s.joining, []);
+  for (const id of ["d", "e", "f"]) assert.equal(s.scores[id], latestHighest);
+  assert.deepEqual(s.history, history);
+  assert.equal(s.history[0].points.d, undefined);
+  const view = game.playerView!(s, "d") as HeartsState;
+  assert.equal(view.hands.d.length, 8);
+  assert.ok(view.hands.d.every((card) => card !== null));
+  assert.ok(view.hands.a.every((card) => card === null));
+  const seats = game.seatedPlayers!(s);
+  seats.pop();
+  assert.equal(s.players.length, 6);
+});
+
+test("join queue is FIFO, bounded by seats, and pending departures do not end the game", () => {
+  let s = game.init(["a", "b", "c", "d", "e"]);
+  for (const id of ["f", "g", "h"]) s = game.addPlayer!(s, id);
+  s = game.playerLeft!(s, "g");
+  assert.deepEqual(s.joining, ["f", "h"]);
+  assert.equal(game.result(s).over, false);
+  assert.equal(game.playerLeft!(s, "unknown"), s);
+  s = passAll(s);
+  while (s.phase === "playing") s = playRandom(s);
+  s = move(s, "a", { type: "nextRound" });
+  assert.deepEqual(s.players, ["a", "b", "c", "d", "e", "f"]);
+  assert.deepEqual(s.joining, ["h"]);
+  assert.equal(game.result(s).over, false);
+  assert.equal(game.result(game.playerLeft!(s, "a")).over, true);
+});
+
+test("a finished game rejects joins and cannot restart", () => {
+  let s = game.init(["a", "b", "c"]);
+  s = game.addPlayer!(s, "d");
+  s.phase = "roundEnd";
+  s.scores.a = 100;
+  assert.equal(game.addPlayer!(s, "e"), s);
+  assert.equal(game.validateMove(s, "a", { type: "nextRound" }).ok, false);
+  const unchanged = game.applyMove(s, "a", { type: "nextRound" });
+  assert.deepEqual(unchanged, s);
+  const left = game.playerLeft!(game.init(["a", "b", "c"]), "a");
+  assert.equal(game.addPlayer!(left, "d"), left);
+});
+
 test("random games: every round is worth 26 and every game finishes", () => {
   for (let g = 0; g < 200; g++) {
     const players = ["a", "b", "c", "d", "e", "f"].slice(0, 3 + (g % 4));

@@ -19,6 +19,8 @@ export interface RoundResult {
 export interface HeartsState {
   /** Seat order; "left" is the next player in this list. */
   players: string[];
+  /** Spectators waiting for the next available round. */
+  joining: string[];
   /** Cards in hand. Other players' cards are `null` in a player's view. */
   hands: Record<string, (Card | null)[]>;
   phase: Phase;

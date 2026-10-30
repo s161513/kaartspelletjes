@@ -13,6 +13,7 @@ import {
   trickWinner,
 } from "./rules.js";
 import type { HeartsMove, HeartsState } from "./types.js";
+import meta from "./meta.js";
 
 // Hartenjagen: avoid hearts (1 point each) and ♠Q (13). Rounds continue until
 // someone reaches 100 points; the lowest score wins.
@@ -22,6 +23,12 @@ const nextPlayer = (state: HeartsState, id: string) =>
   state.players[(state.players.indexOf(id) + 1) % state.players.length];
 
 function startRound(state: HeartsState): void {
+  const admitted = state.joining.splice(0, Math.max(0, meta.maxPlayers - state.players.length));
+  const startingScore = Math.max(...state.players.map((id) => state.scores[id]));
+  for (const id of admitted) {
+    state.players.push(id);
+    state.scores[id] = startingScore;
+  }
   state.roundNumber += 1;
   const hands = dealHands(state.players);
   state.hands = Object.fromEntries(state.players.map((id) => [id, sortHand(hands[id])]));
@@ -93,6 +100,7 @@ const hartenjagen: Game<HeartsState, HeartsMove> = {
   init(playerIds) {
     const state: HeartsState = {
       players: [...playerIds],
+      joining: [],
       hands: {},
       phase: "passing",
       roundNumber: 0,
@@ -121,6 +129,7 @@ const hartenjagen: Game<HeartsState, HeartsMove> = {
     switch (move?.type) {
       case "nextRound":
         if (state.phase !== "roundEnd") return { ok: false, error: "The round is still running" };
+        if (hartenjagen.result(state).over) return { ok: false, error: "The game is over" };
         return { ok: true, move: { type: "nextRound" } };
 
       case "pass": {
@@ -157,7 +166,7 @@ const hartenjagen: Game<HeartsState, HeartsMove> = {
     const state = structuredClone(prev);
     switch (move.type) {
       case "nextRound":
-        startRound(state);
+        if (state.phase === "roundEnd" && !hartenjagen.result(state).over) startRound(state);
         break;
 
       case "pass":
@@ -189,8 +198,19 @@ const hartenjagen: Game<HeartsState, HeartsMove> = {
     return reached ? { over: true, winner: lowest(state) } : { over: false };
   },
 
-  // Hearts can't continue with a player missing: the game ends, lowest score wins.
+  addPlayer(state, playerId) {
+    if (hartenjagen.result(state).over || state.players.includes(playerId) || state.joining.includes(playerId)) return state;
+    return { ...state, joining: [...state.joining, playerId] };
+  },
+
+  seatedPlayers(state) {
+    return [...state.players];
+  },
+
+  // Hearts can't continue with a seated player missing: lowest score wins.
   playerLeft(state, playerId) {
+    if (state.joining.includes(playerId)) return { ...state, joining: state.joining.filter((id) => id !== playerId) };
+    if (!state.players.includes(playerId) || state.left.includes(playerId)) return state;
     return { ...state, left: [...state.left, playerId], toPlay: null };
   },
 

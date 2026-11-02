@@ -25,15 +25,17 @@ export interface LastTrick {
 export interface ExchangePair {
   winner: string; // a top-tier finisher (President first)
   loser: string; // the paired bottom-tier finisher (Scum first)
+  count: number; // cards exchanged in this pair: 2 for President↔Scum, 1 for the rest
 }
 
 // Between-hand card exchange. Pairs are a queue: the current pair is `pairs[0]`
-// and is shifted off once its give-back completes.
+// and is shifted off once its `count` cards have gone each way.
 export interface ExchangeState {
   pairs: ExchangePair[];
   step: "request" | "giveBack";
   lastMiss: string | null; // rank label the current loser just didn't have
   total: number; // original number of pairs, for "pair x of y" display
+  given: number; // cards already exchanged within the current pair
 }
 
 // Server-only authoritative state. Never sent to clients directly; every event
@@ -74,6 +76,8 @@ export interface ExchangeView {
   lastMiss: string | null;
   done: number; // pairs already completed
   total: number; // total pairs this exchange
+  count: number; // cards the current pair exchanges
+  given: number; // cards already exchanged within the current pair
 }
 
 // Explicit allowlist for the wire — the only shape a client ever receives.

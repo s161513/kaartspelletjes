@@ -503,12 +503,12 @@ function renderExchange(view: PresidentenView): void {
   const ex = view.exchange!;
 
   $(".pr-exchange-title").textContent =
-    `Card exchange — you ↔ ${name(ex.loser)} (${ex.done + 1}/${ex.total})`;
+    `Card exchange — you ↔ ${name(ex.loser)} (pair ${ex.done + 1}/${ex.total} · card ${Math.min(ex.given + 1, ex.count)}/${ex.count})`;
   $(".pr-exchange-msg").textContent = step === "request"
     ? ex.lastMiss
       ? `${name(ex.loser)} has no ${ex.lastMiss} — ask for another rank.`
-      : `Ask ${name(ex.loser)} for a rank they might have:`
-    : `Got it! Now pick a card from your hand to give back to ${name(ex.loser)}.`;
+      : `Ask ${name(ex.loser)} for a rank they might have (card ${ex.given + 1} of ${ex.count}):`
+    : `Got it! Now pick a card from your hand to give back to ${name(ex.loser)} (${ex.given}/${ex.count} done).`;
 
   const ranks = $(".pr-ranks");
   ranks.hidden = step !== "request";

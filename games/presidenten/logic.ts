@@ -249,8 +249,19 @@ export function applyMove(
       advanceTurn(next, seat);
     }
   } else if (next.currentCount === null) {
-    // Pass while leading a fresh trick: nothing to win, just rotate the lead.
-    rotateLead(next, seat);
+    // Pass while leading a fresh trick: nothing to win, just rotate the lead —
+    // unless everyone still holding cards has passed (e.g. only wild 2s left,
+    // which cannot be led alone): then nobody can ever lead, so the hand ends.
+    if (!next.passedThisTrick.includes(playerId)) next.passedThisTrick.push(playerId);
+    const active = activeIds(next);
+    if (active.length > 0 && active.every((id) => next.passedThisTrick.includes(id))) {
+      for (const id of active) {
+        if (!next.finished.includes(id)) next.finished.push(id);
+      }
+      endHand(next);
+    } else {
+      rotateLead(next, seat);
+    }
   } else {
     if (!next.passedThisTrick.includes(playerId)) next.passedThisTrick.push(playerId);
     advanceTurn(next, seat);
@@ -291,10 +302,20 @@ function applyExchange(
   const card = s.hands[pair.winner].find((c) => c.id === move.cardId)!;
   s.hands[pair.winner] = s.hands[pair.winner].filter((c) => c.id !== card.id);
   s.hands[pair.loser].push(card);
-  ex.pairs.shift();
+  ex.given += 1;
+  if (ex.given >= pair.count) {
+    // This pair has exchanged all its cards: move to the next pair.
+    ex.pairs.shift();
+    ex.given = 0;
+    if (ex.pairs.length === 0) {
+      ex.step = "request";
+      ex.lastMiss = null;
+      finishExchange(s);
+      return;
+    }
+  }
   ex.step = "request";
   ex.lastMiss = null;
-  if (ex.pairs.length === 0) finishExchange(s);
 }
 
 /** Set (or clear) the countdown for the player now on turn (PLAY phase only). */
@@ -373,7 +394,11 @@ function checkHandOver(s: PresidentenState): void {
   for (const id of active) {
     if (!s.finished.includes(id)) s.finished.push(id);
   }
+  endHand(s);
+}
 
+/** Close the hand and start the next one (roles, exchange) or end the game. */
+function endHand(s: PresidentenState): void {
   const present = presentFinishers(s);
   if (present.length < 3) {
     s.phase = "GAME_OVER";
@@ -394,7 +419,7 @@ function checkHandOver(s: PresidentenState): void {
     s.turnIndex = openerSeat(s); // the ♣3 holder opens
   } else {
     s.phase = "EXCHANGE";
-    s.exchange = { pairs, step: "request", lastMiss: null, total: pairs.length };
+    s.exchange = { pairs, step: "request", lastMiss: null, total: pairs.length, given: 0 };
   }
 }
 
@@ -506,6 +531,8 @@ export function playerView(
             lastMiss: ex.lastMiss,
             done: ex.total - ex.pairs.length,
             total: ex.total,
+            count: ex.pairs[0].count,
+            given: ex.given,
           }
         : null,
     lastTrick: state.lastTrick ? structuredClone(state.lastTrick) : null,
@@ -559,6 +586,7 @@ export function playerLeft(state: PresidentenState, playerId: string): President
       // The current pair changed (or was dropped): start it fresh.
       ex.step = "request";
       ex.lastMiss = null;
+      ex.given = 0;
     }
     armTimer(next, now);
     return next;

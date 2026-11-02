@@ -68,6 +68,22 @@ test("advanceRun burns on four of a rank, either at once or in a row", () => {
 // Move validation
 // ---------------------------------------------------------------------------
 
+test("a fresh trick where nobody can lead (only wild 2s left) ends the hand instead of looping", () => {
+  // A lone 2 is illegal to lead (wild needs a partner), so with only 2s left
+  // everyone must pass — that must end the hand, not pass in a circle forever.
+  let s = makeState({ a: "2h", b: "2s", c: "2c" }, { turnIndex: 0, currentCount: null });
+  s = applyMove(s, "a", pass);
+  assert.equal(s.phase, "PLAY");
+  assert.equal(s.players[s.turnIndex], "b", "lead rotated after a's pass");
+  s = applyMove(s, "b", pass);
+  assert.equal(s.phase, "PLAY");
+  assert.equal(s.players[s.turnIndex], "c");
+  s = applyMove(s, "c", pass);
+  assert.equal(s.phase, "EXCHANGE", "all active players passed: the hand ended");
+  assert.deepEqual(s.roles, { a: "president", b: "citizen", c: "scum" });
+  assert.deepEqual(s.exchange?.pairs, [{ winner: "a", loser: "c", count: 1 }]);
+});
+
 test("a leading pass is allowed and rotates the lead to the next player", () => {
   const s = makeState({ a: "7h", b: "8h", c: "9h" });
   assert.equal(validateMove(s, "a", pass).ok, true);
@@ -235,7 +251,7 @@ test("a finished hand rolls into the exchange, dealing fresh and keeping roles",
   assert.equal(after.phase, "EXCHANGE", "three players keep going into the next hand");
   assert.equal(after.round, 2, "a fresh hand was dealt");
   assert.deepEqual(after.roles, { a: "president", b: "citizen", c: "scum" });
-  assert.deepEqual(after.exchange?.pairs, [{ winner: "a", loser: "c" }]);
+  assert.deepEqual(after.exchange?.pairs, [{ winner: "a", loser: "c", count: 1 }]);
   assert.equal(game.result(after).over, false, "the game continues");
   assert.ok(after.hands.a.length > 0 && after.hands.c.length > 0, "everyone was re-dealt");
 });
@@ -317,12 +333,12 @@ test("standings split the field into thirds and pair winners with losers", () =>
     p7: "loser", p8: "vice-scum", p9: "scum",
   });
   assert.deepEqual(exchangePairs(nine), [
-    { winner: "p1", loser: "p9" },
-    { winner: "p2", loser: "p8" },
-    { winner: "p3", loser: "p7" },
+    { winner: "p1", loser: "p9", count: 3 },
+    { winner: "p2", loser: "p8", count: 2 },
+    { winner: "p3", loser: "p7", count: 1 },
   ]);
   assert.deepEqual(assignRoles(["a", "b", "c"]), { a: "president", b: "citizen", c: "scum" });
-  assert.deepEqual(exchangePairs(["a", "b", "c"]), [{ winner: "a", loser: "c" }]);
+  assert.deepEqual(exchangePairs(["a", "b", "c"]), [{ winner: "a", loser: "c", count: 1 }]);
   assert.deepEqual(assignRoles(["a", "b", "c", "d"]), {
     a: "president", b: "citizen", c: "citizen", d: "scum",
   });
@@ -331,15 +347,52 @@ test("standings split the field into thirds and pair winners with losers", () =>
     a: "president", b: "vice-president", c: "citizen", d: "vice-scum", e: "scum",
   });
   assert.deepEqual(exchangePairs(five), [
-    { winner: "a", loser: "e" },
-    { winner: "b", loser: "d" },
+    { winner: "a", loser: "e", count: 2 },
+    { winner: "b", loser: "d", count: 1 },
   ]);
   const eight = ["a", "b", "c", "d", "e", "f", "g", "h"];
   assert.deepEqual(exchangePairs(eight), [
-    { winner: "a", loser: "h" },
-    { winner: "b", loser: "g" },
+    { winner: "a", loser: "h", count: 3 },
+    { winner: "b", loser: "g", count: 2 },
+    { winner: "c", loser: "f", count: 1 },
   ]);
   assert.equal(assignRoles(eight).d, "citizen");
+});
+
+test("exchange pairings and card counts per player count (3-4: 2, 5-6: 2/1, 7-8: 3/2/1)", () => {
+  const six = ["p1", "p2", "p3", "p4", "p5", "p6"];
+  assert.deepEqual(assignRoles(six), {
+    p1: "president", p2: "vice-president", p3: "citizen", p4: "citizen",
+    p5: "vice-scum", p6: "scum",
+  });
+  assert.deepEqual(exchangePairs(six), [
+    { winner: "p1", loser: "p6", count: 2 },
+    { winner: "p2", loser: "p5", count: 1 },
+  ]);
+  const seven = ["p1", "p2", "p3", "p4", "p5", "p6", "p7"];
+  assert.deepEqual(exchangePairs(seven), [
+    { winner: "p1", loser: "p7", count: 3 },
+    { winner: "p2", loser: "p6", count: 2 },
+    { winner: "p3", loser: "p5", count: 1 },
+  ]);
+  assert.equal(assignRoles(seven).p4, "citizen", "the middle player stays a citizen");
+  // 3-4 players: only President↔Scum, one card (dynamic: tier 1 -> 1 card).
+  assert.deepEqual(exchangePairs(["a", "b", "c", "d"]), [{ winner: "a", loser: "d", count: 1 }]);
+});
+
+test("only the paired winner may drive the exchange — citizens and the loser cannot", () => {
+  const s = makeState(
+    { a: "Ah Kh 3h", b: "5h 6h", c: "9h 9s 4h" },
+    {
+      phase: "EXCHANGE",
+      roles: { a: "president", b: "citizen", c: "scum" },
+      exchange: { pairs: [{ winner: "a", loser: "c", count: 2 }], step: "request", lastMiss: null, total: 1, given: 0 },
+    },
+  );
+  assert.equal(validateMove(s, "a", request("9")).ok, true, "the paired winner may request");
+  assert.equal(validateMove(s, "c", request("9")).ok, false, "the loser cannot drive the exchange");
+  assert.equal(validateMove(s, "b", request("9")).ok, false, "a citizen cannot drive the exchange");
+  assert.equal(validateMove(s, "b", giveBack(id("5h"))).ok, false, "a citizen cannot give cards back");
 });
 
 test("the President asks the Scum for a rank: miss, then hit, then gives a card back", () => {
@@ -348,7 +401,7 @@ test("the President asks the Scum for a rank: miss, then hit, then gives a card 
     {
       phase: "EXCHANGE",
       roles: { a: "president", b: "citizen", c: "scum" },
-      exchange: { pairs: [{ winner: "a", loser: "c" }], step: "request", lastMiss: null, total: 1 },
+      exchange: { pairs: [{ winner: "a", loser: "c", count: 1 }], step: "request", lastMiss: null, total: 1, given: 0 },
     },
   );
   assert.equal(validateMove(s, "c", request("9")).ok, false, "the loser cannot drive the exchange");
@@ -370,6 +423,52 @@ test("the President asks the Scum for a rank: miss, then hit, then gives a card 
   assert.equal(done.exchange, null);
   assert.ok(done.hands.c.some((card) => card.id === id("3h")), "c received a's 3h");
   assert.equal(done.players[done.turnIndex], "b", "the ♣3 holder leads the new hand");
+});
+
+test("the top pair (President↔Scum) exchanges two cards, the next pair only one", () => {
+  const s = makeState(
+    { a: "Ah Kh 3h 4h", b: "5h", c: "9h 9s 8h 7h" },
+    {
+      phase: "EXCHANGE",
+      roles: { a: "president", b: "citizen", c: "scum" },
+      exchange: {
+        pairs: [
+          { winner: "a", loser: "c", count: 2 },
+          { winner: "b", loser: "c", count: 1 },
+        ],
+        step: "request",
+        lastMiss: null,
+        total: 2,
+        given: 0,
+      },
+    },
+  );
+
+  // First card: ask for a 9, give back the 3h.
+  let after = applyMove(s, "a", request("9"));
+  assert.equal(after.exchange?.step, "giveBack");
+  after = applyMove(after, "a", giveBack(id("3h")));
+  assert.equal(after.exchange?.step, "request", "one card done, the pair is not finished yet");
+  assert.equal(after.exchange?.given, 1);
+  assert.equal(after.exchange?.pairs.length, 2, "still on the first pair");
+  assert.equal(after.hands.c.filter((c) => c.id === id("3h")).length, 1);
+
+  // Second card: ask for the other 9, give back the 4h — the pair completes.
+  after = applyMove(after, "a", request("9"));
+  after = applyMove(after, "a", giveBack(id("4h")));
+  assert.equal(after.exchange?.given, 0, "counter reset for the next pair");
+  assert.equal(after.exchange?.pairs.length, 1, "moved on to the second pair");
+  assert.equal(after.exchange?.pairs[0].winner, "b");
+  assert.equal(after.exchange?.pairs[0].count, 1);
+  assert.equal(after.hands.a.filter((card) => card.rank === "9").length, 2, "a got both 9s");
+  assert.equal(after.hands.c.filter((card) => card.rank === "9").length, 0, "c gave up both 9s");
+
+  // The second pair exchanges a single card and the exchange finishes.
+  after = applyMove(after, "b", request("8"));
+  after = applyMove(after, "b", giveBack(id("5h")));
+  assert.equal(after.phase, "PLAY");
+  assert.equal(after.exchange, null);
+  assert.equal(after.hands.c.filter((card) => card.id === id("5h")).length, 1);
 });
 
 // ---------------------------------------------------------------------------

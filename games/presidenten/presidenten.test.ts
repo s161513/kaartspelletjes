@@ -317,8 +317,8 @@ test("standings split the field into thirds and pair winners with losers", () =>
     p7: "loser", p8: "vice-scum", p9: "scum",
   });
   assert.deepEqual(exchangePairs(nine), [
-    { winner: "p1", loser: "p9", count: 2 },
-    { winner: "p2", loser: "p8", count: 1 },
+    { winner: "p1", loser: "p9", count: 3 },
+    { winner: "p2", loser: "p8", count: 2 },
     { winner: "p3", loser: "p7", count: 1 },
   ]);
   assert.deepEqual(assignRoles(["a", "b", "c"]), { a: "president", b: "citizen", c: "scum" });
@@ -336,10 +336,47 @@ test("standings split the field into thirds and pair winners with losers", () =>
   ]);
   const eight = ["a", "b", "c", "d", "e", "f", "g", "h"];
   assert.deepEqual(exchangePairs(eight), [
-    { winner: "a", loser: "h", count: 2 },
-    { winner: "b", loser: "g", count: 1 },
+    { winner: "a", loser: "h", count: 3 },
+    { winner: "b", loser: "g", count: 2 },
+    { winner: "c", loser: "f", count: 1 },
   ]);
   assert.equal(assignRoles(eight).d, "citizen");
+});
+
+test("exchange pairings and card counts per player count (3-4: 2, 5-6: 2/1, 7-8: 3/2/1)", () => {
+  const six = ["p1", "p2", "p3", "p4", "p5", "p6"];
+  assert.deepEqual(assignRoles(six), {
+    p1: "president", p2: "vice-president", p3: "citizen", p4: "citizen",
+    p5: "vice-scum", p6: "scum",
+  });
+  assert.deepEqual(exchangePairs(six), [
+    { winner: "p1", loser: "p6", count: 2 },
+    { winner: "p2", loser: "p5", count: 1 },
+  ]);
+  const seven = ["p1", "p2", "p3", "p4", "p5", "p6", "p7"];
+  assert.deepEqual(exchangePairs(seven), [
+    { winner: "p1", loser: "p7", count: 3 },
+    { winner: "p2", loser: "p6", count: 2 },
+    { winner: "p3", loser: "p5", count: 1 },
+  ]);
+  assert.equal(assignRoles(seven).p4, "citizen", "the middle player stays a citizen");
+  // 3-4 players: only President↔Scum, two cards.
+  assert.deepEqual(exchangePairs(["a", "b", "c", "d"]), [{ winner: "a", loser: "d", count: 2 }]);
+});
+
+test("only the paired winner may drive the exchange — citizens and the loser cannot", () => {
+  const s = makeState(
+    { a: "Ah Kh 3h", b: "5h 6h", c: "9h 9s 4h" },
+    {
+      phase: "EXCHANGE",
+      roles: { a: "president", b: "citizen", c: "scum" },
+      exchange: { pairs: [{ winner: "a", loser: "c", count: 2 }], step: "request", lastMiss: null, total: 1, given: 0 },
+    },
+  );
+  assert.equal(validateMove(s, "a", request("9")).ok, true, "the paired winner may request");
+  assert.equal(validateMove(s, "c", request("9")).ok, false, "the loser cannot drive the exchange");
+  assert.equal(validateMove(s, "b", request("9")).ok, false, "a citizen cannot drive the exchange");
+  assert.equal(validateMove(s, "b", giveBack(id("5h"))).ok, false, "a citizen cannot give cards back");
 });
 
 test("the President asks the Scum for a rank: miss, then hit, then gives a card back", () => {

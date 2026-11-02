@@ -13,9 +13,6 @@ export const TURN_MS = 30_000;
 // (8 players × 6 cards from one deck is too thin, so 8 players get 2 decks).
 export const MIN_CARDS_PER_PLAYER = 7;
 
-// Cards the President↔Scum pair swaps; every other winner/loser pair swaps one.
-export const TOP_PAIR_EXCHANGE_COUNT = 2;
-
 // The ranks a President may ask for, in Presidenten order (3 … A, then 2).
 export const REQUEST_RANKS: readonly Rank[] = [
   "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A", "2",
@@ -33,13 +30,24 @@ export const ROLE_LABEL: Record<Role, string> = {
 };
 
 /**
- * How many winners (and as many losers) a field of `n` has: roughly a third,
- * but from 5 players on at least two, so there is always a Vice-President and
- * Vice-Scum (5 players: P VP · C · VS S).
+ * How many winners (and as many losers) a field of `n` has: one pair for
+ * 3–4 players, two for 5–6, three for 7–8, and so on (ceil(n/3) from 5 up),
+ * so there is always a President/Scum and, from 5 up, a Vice-President and
+ * Vice-Scum (5 players: P VP · C · VS S; 7 players: P VP W · C · L VS S).
+ * The middle of the field stays citizens and never exchanges.
  */
 export function tierSize(n: number): number {
-  const third = Math.floor(n / 3);
-  return n >= 5 ? Math.max(2, third) : third;
+  return n <= 4 ? 1 : Math.ceil(n / 3);
+}
+
+/**
+ * Cards pair `i` exchanges (0 = President↔Scum): descending from the tier
+ * size — 3, 2, 1 with three pairs (7–8 players), 2, 1 with two (5–6), and the
+ * top pair always at least 2 (3–4 players). Capped so it can never exceed a
+ * dealt hand.
+ */
+export function exchangeCount(tier: number, i: number): number {
+  return Math.min(5, Math.max(i === 0 ? 2 : 1, tier - i));
 }
 
 /**
@@ -67,8 +75,9 @@ export function assignRoles(finished: readonly string[]): Record<string, Role> {
 
 /**
  * Pair the i-th best winner with the i-th worst loser (President↔Scum first),
- * for `tierSize(n)` pairs. Citizens in the middle do not exchange. The top
- * pair (President↔Scum) exchanges two cards, the others one.
+ * for `tierSize(n)` pairs. Citizens in the middle do not exchange. Pair i
+ * exchanges `exchangeCount(tier, i)` cards: 2/1 for 5–6 players, 3/2/1 for
+ * 7–8, and always at least 2 for the President↔Scum pair.
  */
 export function exchangePairs(finished: readonly string[]): ExchangePair[] {
   const n = finished.length;
@@ -78,7 +87,7 @@ export function exchangePairs(finished: readonly string[]): ExchangePair[] {
     pairs.push({
       winner: finished[i],
       loser: finished[n - 1 - i],
-      count: i === 0 ? TOP_PAIR_EXCHANGE_COUNT : 1,
+      count: exchangeCount(tier, i),
     });
   }
   return pairs;

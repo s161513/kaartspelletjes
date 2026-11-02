@@ -1,4 +1,4 @@
-import type { Game } from "@app/shared";
+import { secureRandom, type Game } from "@app/shared";
 import type { TicTacToeState, TicTacToeMove } from "./types.js";
 
 const LINES = [
@@ -83,6 +83,28 @@ const ticTacToe: Game<TicTacToeState, TicTacToeMove> = {
     if (winner) return { over: true, winner };
     if (state.board.every((c) => c !== null)) return { over: true, winner: "draw" };
     return { over: false };
+  },
+
+  /** Bot: win if possible, block if needed, otherwise a random empty cell. */
+  botMove(state, playerId) {
+    if (state.turn !== playerId) return null;
+    const mine = state.marks[playerId];
+    const theirs = Object.values(state.marks).find((m) => m !== mine)!;
+    const empty = state.board.flatMap((v, i) => (v === null ? [i] : []));
+    const lineCell = (mark: string) => {
+      for (const [a, b, c] of LINES) {
+        const cells = [state.board[a], state.board[b], state.board[c]];
+        if (cells.filter((v) => v === mark).length === 2 && cells.some((v) => v === null)) {
+          return [a, b, c][cells.findIndex((v) => v === null)];
+        }
+      }
+      return null;
+    };
+    const win = lineCell(mine);
+    if (win !== null) return { cell: win };
+    const block = lineCell(theirs);
+    if (block !== null) return { cell: block };
+    return { cell: empty[Math.floor(secureRandom() * empty.length)] };
   },
 };
 

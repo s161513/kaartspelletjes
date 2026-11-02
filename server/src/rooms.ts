@@ -16,8 +16,10 @@ export interface Player {
   nickname: string;
   /** Private seat token (never sent to other players); checked on rejoin. */
   secret: string;
-  ws: WebSocket | null; // null while disconnected (seat kept for rejoin)
+  ws: WebSocket | null; // null while disconnected (seat kept for rejoin) or for bots
   connected: boolean;
+  /** Bot seat: no socket, never host, driven by the game's `botMove`. */
+  isBot?: boolean;
   /** Spectator only: they flipped "join next round" and are queued to be dealt in. */
   wantsPlay?: boolean;
   /** Pending removal while disconnected (see RoomManager.goneAfterMs). */
@@ -171,7 +173,8 @@ export class RoomManager {
   addPlayer(room: Room, player: Player): void {
     this.cancelPrune(room);
     room.players.set(player.id, player);
-    if (!room.hostId) room.hostId = player.id;
+    // A bot never becomes host.
+    if (!room.hostId && !player.isBot) room.hostId = player.id;
   }
 
   /** Seat a watcher. Never becomes host and is never passed to game logic. */
@@ -229,9 +232,9 @@ export class RoomManager {
     p.ws = null;
     this.updateGamePlayers(room);
 
-    // Reassign host to another connected player if the host dropped.
+    // Reassign host to another connected human player if the host dropped.
     if (room.hostId === playerId) {
-      const next = [...room.players.values()].find((x) => x.connected);
+      const next = [...room.players.values()].find((x) => x.connected && !x.isBot);
       room.hostId = next ? next.id : room.hostId;
     }
 
@@ -243,20 +246,24 @@ export class RoomManager {
     room.players.delete(playerId);
     this.updateGamePlayers(room);
     if (room.hostId === playerId) {
-      const next = [...room.players.values()].find((x) => x.connected);
+      const next = [...room.players.values()].find((x) => x.connected && !x.isBot);
       room.hostId = next ? next.id : null;
     }
     this.pruneIfEmpty(room);
   }
 
+  /** A room counts as empty when no human is connected (bots alone don't keep it alive). */
+  private anyHumanConnected(room: Room): boolean {
+    return [...room.players.values()].some((x) => x.connected && !x.isBot);
+  }
+
   private pruneIfEmpty(room: Room): void {
-    const anyConnected = [...room.players.values()].some((x) => x.connected);
-    if (anyConnected) return;
+    if (this.anyHumanConnected(room)) return;
     // Delay deletion so navigation/reconnect (a brief socket drop) can recover
     // the room via `rejoin` before it disappears.
     if (room.pruneTimer) return;
     room.pruneTimer = setTimeout(() => {
-      const stillEmpty = ![...room.players.values()].some((x) => x.connected);
+      const stillEmpty = !this.anyHumanConnected(room);
       if (stillEmpty) {
         clearTimeout(room.runtime?.timer);
         this.rooms.delete(room.code);
@@ -270,6 +277,7 @@ export class RoomManager {
       id: p.id,
       nickname: p.nickname,
       connected: p.connected,
+      isBot: !!p.isBot,
     }));
   }
 
@@ -399,6 +407,50 @@ export class RoomManager {
       [...room.players.values()].filter(p => p.connected).map(p => p.id), [...room.players.keys()]);
     this.sendGame(room, "gameState");
     this.scheduleGame(room);
+    this.driveBots(room);
+  }
+
+  /**
+   * Store a new game state and send it out, ending the game if it is over —
+   * then let any bot seats act. `depth` caps the bot-move chain.
+   */
+  publish(room: Room, next: unknown, depth = 0): void {
+    const runtime = room.runtime!;
+    runtime.state = next;
+    if (runtime.game.result(next).over) {
+      clearTimeout(runtime.timer);
+      this.sendGame(room, "gameOver");
+      room.lastGame = runtime;
+      room.runtime = null;
+      this.sendRoomState(room);
+    } else {
+      // Seat any committed watcher the new state has dealt in, before projecting.
+      const migrated = this.reconcileJoiners(room);
+      this.sendGame(room, "gameState");
+      this.scheduleGame(room);
+      if (migrated.length) this.sendRoomState(room);
+    }
+    this.driveBots(room, depth);
+  }
+
+  /**
+   * Let bot seats act: ask the game for each bot's move (`botMove`), validate
+   * it and publish the result — which re-enters `driveBots` for the next bot
+   * (or the same one) until no bot acts or the game ends.
+   */
+  driveBots(room: Room, depth = 0): void {
+    const runtime = room.runtime;
+    if (!runtime?.game.botMove || depth > 100) return;
+    for (const p of room.players.values()) {
+      if (!p.isBot || !p.connected) continue;
+      if (runtime.playerIds && !runtime.playerIds.includes(p.id)) continue;
+      const raw = runtime.game.botMove(runtime.state, p.id);
+      if (raw === null || raw === undefined) continue;
+      const checked = runtime.game.validateMove(runtime.state, p.id, raw);
+      if (!checked.ok) continue;
+      this.publish(room, runtime.game.applyMove(runtime.state, p.id, checked.move), depth + 1);
+      return;
+    }
   }
 
   /** Games without timed transitions retain the original request/response flow. */
@@ -424,6 +476,7 @@ export class RoomManager {
         this.scheduleGame(room);
         if (migrated.length) this.sendRoomState(room);
       }
+      this.driveBots(room);
     }, Math.max(0, delay));
   }
 

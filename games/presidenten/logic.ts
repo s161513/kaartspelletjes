@@ -4,7 +4,7 @@ import {
 } from "@app/shared";
 import {
   advanceRun, assignRoles, effectiveRank, exchangePairs, hasLegalFollow,
-  MIN_CARDS_PER_PLAYER, rankLabel, TURN_MS,
+  MIN_CARDS_PER_PLAYER, orderValue, rankLabel, REQUEST_RANKS, TURN_MS,
 } from "./rules.js";
 import type {
   PresidentenMove, PresidentenState, PresidentenView,
@@ -614,6 +614,64 @@ export function playerLeft(state: PresidentenState, playerId: string): President
   return next;
 }
 
+/**
+ * Bot strategy. Exchange: ask for the strongest rank it lacks (2, A, K, …),
+ * give back its weakest non-2 card. Play: open with the ♣3, lead with the
+ * lowest single, follow with the cheapest group that meets the count and
+ * rank, and pass when it cannot follow.
+ */
+export function botMove(state: PresidentenState, playerId: string): PresidentenMove | null {
+  if (!state.players.includes(playerId) || state.left.includes(playerId)) return null;
+  if (state.phase === "GAME_OVER") return null;
+
+  if (state.phase === "EXCHANGE") {
+    const ex = state.exchange!;
+    const pair = ex.pairs[0];
+    if (!pair || pair.winner !== playerId) return null;
+    if (ex.step === "request") {
+      const have = new Set((state.hands[playerId] ?? []).map((c) => c.rank));
+      const rank = REQUEST_RANKS.find((r) => !have.has(r)) ?? "2";
+      return { type: "request", rank };
+    }
+    const sorted = [...(state.hands[playerId] ?? [])].sort(
+      (a, b) => orderValue(a.rank) - orderValue(b.rank) || a.suit.localeCompare(b.suit),
+    );
+    const card = sorted.find((c) => c.rank !== "2") ?? sorted[0];
+    return card ? { type: "giveBack", cardId: card.id } : null;
+  }
+
+  if (state.players[state.turnIndex] !== playerId) return null;
+  const hand = state.hands[playerId] ?? [];
+  if (!hand.length) return null;
+  if (mustOpenWithClubs(state, playerId)) return { type: "play", cardIds: [OPENER_ID] };
+
+  if (state.currentCount === null) {
+    const sorted = [...hand].sort((a, b) => orderValue(a.rank) - orderValue(b.rank));
+    // A lone 2 is not a legal lead (wild needs a partner) — pass instead.
+    if (sorted[0].rank === "2") return { type: "pass" };
+    return { type: "play", cardIds: [sorted[0].id] };
+  }
+
+  const minCount = state.currentCount;
+  const minValue = state.currentRankValue ?? 0;
+  const twos = hand.filter((c) => c.rank === "2");
+  const byRank = new Map<number, Card[]>();
+  for (const c of hand) {
+    if (c.rank === "2") continue;
+    const v = RANK_VALUES[c.rank];
+    if (!byRank.has(v)) byRank.set(v, []);
+    byRank.get(v)!.push(c);
+  }
+  for (const [v, cards] of [...byRank.entries()].sort((a, b) => a[0] - b[0])) {
+    if (v < minValue) continue;
+    if (cards.length + twos.length < minCount) continue;
+    const picked = cards.slice(0, minCount);
+    while (picked.length < minCount) picked.push(twos[picked.length - cards.length]);
+    return { type: "play", cardIds: picked.map((c) => c.id) };
+  }
+  return { type: "pass" };
+}
+
 export default {
   init: createGame,
   validateMove,
@@ -630,4 +688,5 @@ export default {
   nextUpdateIn: (state) =>
     state.deadline === null ? null : Math.max(0, state.deadline - Date.now()),
   advance: (state) => advance(state),
+  botMove,
 } satisfies Game<PresidentenState, PresidentenMove>;

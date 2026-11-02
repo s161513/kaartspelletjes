@@ -514,6 +514,20 @@ button.secondary:hover:not(:disabled) {
   color: var(--danger);
 }
 
+.chip-remove {
+  border: none;
+  background: rgba(0, 0, 0, 0.3);
+  color: var(--muted);
+  border-radius: 999px;
+  font-size: 0.68rem;
+  padding: 0.05rem 0.45rem;
+  cursor: pointer;
+}
+
+.chip-remove:hover {
+  color: var(--danger);
+}
+
 #spectatorsBox {
   margin-top: 1rem;
 }

@@ -89,6 +89,15 @@ export interface Game<State = unknown, Move = unknown> {
   advance?(state: State): State;
 
   /**
+   * Optional: the move a bot seat should play now, or null when the bot should
+   * not act (not its turn, waiting on a timer, …). After every state change the
+   * server calls this for each bot in the game, validates the result with
+   * `validateMove` and applies it — a bot is just a seat without a socket.
+   * Games without `botMove` simply have no bots.
+   */
+  botMove?(state: State, playerId: string): Move | null;
+
+  /**
    * Optional: room members connected, disconnected or left. `connectedIds` are
    * online now, `memberIds` are still in the room (e.g. pause while fewer than
    * two players are online). Called alongside `playerLeft` when someone leaves.

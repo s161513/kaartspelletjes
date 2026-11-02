@@ -18,6 +18,7 @@ const hintEl = document.getElementById("hint") as HTMLParagraphElement;
 const spectatorsBox = document.getElementById("spectatorsBox") as HTMLDivElement;
 const spectatorsEl = document.getElementById("spectators") as HTMLUListElement;
 const joinAsPlayerBtn = document.getElementById("joinAsPlayer") as HTMLButtonElement;
+const addBotBtn = document.getElementById("addBot") as HTMLButtonElement;
 
 const socket = new GameSocket();
 setupChat(
@@ -55,8 +56,14 @@ for (const meta of [...GAME_LIST].sort((a, b) => a.title.localeCompare(b.title))
   gameListEl.appendChild(tile);
 }
 
-/** A player chip: coloured initial, name, and optional badges. */
-function personChip(nickname: string, isYou: boolean, connected: boolean, badges: string[]): HTMLLIElement {
+/** A player chip: coloured initial, name, optional badges, and a remove button for bots. */
+function personChip(
+  nickname: string,
+  isYou: boolean,
+  connected: boolean,
+  badges: string[],
+  onRemoveBot?: () => void,
+): HTMLLIElement {
   const li = el("li", connected ? "" : "is-away");
   const avatar = el("span", "avatar", nickname.charAt(0).toUpperCase());
   avatar.style.setProperty("--hue", String(hue(nickname)));
@@ -64,14 +71,28 @@ function personChip(nickname: string, isYou: boolean, connected: boolean, badges
   if (isYou) name.append(el("span", "you", " (you)"));
   li.append(avatar, name);
   for (const b of badges) li.append(el("span", `badge ${b}`, b === "off" ? "away" : b));
+  if (onRemoveBot) {
+    const rm = el("button", "chip-remove", "✖");
+    rm.type = "button";
+    rm.title = "Remove bot";
+    rm.addEventListener("click", onRemoveBot);
+    li.append(rm);
+  }
   return li;
 }
 
 function renderPlayers(players: PlayerPublic[], hostId: string): void {
   playersEl.innerHTML = "";
+  const isHost = hostId === session.playerId;
   for (const p of players) {
-    const badges = [p.id === hostId ? "host" : "", p.connected ? "" : "off"].filter(Boolean);
-    playersEl.appendChild(personChip(p.nickname, p.id === session.playerId, p.connected, badges));
+    const badges = [p.id === hostId ? "host" : "", p.connected ? "" : "off", p.isBot ? "🤖" : ""].filter(Boolean);
+    playersEl.appendChild(personChip(
+      p.nickname,
+      p.id === session.playerId,
+      p.connected,
+      badges,
+      p.isBot && isHost ? () => socket.send({ type: "removeBot", playerId: p.id }) : undefined,
+    ));
   }
 }
 
@@ -82,9 +103,18 @@ function renderSpectators(spectators: SpectatorPublic[]): void {
   for (const s of spectators) {
     spectatorsEl.appendChild(personChip(s.nickname, s.id === session.playerId, s.connected, s.connected ? [] : ["off"]));
   }
+  // Bots are a lobby feature: the host can add them while no game is running.
+  addBotBtn.hidden = !(hostIdRef === session.playerId && !currentGameId);
   // A watcher who ended up back in the lobby can take a seat for the next game.
   joinAsPlayerBtn.hidden = !amSpectator;
 }
+
+let hostIdRef = "";
+let currentGameId: string | null = null;
+
+addBotBtn.addEventListener("click", () => {
+  socket.send({ type: "addBot" });
+});
 
 function fits(meta: GameMeta, count: number): boolean {
   return count >= meta.minPlayers && count <= meta.maxPlayers;
@@ -119,6 +149,8 @@ sessionStorage.removeItem("cg.notice");
 
 socket.on("roomState", (msg) => {
   showRoomName(msg.roomName, msg.locked);
+  hostIdRef = msg.hostId;
+  currentGameId = msg.currentGameId;
   renderPlayers(msg.players, msg.hostId);
   updateGameButtons(msg.players, msg.hostId);
   renderSpectators(msg.spectators ?? []);
@@ -134,6 +166,7 @@ socket.on("joined", (msg) => {
   showRoomName(msg.roomName, msg.locked);
   session.secret = msg.secret;
   session.role = msg.role ?? "player";
+  hostIdRef = msg.hostId;
   renderSpectators(msg.spectators ?? []);
 });
 

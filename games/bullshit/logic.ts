@@ -1,13 +1,11 @@
-import { randomInt, randomUUID } from "node:crypto";
-import { deal, type Game, type MoveResult } from "@app/shared";
+import { randomUUID } from "node:crypto";
+import { deal, RANK_VALUES, secureRandom, type Game, type MoveResult, type Rank } from "@app/shared";
 import {
   BULLSHIT_WINDOW_MS, REVEAL_MS, CLAIM_RANKS,
   type BullshitState, type BullshitView, type BullshitMove,
 } from "./types.js";
 
 import { getAllowedClaimRanks, getMinimumPlayCount } from "./rules.js";
-
-const secureRandom = () => randomInt(0x100000000) / 0x100000000;
 
 export function createGame(playerIds: string[], rng = secureRandom, roundId: string = randomUUID()): BullshitState {
   if (playerIds.length < 2 || playerIds.length > 8 || new Set(playerIds).size !== playerIds.length) {
@@ -129,6 +127,38 @@ export function playerView(state: BullshitState, playerId: string, now = Date.no
   };
 }
 
+/**
+ * Bot strategy: on its turn, play the minimum number of lowest cards under a
+ * modest claim (the current rank). During a challenge window, call bluff when
+ * the claim looks steep (high rank or many cards), otherwise let it pass.
+ */
+export function botMove(state: BullshitState, playerId: string): BullshitMove | null {
+  if (!state.players.includes(playerId) || state.phase === "GAME_OVER") return null;
+  if (state.phase === "TURN") {
+    if (state.players[state.turnIndex] !== playerId) return null;
+    const hand = [...state.hands[playerId]].sort(
+      (a, b) => RANK_VALUES[a.rank] - RANK_VALUES[b.rank] || a.suit.localeCompare(b.suit),
+    );
+    const minimum = getMinimumPlayCount(state);
+    const allowed = getAllowedClaimRanks(CLAIM_RANKS[state.rankIndex]);
+    const claimedRank = allowed[1] as Rank; // claim the rank that is already on the table
+    return {
+      type: "playCards",
+      cardIds: hand.slice(0, minimum).map((c) => c.id),
+      claimedRank,
+      playVersion: state.version,
+      roundId: state.roundId,
+    };
+  }
+  if (state.phase === "CHALLENGE_WINDOW" && state.lastPlay && state.lastPlay.playerId !== playerId) {
+    const steep = RANK_VALUES[state.lastPlay.rank] >= RANK_VALUES["Q"] || state.lastPlay.cards.length >= 3;
+    if (steep && secureRandom() < 0.7) {
+      return { type: "challenge", playId: state.lastPlay.id, roundId: state.roundId };
+    }
+  }
+  return null;
+}
+
 export default {
   init: createGame,
   validateMove,
@@ -137,4 +167,5 @@ export default {
   playerView,
   advance,
   nextUpdateIn: state => state.deadline === null ? null : Math.max(0, state.deadline - Date.now()),
+  botMove,
 } satisfies Game<BullshitState, BullshitMove>;

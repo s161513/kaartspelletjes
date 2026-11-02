@@ -1,4 +1,4 @@
-import { sortHand, type Card, type Game } from "@app/shared";
+import { RANK_VALUES, sortHand, type Card, type Game } from "@app/shared";
 import {
   GAME_END_SCORE,
   PASS_COUNT,
@@ -223,6 +223,29 @@ const hartenjagen: Game<HeartsState, HeartsMove> = {
       passes: playerId in state.passes ? { [playerId]: state.passes[playerId] } : {},
       received: playerId in state.received ? { [playerId]: state.received[playerId] } : {},
     } satisfies HeartsState;
+  },
+
+  /**
+   * Bot: next round when the round ended; when passing, hand over the three
+   * most dangerous cards (♠Q, high hearts); when playing, the cheapest legal
+   * card (fewest points, then lowest rank).
+   */
+  botMove(state, playerId) {
+    if (!state.players.includes(playerId) || state.left.includes(playerId)) return null;
+    if (state.phase === "roundEnd") return { type: "nextRound" };
+    if (state.phase === "passing") {
+      if (state.passed[playerId]) return null;
+      const sorted = [...hand(state, playerId)].sort(
+        (a, b) => points(b) - points(a) || RANK_VALUES[a.rank] - RANK_VALUES[b.rank],
+      );
+      return { type: "pass", cards: sorted.slice(0, PASS_COUNT).map((c) => c.id) };
+    }
+    if (state.toPlay !== playerId) return null;
+    const legal = legalPlays(hand(state, playerId), state.trick, state.tricksPlayed === 0, state.heartsBroken);
+    const card = [...legal].sort(
+      (a, b) => points(a) - points(b) || RANK_VALUES[a.rank] - RANK_VALUES[b.rank],
+    )[0];
+    return card ? { type: "play", card: card.id } : null;
   },
 };
 

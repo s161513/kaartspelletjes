@@ -4,7 +4,7 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import WebSocket, { WebSocketServer } from "ws";
 import type { JoinedMsg, RoomStateMsg, ServerMessage } from "@app/shared";
-import { RoomManager } from "../server/src/rooms.ts";
+import { RoomManager, BOT_MOVE_DELAY_MS } from "../server/src/rooms.ts";
 import { attachConnection } from "../server/src/handlers.ts";
 import { loadGames, games } from "../server/src/games/loader.ts";
 
@@ -121,28 +121,39 @@ test("a bot seat plays automatically: tic-tac-toe human vs bot runs to gameOver"
     assert.equal(started.state.turn, joined.playerId, "the human (first seat) opens");
 
     // Play moves until the game ends; after each human move the bot must
-    // answer on its own (extra gameState / gameOver without us sending).
+    // answer on its own (extra gameState / gameOver without us sending),
+    // and not instantly: there is a human-like pause before the bot plays.
     let last: any = started.state;
     let sawBotReply = false;
+    let firstSendAt = 0;
+    let botReplyAt = 0;
     for (let step = 0; step < 9; step++) {
       const empty = last.board.map((v: any, i: number) => (v === null ? i : -1)).filter((i: number) => i >= 0);
       if (!empty.length) break;
       const marksBefore = last.board.filter(Boolean).length;
+      if (!firstSendAt) firstSendAt = Date.now();
       host.send({ type: "move", move: { cell: empty[0] } });
       for (;;) {
         const next = await host.wait(
           (m) => m.type === "gameOver" || (m.type === "gameState" && (m as any).state.board.filter(Boolean).length > marksBefore),
-          5000,
+          8000,
         ).catch(() => null);
         if (!next) break;
         if (next.type === "gameOver") { last = null; break; }
         last = next.state;
-        if (last.board.filter(Boolean).length > marksBefore + 1) sawBotReply = true;
+        if (last.board.filter(Boolean).length > marksBefore + 1) {
+          sawBotReply = true;
+          if (!botReplyAt) botReplyAt = Date.now();
+        }
         if (last.turn === joined.playerId) break; // bot answered, our turn again
       }
       if (!last) break;
     }
     assert.ok(sawBotReply, "the bot answered at least once without being asked");
+    assert.ok(
+      botReplyAt - firstSendAt >= BOT_MOVE_DELAY_MS - 150,
+      `bot paused before playing (${botReplyAt - firstSendAt}ms >= ~${BOT_MOVE_DELAY_MS}ms)`,
+    );
     const room = manager.getRoom(joined.roomCode)!;
     assert.equal(room.runtime, null, "the game ended (bot chain finished)");
   } finally {

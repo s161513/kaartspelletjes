@@ -100,6 +100,7 @@ function playerLeftGame(manager: RoomManager, room: Room, playerId: string): voi
     (p) => p.connected && (!runtime.playerIds || runtime.playerIds.includes(p.id)),
   );
   clearTimeout(runtime.timer);
+  clearTimeout(runtime.botTimer);
   manager.sendGame(room, "gameOver", {
     winner: remaining.length === 1 ? remaining[0].id : "draw",
   });
@@ -229,6 +230,7 @@ function leaveRoom(
         // The host left mid-game: end the game for everyone and return to the
         // lobby, so the remaining players are not stuck in a hostless game.
         clearTimeout(runtime.timer);
+        clearTimeout(runtime.botTimer);
         room.runtime = null;
         room.lastGame = undefined;
         for (const s of room.spectators.values()) delete s.wantsPlay;
@@ -524,6 +526,7 @@ function handle(conn: Conn, manager: RoomManager, msg: ClientMessage): void {
       if (!room.runtime && !room.lastGame) return err(ws, "no_game", "No game to end");
 
       clearTimeout(room.runtime?.timer);
+      clearTimeout(room.runtime?.botTimer);
       room.runtime = null;
       room.lastGame = undefined;
       // Watchers stay watchers in the lobby; a queued "join next round" is moot.

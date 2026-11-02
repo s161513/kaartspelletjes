@@ -33,7 +33,13 @@ export interface GameRuntime {
   playerIds?: string[];
   state: GameState;
   timer?: ReturnType<typeof setTimeout>;
+  /** Pending bot move (bots "think" for a moment before playing). */
+  botTimer?: ReturnType<typeof setTimeout>;
 }
+
+/** How long a bot waits before its move is applied, plus random jitter. */
+export const BOT_MOVE_DELAY_MS = 600;
+const BOT_MOVE_JITTER_MS = 600;
 
 export interface Room {
   code: string;
@@ -266,6 +272,7 @@ export class RoomManager {
       const stillEmpty = !this.anyHumanConnected(room);
       if (stillEmpty) {
         clearTimeout(room.runtime?.timer);
+        clearTimeout(room.runtime?.botTimer);
         this.rooms.delete(room.code);
         this.notifyRoomWatchers();
       }
@@ -419,6 +426,7 @@ export class RoomManager {
     runtime.state = next;
     if (runtime.game.result(next).over) {
       clearTimeout(runtime.timer);
+      clearTimeout(runtime.botTimer);
       this.sendGame(room, "gameOver");
       room.lastGame = runtime;
       room.runtime = null;
@@ -434,9 +442,9 @@ export class RoomManager {
   }
 
   /**
-   * Let bot seats act: ask the game for each bot's move (`botMove`), validate
-   * it and publish the result — which re-enters `driveBots` for the next bot
-   * (or the same one) until no bot acts or the game ends.
+   * Let bot seats act: find the first bot with a valid move (`botMove`) and
+   * schedule it after a short human-like pause. When it fires, `publish`
+   * re-enters `driveBots` for the next bot, until no bot acts or the game ends.
    */
   driveBots(room: Room, depth = 0): void {
     const runtime = room.runtime;
@@ -448,9 +456,31 @@ export class RoomManager {
       if (raw === null || raw === undefined) continue;
       const checked = runtime.game.validateMove(runtime.state, p.id, raw);
       if (!checked.ok) continue;
-      this.publish(room, runtime.game.applyMove(runtime.state, p.id, checked.move), depth + 1);
+      this.scheduleBotMove(room, p.id, checked.move, depth);
       return;
     }
+  }
+
+  /** Apply a bot's move after a short delay; re-validate at fire time. */
+  private scheduleBotMove(room: Room, playerId: string, move: unknown, depth: number): void {
+    const runtime = room.runtime;
+    if (!runtime) return;
+    clearTimeout(runtime.botTimer);
+    const delay = BOT_MOVE_DELAY_MS + randomInt(BOT_MOVE_JITTER_MS);
+    runtime.botTimer = setTimeout(() => {
+      runtime.botTimer = undefined;
+      // The game may have ended or been replaced, or the bot removed, meanwhile.
+      if (room.runtime !== runtime) return;
+      const seat = room.players.get(playerId);
+      if (!seat?.isBot || !seat.connected) return;
+      // Timers may have changed the state since scheduling: re-validate.
+      const checked = runtime.game.validateMove(runtime.state, playerId, move);
+      if (!checked.ok) {
+        this.driveBots(room, depth);
+        return;
+      }
+      this.publish(room, runtime.game.applyMove(runtime.state, playerId, checked.move), depth + 1);
+    }, delay);
   }
 
   /** Games without timed transitions retain the original request/response flow. */
@@ -486,6 +516,7 @@ export class RoomManager {
       for (const p of [...room.players.values(), ...room.spectators.values()]) clearTimeout(p.goneTimer);
       clearTimeout(room.pruneTimer ?? undefined);
       clearTimeout(room.runtime?.timer);
+      clearTimeout(room.runtime?.botTimer);
     }
   }
 

@@ -181,3 +181,101 @@ test("host can end a game: everyone gets gameEnded, the room returns to its lobb
     await new Promise<void>((resolve) => http.close(() => resolve()));
   }
 });
+
+test("host leaving mid-game ends the game for everyone and transfers the host role", async () => {
+  await loadGames();
+  const manager = new RoomManager();
+  const http = createServer();
+  const wss = new WebSocketServer({ server: http, path: "/ws" });
+  wss.on("connection", (ws) => attachConnection(ws, manager));
+  await new Promise<void>((resolve) => http.listen(0, "127.0.0.1", resolve));
+  const url = "ws://127.0.0.1:" + (http.address() as AddressInfo).port + "/ws";
+  const clients: Peer[] = [];
+  const connect = async () => { const p = await new Peer(url).open(); clients.push(p); return p; };
+
+  try {
+    const host = await connect();
+    host.send({ type: "create", nickname: "Host" });
+    const joined = await host.wait((m) => m.type === "joined") as JoinedMsg;
+    const guest = await connect();
+    guest.send({ type: "join", nickname: "Guest", roomCode: joined.roomCode });
+    const guestJoined = await guest.wait((m) => m.type === "joined") as JoinedMsg;
+    const third = await connect();
+    third.send({ type: "join", nickname: "Third", roomCode: joined.roomCode });
+    await third.wait((m) => m.type === "joined");
+
+    host.send({ type: "startGame", gameId: "presidenten" });
+    await Promise.all([host, guest, third].map((p) => p.wait((m) => m.type === "gameStarted")));
+
+    // The host leaves mid-game: the game ends for everyone, back to the lobby.
+    host.send({ type: "leave" });
+    for (const p of [guest, third]) {
+      const ended = await p.wait((m) => m.type === "gameEnded") as any;
+      assert.equal(ended.by, "Host");
+      const rs = await p.wait((m) => m.type === "roomState" && (m as any).currentGameId === null
+        && (m as any).players.length === 2 && (m as any).hostId !== joined.playerId) as any;
+      assert.equal(rs.hostId, guestJoined.playerId, "the host role moved to a remaining player");
+      assert.ok(!rs.players.some((p: any) => p.nickname === "Host"), "the host is gone from the room");
+    }
+    const room = manager.getRoom(joined.roomCode)!;
+    assert.equal(room.runtime, null, "no game left running");
+    assert.equal(room.hostId, guestJoined.playerId, "server-side host transferred");
+
+    // The new host can start a new game straight away: it fails on player
+    // count (2 < 3), not on host rights.
+    guest.send({ type: "startGame", gameId: "presidenten" });
+    const err = await guest.wait((m) => m.type === "error") as any;
+    assert.equal(err.code, "too_few");
+  } finally {
+    await Promise.all(clients.map((c) => c.close()));
+    manager.dispose();
+    await new Promise<void>((resolve) => wss.close(() => resolve()));
+    await new Promise<void>((resolve) => http.close(() => resolve()));
+  }
+});
+
+test("a rejoining player becomes host when the current host is gone", async () => {
+  await loadGames();
+  const manager = new RoomManager();
+  manager.goneAfterMs = 200;
+  const http = createServer();
+  const wss = new WebSocketServer({ server: http, path: "/ws" });
+  wss.on("connection", (ws) => attachConnection(ws, manager));
+  await new Promise<void>((resolve) => http.listen(0, "127.0.0.1", resolve));
+  const url = "ws://127.0.0.1:" + (http.address() as AddressInfo).port + "/ws";
+  const clients: Peer[] = [];
+  const connect = async () => { const p = await new Peer(url).open(); clients.push(p); return p; };
+
+  try {
+    const host = await connect();
+    host.send({ type: "create", nickname: "Host" });
+    const joined = await host.wait((m) => m.type === "joined") as JoinedMsg;
+    const guest = await connect();
+    guest.send({ type: "join", nickname: "Guest", roomCode: joined.roomCode });
+    const guestJoined = await guest.wait((m) => m.type === "joined") as JoinedMsg;
+
+    // The guest's tab closes first, then the host's: with nobody connected the
+    // hostId sticks to the disconnected host. The guest reconnects and must
+    // take over the host role.
+    await guest.close();
+    await host.close();
+    await new Promise((r) => setTimeout(r, 50));
+
+    const guest2 = await connect();
+    guest2.send({
+      type: "rejoin",
+      roomCode: joined.roomCode,
+      playerId: guestJoined.playerId,
+      secret: guestJoined.secret,
+    });
+    const rejoined = await guest2.wait((m) => m.type === "joined") as JoinedMsg;
+    assert.equal(rejoined.hostId, guestJoined.playerId, "the rejoining player took over the host role");
+    const room = manager.getRoom(joined.roomCode)!;
+    assert.equal(room.hostId, guestJoined.playerId);
+  } finally {
+    await Promise.all(clients.map((c) => c.close()));
+    manager.dispose();
+    await new Promise<void>((resolve) => wss.close(() => resolve()));
+    await new Promise<void>((resolve) => http.close(() => resolve()));
+  }
+});

@@ -192,6 +192,7 @@ function leaveRoom(
     const player = room.players.get(playerId);
     if (!player) return;
     clearTimeout(player.goneTimer);
+    const wasHost = room.hostId === playerId;
     manager.removePlayer(room, playerId);
     if (manager.getRoom(room.code)) {
       manager.broadcast(room, {
@@ -200,10 +201,24 @@ function leaveRoom(
         text: `${player.nickname} ${why ?? "left the room"}`,
         ts: Date.now(),
       });
-      // Only someone dealt into the running game affects it: a lobby-only
-      // player leaving must not end a game they were never part of.
       const runtime = room.runtime;
-      if (runtime && (!runtime.playerIds || runtime.playerIds.includes(playerId))) {
+      if (wasHost && runtime) {
+        // The host left mid-game: end the game for everyone and return to the
+        // lobby, so the remaining players are not stuck in a hostless game.
+        clearTimeout(runtime.timer);
+        room.runtime = null;
+        room.lastGame = undefined;
+        for (const s of room.spectators.values()) delete s.wantsPlay;
+        manager.broadcast(room, { type: "gameEnded", by: player.nickname });
+        manager.broadcast(room, {
+          type: "chat",
+          from: "🛑",
+          text: `The host left — the game was ended`,
+          ts: Date.now(),
+        });
+      } else if (runtime && (!runtime.playerIds || runtime.playerIds.includes(playerId))) {
+        // Only someone dealt into the running game affects it: a lobby-only
+        // player leaving must not end a game they were never part of.
         playerLeftGame(manager, room, playerId);
       }
       sendRoomState(manager, room);
@@ -302,7 +317,9 @@ function handle(conn: Conn, manager: RoomManager, msg: ClientMessage): void {
       player.connected = true;
       conn.isSpectator = false;
       manager.updateGamePlayers(room);
-      if (!room.hostId) room.hostId = player.id;
+      // Take over the host role if there is none, or the host is no longer
+      // connected (e.g. they left while everyone else was in the grace window).
+      if (!room.hostId || !room.players.get(room.hostId)?.connected) room.hostId = player.id;
       conn.roomCode = room.code;
       conn.playerId = player.id;
 

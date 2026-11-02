@@ -1,3 +1,4 @@
+import { randomInt, timingSafeEqual } from "node:crypto";
 import type { WebSocket } from "ws";
 import {
   SPECTATOR_VIEW_ID,
@@ -79,10 +80,8 @@ export class RoomManager {
   private generateCode(): string {
     let code: string;
     do {
-      code = Array.from(
-        { length: CODE_LEN },
-        () => CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)],
-      ).join("");
+      // Crypto RNG: Math.random() is predictable (xorshift128+).
+      code = Array.from({ length: CODE_LEN }, () => CODE_CHARS[randomInt(CODE_CHARS.length)]).join("");
     } while (this.rooms.has(code));
     return code;
   }
@@ -110,7 +109,11 @@ export class RoomManager {
 
   /** Does `attempt` open this room? Open rooms accept anything. */
   checkPassword(room: Room, attempt: unknown): boolean {
-    return room.password === null || String(attempt ?? "").trim() === room.password;
+    if (room.password === null) return true;
+    // Timing-safe compare; the length check itself only leaks the length.
+    const given = Buffer.from(String(attempt ?? "").trim(), "utf8");
+    const want = Buffer.from(room.password, "utf8");
+    return given.length === want.length && timingSafeEqual(given, want);
   }
 
   /** Name + lock flag, spread into every joined/roomState message. */

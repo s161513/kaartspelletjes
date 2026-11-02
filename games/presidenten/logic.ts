@@ -249,8 +249,19 @@ export function applyMove(
       advanceTurn(next, seat);
     }
   } else if (next.currentCount === null) {
-    // Pass while leading a fresh trick: nothing to win, just rotate the lead.
-    rotateLead(next, seat);
+    // Pass while leading a fresh trick: nothing to win, just rotate the lead —
+    // unless everyone still holding cards has passed (e.g. only wild 2s left,
+    // which cannot be led alone): then nobody can ever lead, so the hand ends.
+    if (!next.passedThisTrick.includes(playerId)) next.passedThisTrick.push(playerId);
+    const active = activeIds(next);
+    if (active.length > 0 && active.every((id) => next.passedThisTrick.includes(id))) {
+      for (const id of active) {
+        if (!next.finished.includes(id)) next.finished.push(id);
+      }
+      endHand(next);
+    } else {
+      rotateLead(next, seat);
+    }
   } else {
     if (!next.passedThisTrick.includes(playerId)) next.passedThisTrick.push(playerId);
     advanceTurn(next, seat);
@@ -383,7 +394,11 @@ function checkHandOver(s: PresidentenState): void {
   for (const id of active) {
     if (!s.finished.includes(id)) s.finished.push(id);
   }
+  endHand(s);
+}
 
+/** Close the hand and start the next one (roles, exchange) or end the game. */
+function endHand(s: PresidentenState): void {
   const present = presentFinishers(s);
   if (present.length < 3) {
     s.phase = "GAME_OVER";

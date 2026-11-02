@@ -68,6 +68,22 @@ test("advanceRun burns on four of a rank, either at once or in a row", () => {
 // Move validation
 // ---------------------------------------------------------------------------
 
+test("a fresh trick where nobody can lead (only wild 2s left) ends the hand instead of looping", () => {
+  // A lone 2 is illegal to lead (wild needs a partner), so with only 2s left
+  // everyone must pass — that must end the hand, not pass in a circle forever.
+  let s = makeState({ a: "2h", b: "2s", c: "2c" }, { turnIndex: 0, currentCount: null });
+  s = applyMove(s, "a", pass);
+  assert.equal(s.phase, "PLAY");
+  assert.equal(s.players[s.turnIndex], "b", "lead rotated after a's pass");
+  s = applyMove(s, "b", pass);
+  assert.equal(s.phase, "PLAY");
+  assert.equal(s.players[s.turnIndex], "c");
+  s = applyMove(s, "c", pass);
+  assert.equal(s.phase, "EXCHANGE", "all active players passed: the hand ended");
+  assert.deepEqual(s.roles, { a: "president", b: "citizen", c: "scum" });
+  assert.deepEqual(s.exchange?.pairs, [{ winner: "a", loser: "c", count: 1 }]);
+});
+
 test("a leading pass is allowed and rotates the lead to the next player", () => {
   const s = makeState({ a: "7h", b: "8h", c: "9h" });
   assert.equal(validateMove(s, "a", pass).ok, true);

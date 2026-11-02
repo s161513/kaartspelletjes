@@ -30,10 +30,9 @@ import {
   type Relation,
   type SocialKind,
   COUNCIL_ITEMS,
-  IDEA_COOLDOWN_MS,
   IDEA_LENGTH,
-  MAX_IDEAS,
   councilView,
+  isNewIdea,
   ideaError,
   type Council,
   FORGE_COOLDOWN_MS,
@@ -135,7 +134,7 @@ export interface IdleGame {
   social(clientId: string, kind: unknown, target: unknown, other: unknown, now: number): { error?: string; events: IdleEvent[] };
   /** De raad: this player's vote for the update they want next (null: none). */
   councilVote(clientId: string, item: unknown): { error?: string; events: IdleEvent[] };
-  /** De raad: send in an idea (once per player per IDEA_COOLDOWN_MS), or take your own back. */
+  /** De raad: send in an idea (as many as you like), or take your own back. */
   idea(clientId: string, text: unknown, now: number): { error?: string; events: IdleEvent[] };
   unidea(clientId: string, id: unknown): { error?: string; events: IdleEvent[] };
   /** Smith a tool yourself at a smith (the game in the browser): once per player per FORGE_COOLDOWN_MS. */
@@ -364,7 +363,7 @@ function parseIdle(raw: unknown, now: number): IdleState | null {
   return makeRoomForSenate(s);
 }
 
-/** De raad: votes for items still on the list, ideas that make sense. */
+/** De raad: votes for items still on the list, ideas that make sense and aren't in FEEDBACK.md yet. */
 function parseCouncil(raw: unknown): Council {
   const r = record(raw);
   const votes: Record<string, string> = {};
@@ -375,7 +374,7 @@ function parseCouncil(raw: unknown): Council {
     ideas.push({ id: i.id as number, player: i.player, by: cleanName(i.by), text: i.text.slice(0, IDEA_LENGTH), at: i.at });
   }
   const next = Number.isInteger(r.nextIdeaId) ? (r.nextIdeaId as number) : 1;
-  return { votes, ideas: ideas.slice(-MAX_IDEAS), nextIdeaId: Math.max(next, ...ideas.map((x) => x.id + 1)) };
+  return { votes, ideas: ideas.filter(isNewIdea), nextIdeaId: Math.max(next, ...ideas.map((x) => x.id + 1)) };
 }
 
 /** Players after a reset: same name and colors, the free hat and pattern, nothing bought, no task (the buildings are gone). */
@@ -649,10 +648,8 @@ export function createIdleGame(file: string, now = Date.now()): IdleGame {
       if (typeof text !== "string") return { error: "schrijf eerst je idee", events: [] };
       const err = ideaError(text);
       if (err) return { error: err, events: [] };
-      const last = Math.max(0, ...state.council.ideas.filter((x) => x.player === mine[0]).map((x) => x.at));
-      if (last && now - last < IDEA_COOLDOWN_MS) return { error: `één idee per ${IDEA_COOLDOWN_MS / 60_000} minuten`, events: [] };
       const idea = { id: state.council.nextIdeaId, player: mine[0], by: mine[1].name, text: text.trim().replace(/\s+/g, " "), at: now };
-      state = { ...state, council: { ...state.council, ideas: [...state.council.ideas, idea].slice(-MAX_IDEAS), nextIdeaId: idea.id + 1 } };
+      state = { ...state, council: { ...state.council, ideas: [...state.council.ideas, idea], nextIdeaId: idea.id + 1 } };
       saver.schedule();
       return { events: [{ kind: "deal", label: "💡 een idee ingestuurd bij De raad", by: mine[1].name }] };
     },

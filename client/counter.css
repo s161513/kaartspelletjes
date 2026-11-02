@@ -848,6 +848,10 @@ body.sx-era-10 { --sx-bg: #12002b; --sx-bg2: #2a0050; }
   min-width: 0;
 }
 
+.sx-goal-wide {
+  grid-column: 1 / -1;
+}
+
 .sx-goal-icon {
   flex: none;
   font-size: 1.4rem;

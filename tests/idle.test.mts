@@ -70,6 +70,7 @@ import {
   eraGoals,
   classicStreets,
   foodKindsOf,
+  missingFoodOf,
   gatherable,
   gatherPatches,
   gatheringOf,
@@ -88,7 +89,7 @@ import {
   taskError,
   TOGETHER_MS,
   COUNCIL_ITEMS,
-  IDEA_COOLDOWN_MS,
+  IDEAS_DONE_UNTIL,
   councilText,
   addTool,
   forgeError,
@@ -390,6 +391,31 @@ test("food: hunters, farms, fishers and ranches make kinds of food; hunters catc
 
   // All food buildings share the price growth per copy, so splitting them makes food no cheaper.
   assert.equal(buildCost(s, "fishery")!.wood, Math.ceil(30 * BUILD_COST_MULT * COST_GROWTH ** 2 * PRICE_MULT));
+});
+
+test("food: the goal says which kinds count and why one is missing (bug, Nathan 2026-10-29)", () => {
+  // Hunters and jobless pickers: meat and berries; grain and fish need their buildings.
+  const s = town(T0);
+  assert.deepEqual(missingFoodOf(s), [
+    { kind: "grain", why: "bouw een Akker" },
+    { kind: "fish", why: "bouw een Visstek" },
+  ]);
+  const goal = eraGoals(s).find((g) => g.goal.kind === "foodKinds")!;
+  assert.equal(goal.note, "nu: 🥩 vlees, 🫐 bessen · 🌾 graan: bouw een Akker · 🐟 vis: bouw een Visstek");
+
+  // A new work building takes the last pickers: the berries are gone.
+  assert.equal(missingFoodOf(noGatherers(s)).find((m) => m.kind === "berries")?.why, "die plukken alleen inwoners zonder baan, en iedereen heeft er nu een");
+  // The pickers put on wood by the players.
+  assert.equal(missingFoodOf({ ...s, gatherers: { wood: 2 } }).find((m) => m.kind === "berries")?.why, "de inwoners zonder baan zijn allemaal op iets anders gezet, zet er een op 🍖");
+  // The forest round the hunters cut, or their camp on fire.
+  const hunter = s.buildings.find((b) => b.type === "hunter")!;
+  const bare = { ...s, nature: Object.fromEntries(sourcePatches(hunter)!.map((p) => [p.id, p.capacity])) };
+  assert.equal(missingFoodOf(bare).find((m) => m.kind === "meat")?.why, "het bos rond Jagerskamp is gekapt, dus geen wild");
+  const burning = { ...s, buildings: s.buildings.map((b) => (b.type === "hunter" ? { ...b, damaged: true } : b)) };
+  assert.equal(missingFoodOf(burning).find((m) => m.kind === "meat")?.why, "Jagerskamp staat in brand");
+  // Once the goal is met it only says what the town eats.
+  assert.equal(eraGoals(readyTown()).find((g) => g.goal.kind === "foodKinds")!.note?.startsWith("nu: "), true);
+  assert.equal(eraGoals(readyTown()).find((g) => g.goal.kind === "foodKinds")!.note?.includes("·"), false);
 });
 
 test("mines: by the mountain, never run out, dig the ore the players vote for", () => {
@@ -1557,12 +1583,12 @@ test("De raad: one vote per player for the next update, ideas sent in, kept in t
     game.councilVote("b", null);
     assert.equal(game.message("a", 0, 0, 2, T0).council.items.find((i) => i.id === first.id)!.votes, 0, "taken back");
 
-    // Ideas: one per player per IDEA_COOLDOWN_MS, only your own can be taken back.
-    assert.equal(game.idea("a", "   ", T0).error, "schrijf eerst je idee");
-    assert.equal(game.idea("a", "x".repeat(201), T0).error, "hooguit 200 tekens");
-    assert.deepEqual(game.idea("a", "  draken   in de bergen ", T0).events, [{ kind: "deal", label: "💡 een idee ingestuurd bij De raad", by: "Ann" }]);
-    assert.match(game.idea("a", "nog een", T0 + 1000).error!, /^één idee per/);
-    assert.equal(game.idea("a", "nog een", T0 + IDEA_COOLDOWN_MS).error, undefined);
+    // Ideas: as many as you like, only your own can be taken back.
+    const sent = IDEAS_DONE_UNTIL + 1000;
+    assert.equal(game.idea("a", "   ", sent).error, "schrijf eerst je idee");
+    assert.equal(game.idea("a", "x".repeat(201), sent).error, "hooguit 200 tekens");
+    assert.deepEqual(game.idea("a", "  draken   in de bergen ", sent).events, [{ kind: "deal", label: "💡 een idee ingestuurd bij De raad", by: "Ann" }]);
+    assert.equal(game.idea("a", "nog een", sent + 1000).error, undefined);
     view = game.message("b", 0, 0, 2, T0).council;
     assert.deepEqual(view.ideas.map((i) => [i.by, i.text, i.mine]), [["Ann", "nog een", false], ["Ann", "draken in de bergen", false]]);
     assert.equal(game.unidea("b", view.ideas[0].id).error, "dat idee is niet van jou");
@@ -1575,14 +1601,17 @@ test("De raad: one vote per player for the next update, ideas sent in, kept in t
         "- 2026-10-27, uitslag van De raad:",
         ...view.items.map((i) => `  - ${i.emoji} ${i.title}: ${i.votes} ${i.votes === 1 ? "stem" : "stemmen"}`),
         '  - ingestuurd door Ann: "draken in de bergen"',
+        `  <!-- ideeën t/m ${sent} -->`,
       ].join("\n"),
     );
 
-    // Saved with the town, and kept when an old file makes the town start over.
+    // Saved with the town, and kept when an old file makes the town start over;
+    // ideas from before IDEAS_DONE_UNTIL are in FEEDBACK.md already, so they go.
     game.flush();
     const saved = JSON.parse(readFileSync(file, "utf8"));
     assert.equal(Object.keys(saved.council.votes).length, 1);
-    writeFileSync(file, JSON.stringify({ ...saved, v: 1 }));
+    const processed = { id: 99, player: saved.council.ideas[0].player, by: "Ann", text: "al verwerkt", at: IDEAS_DONE_UNTIL };
+    writeFileSync(file, JSON.stringify({ ...saved, v: 1, council: { ...saved.council, ideas: [processed, ...saved.council.ideas] } }));
     const reset = createIdleGame(file, T0);
     reset.hello("a", "0123456789abcdef-annann", "Ann", T0);
     view = reset.message("a", 0, 0, 1, T0).council;

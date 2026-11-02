@@ -9,13 +9,30 @@ Handig om erbij te zetten, als je het weet: wie het zei, op welk apparaat
 Claude bouwt dit niet punt voor punt, maar bundelt het in **updates** met één
 thema (zie [ROADMAP.md](ROADMAP.md)):
 - **"verwerk de feedback"**: Claude deelt alles hieronder in bij updates en
-  vertelt wat er klaarstaat. Er wordt dan nog niets gebouwd.
+  vertelt wat er klaarstaat. Er wordt dan nog niets gebouwd, behalve
+  **bugs: die lost Claude meteen op**, in een kleine fix-PR.
+- De ideeën uit De raad die hier verwerkt zijn, verdwijnen daarna uit De
+  raad, dus je kopieert nooit iets dubbel.
 - **"doe de volgende update"** of **"doe update 3"**: Claude bouwt die ene
   update, met één branch en één PR.
 
 ## Nieuw
 
 ## Verwerkt
+
+- 2026-10-29, uitslag van De raad (ideeën tot 11:29 verwerkt):
+  - Soufiane: "Wel haarstijlen toevoegen Kaal zijn moet een optie zijn niet
+    een verplichting!!": Update 26 (kaal blijft een keuze)
+  - Nathan: "3 soorten voedsel doel werkt niet": bugfix, meteen gedaan. De
+    regels tellen goed; wat misgaat is dat je niet zag wát er telt. Bessen
+    tellen alleen zolang er inwoners zonder baan plukken, dus een nieuw
+    werkgebouw kan ze afpakken, en een jagerskamp vangt niets meer als het
+    bos rondom gekapt is. Het doel zegt nu welke soorten er zijn en waarom
+    de rest ontbreekt. Klopt het daarna nog niet, zeg dan welke soorten
+    je hebt.
+  - Richard (aan Claude): verwerkte ideeën gaan weg uit De raad, en er is
+    geen limiet meer op ideeën insturen (was één per 10 minuten, hooguit
+    40).
 
 - 2026-10-28, uitslag van De raad en ingestuurde ideeën:
   - 👾 Pixel-iconen (3 stemmen, de rest 0): Update 25 (PR #50)

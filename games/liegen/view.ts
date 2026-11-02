@@ -156,32 +156,42 @@ const page: GamePage<LiegenState> = {
             banner.classList.add("hidden");
         }
         
-        playersDiv.innerHTML = "";
+        playersDiv.replaceChildren();
         state.playerOrder.forEach(pid => {
             const p = state.players[pid];
             const isMe = pid === ctx.playerId;
             const name = isMe ? "You" : ctx.nickname(pid);
             const activeTurn = state.turn === pid;
-            
+
             let pClass = "player-card";
             if (p.status === "eliminated") pClass += " eliminated";
             else if (activeTurn) pClass += " active-turn";
-            
-            const strikesHtml = p.status === 'eliminated' ? '💀' : '❌'.repeat(p.strikes) + '⚪'.repeat(3 - p.strikes);
 
-            playersDiv.innerHTML += "<div class='" + pClass + "'>" +
-                "<span style='font-weight: 500; " + (isMe ? "color: #4ade80;" : "") + "'>" + name + "</span>" +
-                "<span style='font-size: 0.75rem; letter-spacing: 0.1em;'>" + strikesHtml + "</span>" +
-                "</div>";
+            // Nicknames are user input: build DOM nodes, never innerHTML.
+            const card = document.createElement("div");
+            card.className = pClass;
+            const nameSpan = document.createElement("span");
+            nameSpan.style.fontWeight = "500";
+            if (isMe) nameSpan.style.color = "#4ade80";
+            nameSpan.textContent = name;
+            const strikes = document.createElement("span");
+            strikes.style.fontSize = "0.75rem";
+            strikes.style.letterSpacing = "0.1em";
+            strikes.textContent = p.status === 'eliminated' ? '💀' : '❌'.repeat(p.strikes) + '⚪'.repeat(3 - p.strikes);
+            card.append(nameSpan, strikes);
+            playersDiv.append(card);
         });
 
         const claimText = state.currentClaim ? String(state.currentClaim) + (state.currentAdvice ? " (Advies)" : "") : "--";
         document.getElementById("current-claim")!.innerText = claimText;
 
         const logDiv = document.getElementById("liegen-log")!;
-        logDiv.innerHTML = "";
+        logDiv.replaceChildren();
         [...state.logs].reverse().forEach(l => {
-            logDiv.innerHTML += "<div class='log-item'>" + l + "</div>";
+            const item = document.createElement("div");
+            item.className = "log-item";
+            item.textContent = l;
+            logDiv.append(item);
         });
 
         const btnShake = document.getElementById("btn-shake")!;

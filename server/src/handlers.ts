@@ -1,11 +1,12 @@
 import { randomUUID } from "node:crypto";
+import type { IncomingMessage } from "node:http";
 import type { WebSocket } from "ws";
 import { SEAT_TAKEN_CLOSE, type ClientMessage, type ServerMessage } from "@app/shared";
 import { RoomManager, ServerFullError, type Player, type Room } from "./rooms.js";
 import { games } from "./games/loader.js";
 
 /** Reject frames larger than this before parsing (guards against memory spikes). */
-const MAX_MESSAGE_BYTES = 32_768;
+export const MAX_MESSAGE_BYTES = 32_768;
 // Token-bucket rate limit per connection: refill RATE tokens/sec, hold up to
 // BURST. One message costs one token. Enough for fast play, not for flooding.
 const RATE_PER_SEC = 20;
@@ -21,6 +22,41 @@ interface Conn {
   /** Token-bucket state for rate limiting. */
   tokens: number;
   lastRefill: number;
+  /** Remote address of the socket, for per-IP join throttling. */
+  ip: string;
+}
+
+// Brute-force throttle for room passwords: after this many failed join/spectate
+// attempts from one IP within the window, further attempts are refused — even
+// with the right password — until the window passes.
+const MAX_FAILED_JOINS_PER_IP = 10;
+const FAILED_JOIN_WINDOW_MS = 10 * 60_000;
+const failedJoins = new Map<string, number[]>();
+
+function recentFailures(ip: string, now: number): number[] {
+  const recent = (failedJoins.get(ip) ?? []).filter((t) => now - t < FAILED_JOIN_WINDOW_MS);
+  failedJoins.set(ip, recent);
+  return recent;
+}
+
+/** True when this IP is over the failed-join limit. */
+function tooManyFailedJoins(ip: string): boolean {
+  if (!ip) return false;
+  return recentFailures(ip, Date.now()).length >= MAX_FAILED_JOINS_PER_IP;
+}
+
+function recordFailedJoin(ip: string): void {
+  if (!ip) return;
+  const now = Date.now();
+  const recent = recentFailures(ip, now);
+  recent.push(now);
+  failedJoins.set(ip, recent);
+  // Bound the map: drop stale IPs once in a while.
+  if (failedJoins.size > 10_000) {
+    for (const [key, times] of failedJoins) {
+      if (times.every((t) => now - t >= FAILED_JOIN_WINDOW_MS)) failedJoins.delete(key);
+    }
+  }
 }
 
 /** Refill the bucket and try to spend one token. Returns false if rate-limited. */
@@ -89,10 +125,11 @@ function sendRoomState(manager: RoomManager, room: Room): void {
   manager.sendRoomState(room);
 }
 
-export function attachConnection(ws: WebSocket, manager: RoomManager): void {
+export function attachConnection(ws: WebSocket, manager: RoomManager, req?: IncomingMessage): void {
   const conn: Conn = {
     ws, roomCode: null, playerId: null, isSpectator: false,
     tokens: BURST, lastRefill: Date.now(),
+    ip: req?.socket.remoteAddress ?? "",
   };
 
   // Protocol errors (malformed frames, oversized messages) emit 'error' on the
@@ -266,7 +303,11 @@ function handle(conn: Conn, manager: RoomManager, msg: ClientMessage): void {
       if (!nickname) return err(ws, "bad_nick", "Nickname required");
       const room = manager.getRoom(String(msg.roomCode ?? ""));
       if (!room) return err(ws, "no_room", "Room not found");
-      if (!manager.checkPassword(room, msg.password)) return err(ws, "bad_password", "Wrong password");
+      if (tooManyFailedJoins(conn.ip)) return err(ws, "rate_limited", "Too many failed attempts — wait a bit");
+      if (!manager.checkPassword(room, msg.password)) {
+        recordFailedJoin(conn.ip);
+        return err(ws, "bad_password", "Wrong password");
+      }
       if (room.runtime) return err(ws, "in_progress", "Game already started");
       bindNewPlayer(conn, manager, room, nickname);
       return;
@@ -426,7 +467,11 @@ function handle(conn: Conn, manager: RoomManager, msg: ClientMessage): void {
       if (!nickname) return err(ws, "bad_nick", "Nickname required");
       const room = manager.getRoom(String(msg.roomCode ?? ""));
       if (!room) return err(ws, "no_room", "Room not found");
-      if (!manager.checkPassword(room, msg.password)) return err(ws, "bad_password", "Wrong password");
+      if (tooManyFailedJoins(conn.ip)) return err(ws, "rate_limited", "Too many failed attempts — wait a bit");
+      if (!manager.checkPassword(room, msg.password)) {
+        recordFailedJoin(conn.ip);
+        return err(ws, "bad_password", "Wrong password");
+      }
       if (!room.runtime) return err(ws, "not_in_progress", "Nothing to watch — join as a player");
 
       const spectator: Player = { id: randomUUID(), nickname, secret: randomUUID(), ws, connected: true };

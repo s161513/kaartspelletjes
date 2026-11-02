@@ -6,9 +6,10 @@ import path from "node:path";
 import express from "express";
 import { WebSocketServer, type WebSocket } from "ws";
 import { RoomManager } from "./rooms.js";
-import { attachConnection } from "./handlers.js";
+import { attachConnection, MAX_MESSAGE_BYTES } from "./handlers.js";
 import { loadGames } from "./games/loader.js";
 import { createCounterServer } from "./counter.js";
+import { securityHeaders } from "./securityHeaders.js";
 
 const PORT = Number(process.env.PORT ?? 3000);
 
@@ -35,13 +36,16 @@ function safeDecode(segment: string): string | null {
 }
 
 const app = express();
+app.use(securityHeaders);
 const httpServer = createServer(app);
 const manager = new RoomManager();
 
 // WebSocket endpoints sharing the HTTP server: /ws (games) and /counter-ws/<key>.
 // Routed by hand: a `{ server, path }` WebSocketServer rejects every other path.
-const wss = new WebSocketServer({ noServer: true });
-wss.on("connection", (ws) => attachConnection(ws, manager));
+// maxPayload caps a frame at the app-level limit, so a huge frame is rejected
+// by `ws` (close 1009) before it is ever buffered and parsed.
+const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_MESSAGE_BYTES });
+wss.on("connection", (ws, req) => attachConnection(ws, manager, req));
 const counterWss = createCounterServer();
 
 // Heartbeat: a phone that loses its network often never sends a close, so the

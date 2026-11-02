@@ -54,8 +54,18 @@ export function createDecks(n: number): Card[] {
   return cards;
 }
 
+/**
+ * Crypto-backed RNG in [0, 1), usable in Node and the browser. Card shuffles
+ * must not be predictable, so this — not Math.random() — is the default.
+ */
+export function secureRandom(): number {
+  const buf = new Uint32Array(1);
+  globalThis.crypto.getRandomValues(buf);
+  return buf[0] / 0x100000000;
+}
+
 /** Pure Fisher–Yates shuffle returning a new array. `rng` is injectable. */
-export function shuffle<T>(arr: readonly T[], rng: () => number = Math.random): T[] {
+export function shuffle<T>(arr: readonly T[], rng: () => number = secureRandom): T[] {
   const out = arr.slice();
   for (let i = out.length - 1; i > 0; i--) {
     const j = Math.floor(rng() * (i + 1));

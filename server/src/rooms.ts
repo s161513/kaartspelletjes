@@ -423,9 +423,9 @@ export class RoomManager {
 
   /**
    * Store a new game state and send it out, ending the game if it is over —
-   * then let any bot seats act. `depth` caps the bot-move chain.
+   * then let any bot seats act.
    */
-  publish(room: Room, next: unknown, depth = 0): void {
+  publish(room: Room, next: unknown): void {
     const runtime = room.runtime!;
     runtime.state = next;
     if (runtime.game.result(next).over) {
@@ -442,17 +442,18 @@ export class RoomManager {
       this.scheduleGame(room);
       if (migrated.length) this.sendRoomState(room);
     }
-    this.driveBots(room, depth);
+    this.driveBots(room);
   }
 
   /**
    * Let bot seats act: find the first bot with a valid move (`botMove`) and
    * schedule it after a short human-like pause. When it fires, `publish`
    * re-enters `driveBots` for the next bot, until no bot acts or the game ends.
+   * Every bot move waits on a timer, so a long chain never grows the stack.
    */
-  driveBots(room: Room, depth = 0): void {
+  driveBots(room: Room): void {
     const runtime = room.runtime;
-    if (!runtime?.game.botMove || depth > 100) return;
+    if (!runtime?.game.botMove) return;
     for (const p of room.players.values()) {
       if (!p.isBot || !p.connected) continue;
       if (runtime.playerIds && !runtime.playerIds.includes(p.id)) continue;
@@ -460,13 +461,13 @@ export class RoomManager {
       if (raw === null || raw === undefined) continue;
       const checked = runtime.game.validateMove(runtime.state, p.id, raw);
       if (!checked.ok) continue;
-      this.scheduleBotMove(room, p.id, checked.move, depth);
+      this.scheduleBotMove(room, p.id, checked.move);
       return;
     }
   }
 
   /** Apply a bot's move after a short delay; re-validate at fire time. */
-  private scheduleBotMove(room: Room, playerId: string, move: unknown, depth: number): void {
+  private scheduleBotMove(room: Room, playerId: string, move: unknown): void {
     const runtime = room.runtime;
     if (!runtime) return;
     clearTimeout(runtime.botTimer);
@@ -480,10 +481,10 @@ export class RoomManager {
       // Timers may have changed the state since scheduling: re-validate.
       const checked = runtime.game.validateMove(runtime.state, playerId, move);
       if (!checked.ok) {
-        this.driveBots(room, depth);
+        this.driveBots(room);
         return;
       }
-      this.publish(room, runtime.game.applyMove(runtime.state, playerId, checked.move), depth + 1);
+      this.publish(room, runtime.game.applyMove(runtime.state, playerId, checked.move));
     }, delay);
   }
 

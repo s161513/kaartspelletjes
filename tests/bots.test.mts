@@ -222,3 +222,31 @@ test("every game with a botMove produces valid moves for bot seats", async () =>
     assert.ok(moved > 0, `${id}: the bot should have played at least one move`);
   }
 });
+
+test("a long bots-only stretch keeps going (no cap on consecutive bot moves)", async (t) => {
+  // E.g. the only human is out of the hand and the bots play on for a while.
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const manager = new RoomManager();
+  try {
+    type S = { count: number; turn: number };
+    const game = {
+      init: () => ({ count: 0, turn: 0 }),
+      validateMove: (s: S, pid: string) =>
+        pid === `bot${s.turn}` ? { ok: true as const, move: {} } : { ok: false as const, error: "not your turn" },
+      applyMove: (s: S) => ({ count: s.count + 1, turn: 1 - s.turn }),
+      result: (s: S) => (s.count >= 250 ? { over: true, winner: "bot0" } : { over: false }),
+      botMove: () => ({}),
+    };
+    const room = manager.createRoom();
+    for (const id of ["bot0", "bot1"]) {
+      manager.addPlayer(room, { id, nickname: id, secret: id, ws: null, connected: true, isBot: true });
+    }
+    room.runtime = { gameId: "fake", game: game as any, state: game.init() };
+    manager.driveBots(room);
+    for (let i = 0; i < 300 && room.runtime; i++) t.mock.timers.tick(BOT_MOVE_DELAY_MS * 2);
+    assert.equal(room.runtime, null, "the bots played all 250 moves to the end");
+    assert.equal((room.lastGame!.state as S).count, 250);
+  } finally {
+    manager.dispose();
+  }
+});

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage } from "node:http";
 import type { WebSocket } from "ws";
-import { SEAT_TAKEN_CLOSE, type ClientMessage, type ServerMessage } from "@app/shared";
+import { SEAT_TAKEN_CLOSE, type BotDifficulty, type ClientMessage, type ServerMessage } from "@app/shared";
 import { RoomManager, ServerFullError, type Player, type Room } from "./rooms.js";
 import { games } from "./games/loader.js";
 
@@ -549,9 +549,11 @@ function handle(conn: Conn, manager: RoomManager, msg: ClientMessage): void {
       if (bots >= 7 || room.players.size >= 10)
         return err(ws, "too_many", "Too many players in this room");
       const name = sanitizeText(msg.name, 24) ?? `Bot ${bots + 1}`;
+      const difficulty: BotDifficulty =
+        msg.difficulty === "easy" || msg.difficulty === "hard" ? msg.difficulty : "normal";
       const bot: Player = {
         id: randomUUID(), nickname: name, secret: randomUUID(),
-        ws: null, connected: true, isBot: true,
+        ws: null, connected: true, isBot: true, botDifficulty: difficulty,
       };
       manager.addPlayer(room, bot);
       manager.broadcast(room, {

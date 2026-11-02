@@ -1,11 +1,12 @@
 import { randomInt } from "node:crypto";
 import {
-  deal, RANK_VALUES, sortHand, type Card, type Game, type MoveResult, type Rank,
+  deal, RANK_VALUES, sortHand, type BotDifficulty, type Card, type Game, type MoveResult, type Rank,
 } from "@app/shared";
 import {
   advanceRun, assignRoles, effectiveRank, exchangePairs, hasLegalFollow,
   MIN_CARDS_PER_PLAYER, orderValue, rankLabel, REQUEST_RANKS, TURN_MS,
 } from "./rules.js";
+import { advise, adviseGiveBack, adviseRequest } from "./assist/advisor.js";
 import type {
   PresidentenMove, PresidentenState, PresidentenView,
 } from "./types.js";
@@ -615,12 +616,19 @@ export function playerLeft(state: PresidentenState, playerId: string): President
 }
 
 /**
- * Bot strategy. Exchange: ask for the strongest rank it lacks (2, A, K, …),
- * give back its weakest non-2 card. Play: open with the ♣3, lead with the
- * lowest single, follow with the cheapest group that meets the count and
- * rank, and pass when it cannot follow.
+ * Bot strategy, per difficulty:
+ * - hard: always the advisor's cheapest legal option (assist/advisor.ts) —
+ *   exchange included (adviseRequest / adviseGiveBack).
+ * - easy: a random legal option (random rank to request, random card back,
+ *   random advised play).
+ * - normal: open with the ♣3, lead with the lowest single, follow with the
+ *   cheapest group that meets the count and rank, pass when it cannot follow.
  */
-export function botMove(state: PresidentenState, playerId: string): PresidentenMove | null {
+export function botMove(
+  state: PresidentenState,
+  playerId: string,
+  difficulty: BotDifficulty = "normal",
+): PresidentenMove | null {
   if (!state.players.includes(playerId) || state.left.includes(playerId)) return null;
   if (state.phase === "GAME_OVER") return null;
 
@@ -628,12 +636,26 @@ export function botMove(state: PresidentenState, playerId: string): PresidentenM
     const ex = state.exchange!;
     const pair = ex.pairs[0];
     if (!pair || pair.winner !== playerId) return null;
+    const hand = state.hands[playerId] ?? [];
     if (ex.step === "request") {
-      const have = new Set((state.hands[playerId] ?? []).map((c) => c.rank));
-      const rank = REQUEST_RANKS.find((r) => !have.has(r)) ?? "2";
-      return { type: "request", rank };
+      if (difficulty === "hard") {
+        return { type: "request", rank: adviseRequest(hand, ex.lastMiss ? [ex.lastMiss as Rank] : []) };
+      }
+      if (difficulty === "easy") {
+        return { type: "request", rank: REQUEST_RANKS[Math.floor(secureRandom() * REQUEST_RANKS.length)] };
+      }
+      const have = new Set(hand.map((c) => c.rank));
+      return { type: "request", rank: REQUEST_RANKS.find((r) => !have.has(r)) ?? "2" };
     }
-    const sorted = [...(state.hands[playerId] ?? [])].sort(
+    if (difficulty === "hard") {
+      const cardId = adviseGiveBack(hand);
+      return cardId ? { type: "giveBack", cardId } : null;
+    }
+    if (difficulty === "easy") {
+      const card = hand[Math.floor(secureRandom() * hand.length)];
+      return card ? { type: "giveBack", cardId: card.id } : null;
+    }
+    const sorted = [...hand].sort(
       (a, b) => orderValue(a.rank) - orderValue(b.rank) || a.suit.localeCompare(b.suit),
     );
     const card = sorted.find((c) => c.rank !== "2") ?? sorted[0];
@@ -643,6 +665,20 @@ export function botMove(state: PresidentenState, playerId: string): PresidentenM
   if (state.players[state.turnIndex] !== playerId) return null;
   const hand = state.hands[playerId] ?? [];
   if (!hand.length) return null;
+
+  if (difficulty !== "normal") {
+    // easy/hard: pick from the advisor's ranked legal options — hard always
+    // takes the cheapest, easy picks one at random.
+    const options = advise({
+      hand,
+      currentCount: state.currentCount,
+      currentRankValue: state.currentRankValue,
+    });
+    const choice =
+      difficulty === "hard" ? options[0] : options[Math.floor(secureRandom() * options.length)];
+    return choice.kind === "pass" ? { type: "pass" } : { type: "play", cardIds: choice.cardIds };
+  }
+
   if (mustOpenWithClubs(state, playerId)) return { type: "play", cardIds: [OPENER_ID] };
 
   if (state.currentCount === null) {

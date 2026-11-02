@@ -107,6 +107,29 @@ test("host can add and remove a bot; only the host can; bots are flagged and nev
   }
 });
 
+test("bots can be added with a difficulty, shown in roomState", async () => {
+  const { peer, stop } = await setup();
+  try {
+    const host = await peer("host");
+    host.send({ type: "create", nickname: "Host" });
+    const joined = await host.wait((m) => m.type === "joined") as JoinedMsg;
+
+    host.send({ type: "addBot", name: "Easy", difficulty: "easy" });
+    host.send({ type: "addBot", name: "Hard", difficulty: "hard" });
+    host.send({ type: "addBot", name: "Plain" });
+    const rs = await host.wait(
+      (m) => m.type === "roomState" && (m as RoomStateMsg).players.filter((p) => p.isBot).length === 3,
+    ) as RoomStateMsg;
+    const byName = Object.fromEntries(rs.players.filter((p) => p.isBot).map((p) => [p.nickname, p.botDifficulty]));
+    assert.equal(byName.Easy, "easy");
+    assert.equal(byName.Hard, "hard");
+    assert.equal(byName.Plain, "normal", "difficulty defaults to normal");
+    assert.ok(joined.roomCode);
+  } finally {
+    await stop();
+  }
+});
+
 test("a bot seat plays automatically: tic-tac-toe human vs bot runs to gameOver", async () => {
   const { manager, peer, stop } = await setup();
   try {

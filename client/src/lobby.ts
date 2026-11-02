@@ -19,6 +19,7 @@ const spectatorsBox = document.getElementById("spectatorsBox") as HTMLDivElement
 const spectatorsEl = document.getElementById("spectators") as HTMLUListElement;
 const joinAsPlayerBtn = document.getElementById("joinAsPlayer") as HTMLButtonElement;
 const addBotBtn = document.getElementById("addBot") as HTMLButtonElement;
+const botDifficultyEl = document.getElementById("botDifficulty") as HTMLSelectElement;
 
 const socket = new GameSocket();
 setupChat(
@@ -85,7 +86,11 @@ function renderPlayers(players: PlayerPublic[], hostId: string): void {
   playersEl.innerHTML = "";
   const isHost = hostId === session.playerId;
   for (const p of players) {
-    const badges = [p.id === hostId ? "host" : "", p.connected ? "" : "off", p.isBot ? "🤖" : ""].filter(Boolean);
+    const badges = [
+      p.id === hostId ? "host" : "",
+      p.connected ? "" : "off",
+      p.isBot ? `🤖${p.botDifficulty && p.botDifficulty !== "normal" ? ` ${p.botDifficulty}` : ""}` : "",
+    ].filter(Boolean);
     playersEl.appendChild(personChip(
       p.nickname,
       p.id === session.playerId,
@@ -104,7 +109,9 @@ function renderSpectators(spectators: SpectatorPublic[]): void {
     spectatorsEl.appendChild(personChip(s.nickname, s.id === session.playerId, s.connected, s.connected ? [] : ["off"]));
   }
   // Bots are a lobby feature: the host can add them while no game is running.
-  addBotBtn.hidden = !(hostIdRef === session.playerId && !currentGameId);
+  const canAddBot = hostIdRef === session.playerId && !currentGameId;
+  addBotBtn.hidden = !canAddBot;
+  botDifficultyEl.hidden = !canAddBot;
   // A watcher who ended up back in the lobby can take a seat for the next game.
   joinAsPlayerBtn.hidden = !amSpectator;
 }
@@ -113,7 +120,7 @@ let hostIdRef = "";
 let currentGameId: string | null = null;
 
 addBotBtn.addEventListener("click", () => {
-  socket.send({ type: "addBot" });
+  socket.send({ type: "addBot", difficulty: botDifficultyEl.value as "easy" | "normal" | "hard" });
 });
 
 function fits(meta: GameMeta, count: number): boolean {

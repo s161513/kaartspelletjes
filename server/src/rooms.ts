@@ -2,6 +2,7 @@ import { randomInt, timingSafeEqual } from "node:crypto";
 import type { WebSocket } from "ws";
 import {
   SPECTATOR_VIEW_ID,
+  type BotDifficulty,
   type Game,
   type GameId,
   type GameState,
@@ -20,6 +21,8 @@ export interface Player {
   connected: boolean;
   /** Bot seat: no socket, never host, driven by the game's `botMove`. */
   isBot?: boolean;
+  /** Bot seat: difficulty passed to the game's `botMove`. */
+  botDifficulty?: BotDifficulty;
   /** Spectator only: they flipped "join next round" and are queued to be dealt in. */
   wantsPlay?: boolean;
   /** Pending removal while disconnected (see RoomManager.goneAfterMs). */
@@ -285,6 +288,7 @@ export class RoomManager {
       nickname: p.nickname,
       connected: p.connected,
       isBot: !!p.isBot,
+      botDifficulty: p.botDifficulty,
     }));
   }
 
@@ -452,7 +456,7 @@ export class RoomManager {
     for (const p of room.players.values()) {
       if (!p.isBot || !p.connected) continue;
       if (runtime.playerIds && !runtime.playerIds.includes(p.id)) continue;
-      const raw = runtime.game.botMove(runtime.state, p.id);
+      const raw = runtime.game.botMove(runtime.state, p.id, p.botDifficulty ?? "normal");
       if (raw === null || raw === undefined) continue;
       const checked = runtime.game.validateMove(runtime.state, p.id, raw);
       if (!checked.ok) continue;

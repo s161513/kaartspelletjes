@@ -291,10 +291,20 @@ function applyExchange(
   const card = s.hands[pair.winner].find((c) => c.id === move.cardId)!;
   s.hands[pair.winner] = s.hands[pair.winner].filter((c) => c.id !== card.id);
   s.hands[pair.loser].push(card);
-  ex.pairs.shift();
+  ex.given += 1;
+  if (ex.given >= pair.count) {
+    // This pair has exchanged all its cards: move to the next pair.
+    ex.pairs.shift();
+    ex.given = 0;
+    if (ex.pairs.length === 0) {
+      ex.step = "request";
+      ex.lastMiss = null;
+      finishExchange(s);
+      return;
+    }
+  }
   ex.step = "request";
   ex.lastMiss = null;
-  if (ex.pairs.length === 0) finishExchange(s);
 }
 
 /** Set (or clear) the countdown for the player now on turn (PLAY phase only). */
@@ -394,7 +404,7 @@ function checkHandOver(s: PresidentenState): void {
     s.turnIndex = openerSeat(s); // the ♣3 holder opens
   } else {
     s.phase = "EXCHANGE";
-    s.exchange = { pairs, step: "request", lastMiss: null, total: pairs.length };
+    s.exchange = { pairs, step: "request", lastMiss: null, total: pairs.length, given: 0 };
   }
 }
 
@@ -506,6 +516,8 @@ export function playerView(
             lastMiss: ex.lastMiss,
             done: ex.total - ex.pairs.length,
             total: ex.total,
+            count: ex.pairs[0].count,
+            given: ex.given,
           }
         : null,
     lastTrick: state.lastTrick ? structuredClone(state.lastTrick) : null,
@@ -559,6 +571,7 @@ export function playerLeft(state: PresidentenState, playerId: string): President
       // The current pair changed (or was dropped): start it fresh.
       ex.step = "request";
       ex.lastMiss = null;
+      ex.given = 0;
     }
     armTimer(next, now);
     return next;

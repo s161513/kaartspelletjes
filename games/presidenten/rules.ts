@@ -8,9 +8,13 @@ export const BURN_THRESHOLD = 4;
 // How long each player has to act before the server auto-resolves their turn.
 export const TURN_MS = 30_000;
 
-// Deal enough decks that every player gets at least this many cards, so the
-// game stays playable from 3 up to arbitrarily many players.
-export const MIN_CARDS_PER_PLAYER = 5;
+// Deal enough decks that every player gets at least this many cards: once a
+// player would get fewer than 7 from a single deck, another deck is added
+// (8 players × 6 cards from one deck is too thin, so 8 players get 2 decks).
+export const MIN_CARDS_PER_PLAYER = 7;
+
+// Cards the President↔Scum pair swaps; every other winner/loser pair swaps one.
+export const TOP_PAIR_EXCHANGE_COUNT = 2;
 
 // The ranks a President may ask for, in Presidenten order (3 … A, then 2).
 export const REQUEST_RANKS: readonly Rank[] = [
@@ -63,14 +67,19 @@ export function assignRoles(finished: readonly string[]): Record<string, Role> {
 
 /**
  * Pair the i-th best winner with the i-th worst loser (President↔Scum first),
- * for `tierSize(n)` pairs. Citizens in the middle do not exchange.
+ * for `tierSize(n)` pairs. Citizens in the middle do not exchange. The top
+ * pair (President↔Scum) exchanges two cards, the others one.
  */
 export function exchangePairs(finished: readonly string[]): ExchangePair[] {
   const n = finished.length;
   const tier = tierSize(n);
   const pairs: ExchangePair[] = [];
   for (let i = 0; i < tier; i++) {
-    pairs.push({ winner: finished[i], loser: finished[n - 1 - i] });
+    pairs.push({
+      winner: finished[i],
+      loser: finished[n - 1 - i],
+      count: i === 0 ? TOP_PAIR_EXCHANGE_COUNT : 1,
+    });
   }
   return pairs;
 }

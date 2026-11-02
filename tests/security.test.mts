@@ -140,6 +140,8 @@ test("securityHeaders sets a strict CSP and nosniff", () => {
   assert.match(csp, /frame-ancestors 'none'/);
   assert.match(csp, /connect-src 'self' ws: wss:/, "websockets to own host allowed");
   assert.match(csp, /img-src 'self' data:/, "pixel-icon data URLs allowed");
+  assert.match(csp, /style-src 'self' 'unsafe-inline' https:\/\/fonts\.googleapis\.com/, "google fonts stylesheet allowed");
+  assert.match(csp, /font-src 'self' https:\/\/fonts\.gstatic\.com/, "google fonts files allowed");
   assert.equal(headers["X-Content-Type-Options"], "nosniff");
 });
 

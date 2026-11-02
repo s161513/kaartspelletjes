@@ -1,6 +1,6 @@
 // The contract every game implements. A game lives in its own folder
 // (games/<id>/) and provides a logic module (server) and a view (client).
-import type { PlayerPublic } from "./protocol.js";
+import type { BotDifficulty, PlayerPublic } from "./protocol.js";
 
 /** Result of validating a raw client move: the typed move, or a reason. */
 export type MoveResult<Move> =
@@ -87,6 +87,17 @@ export interface Game<State = unknown, Move = unknown> {
    */
   nextUpdateIn?(state: State): number | null;
   advance?(state: State): State;
+
+  /**
+   * Optional: the move a bot seat should play now, or null when the bot should
+   * not act (not its turn, waiting on a timer, …). After every state change the
+   * server calls this for each bot in the game, validates the result with
+   * `validateMove` and applies it — a bot is just a seat without a socket.
+   * `difficulty` is the bot's seat difficulty ("easy"/"normal"/"hard"); games
+   * may use it to pick a stronger or more random move. Games without `botMove`
+   * simply have no bots.
+   */
+  botMove?(state: State, playerId: string, difficulty?: BotDifficulty): Move | null;
 
   /**
    * Optional: room members connected, disconnected or left. `connectedIds` are

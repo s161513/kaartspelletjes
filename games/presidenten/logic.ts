@@ -1,11 +1,12 @@
 import { randomInt } from "node:crypto";
 import {
-  deal, RANK_VALUES, sortHand, type Card, type Game, type MoveResult, type Rank,
+  deal, RANK_VALUES, sortHand, type BotDifficulty, type Card, type Game, type MoveResult, type Rank,
 } from "@app/shared";
 import {
   advanceRun, assignRoles, effectiveRank, exchangePairs, hasLegalFollow,
-  MIN_CARDS_PER_PLAYER, rankLabel, TURN_MS,
+  MIN_CARDS_PER_PLAYER, orderValue, rankLabel, REQUEST_RANKS, TURN_MS,
 } from "./rules.js";
+import { advise, adviseGiveBack, adviseRequest } from "./assist/advisor.js";
 import type {
   PresidentenMove, PresidentenState, PresidentenView,
 } from "./types.js";
@@ -614,6 +615,99 @@ export function playerLeft(state: PresidentenState, playerId: string): President
   return next;
 }
 
+/**
+ * Bot strategy, per difficulty:
+ * - hard: always the advisor's cheapest legal option (assist/advisor.ts) —
+ *   exchange included (adviseRequest / adviseGiveBack).
+ * - easy: a random legal option (random rank to request, random card back,
+ *   random advised play).
+ * - normal: open with the ♣3, lead with the lowest single, follow with the
+ *   cheapest group that meets the count and rank, pass when it cannot follow.
+ */
+export function botMove(
+  state: PresidentenState,
+  playerId: string,
+  difficulty: BotDifficulty = "normal",
+): PresidentenMove | null {
+  if (!state.players.includes(playerId) || state.left.includes(playerId)) return null;
+  if (state.phase === "GAME_OVER") return null;
+
+  if (state.phase === "EXCHANGE") {
+    const ex = state.exchange!;
+    const pair = ex.pairs[0];
+    if (!pair || pair.winner !== playerId) return null;
+    const hand = state.hands[playerId] ?? [];
+    if (ex.step === "request") {
+      if (difficulty === "hard") {
+        return { type: "request", rank: adviseRequest(hand, ex.lastMiss ? [ex.lastMiss as Rank] : []) };
+      }
+      if (difficulty === "easy") {
+        return { type: "request", rank: REQUEST_RANKS[Math.floor(secureRandom() * REQUEST_RANKS.length)] };
+      }
+      const have = new Set(hand.map((c) => c.rank));
+      return { type: "request", rank: REQUEST_RANKS.find((r) => !have.has(r)) ?? "2" };
+    }
+    if (difficulty === "hard") {
+      const cardId = adviseGiveBack(hand);
+      return cardId ? { type: "giveBack", cardId } : null;
+    }
+    if (difficulty === "easy") {
+      const card = hand[Math.floor(secureRandom() * hand.length)];
+      return card ? { type: "giveBack", cardId: card.id } : null;
+    }
+    const sorted = [...hand].sort(
+      (a, b) => orderValue(a.rank) - orderValue(b.rank) || a.suit.localeCompare(b.suit),
+    );
+    const card = sorted.find((c) => c.rank !== "2") ?? sorted[0];
+    return card ? { type: "giveBack", cardId: card.id } : null;
+  }
+
+  if (state.players[state.turnIndex] !== playerId) return null;
+  const hand = state.hands[playerId] ?? [];
+  if (!hand.length) return null;
+
+  if (difficulty !== "normal") {
+    // easy/hard: pick from the advisor's ranked legal options — hard always
+    // takes the cheapest, easy picks one at random.
+    const options = advise({
+      hand,
+      currentCount: state.currentCount,
+      currentRankValue: state.currentRankValue,
+    });
+    const choice =
+      difficulty === "hard" ? options[0] : options[Math.floor(secureRandom() * options.length)];
+    return choice.kind === "pass" ? { type: "pass" } : { type: "play", cardIds: choice.cardIds };
+  }
+
+  if (mustOpenWithClubs(state, playerId)) return { type: "play", cardIds: [OPENER_ID] };
+
+  if (state.currentCount === null) {
+    const sorted = [...hand].sort((a, b) => orderValue(a.rank) - orderValue(b.rank));
+    // A lone 2 is not a legal lead (wild needs a partner) — pass instead.
+    if (sorted[0].rank === "2") return { type: "pass" };
+    return { type: "play", cardIds: [sorted[0].id] };
+  }
+
+  const minCount = state.currentCount;
+  const minValue = state.currentRankValue ?? 0;
+  const twos = hand.filter((c) => c.rank === "2");
+  const byRank = new Map<number, Card[]>();
+  for (const c of hand) {
+    if (c.rank === "2") continue;
+    const v = RANK_VALUES[c.rank];
+    if (!byRank.has(v)) byRank.set(v, []);
+    byRank.get(v)!.push(c);
+  }
+  for (const [v, cards] of [...byRank.entries()].sort((a, b) => a[0] - b[0])) {
+    if (v < minValue) continue;
+    if (cards.length + twos.length < minCount) continue;
+    const picked = cards.slice(0, minCount);
+    while (picked.length < minCount) picked.push(twos[picked.length - cards.length]);
+    return { type: "play", cardIds: picked.map((c) => c.id) };
+  }
+  return { type: "pass" };
+}
+
 export default {
   init: createGame,
   validateMove,
@@ -630,4 +724,5 @@ export default {
   nextUpdateIn: (state) =>
     state.deadline === null ? null : Math.max(0, state.deadline - Date.now()),
   advance: (state) => advance(state),
+  botMove,
 } satisfies Game<PresidentenState, PresidentenMove>;

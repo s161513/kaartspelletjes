@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { RANK_VALUES, type Card, type Rank, type Suit } from "@app/shared";
-import game, { advance, applyMove, createGame, validateMove } from "./logic.js";
+import game, { advance, applyMove, botMove, createGame, validateMove } from "./logic.js";
+import { advise } from "./assist/advisor.js";
 import {
   advanceRun, assignRoles, effectiveRank, exchangePairs, hasLegalFollow, sortForDisplay, TURN_MS,
 } from "./rules.js";
@@ -505,4 +506,21 @@ test("setAssist is host-only, works off-turn and leaves the game untouched", () 
   assert.equal(next.version, 5, "selections are not reset");
   assert.equal((game.playerView!(next, "a") as { assistEnabled: boolean }).assistEnabled, false);
   assert.equal(validateMove(s, "b", { type: "setAssist", enabled: "no" }).ok, false);
+});
+
+test("botMove difficulty: hard plays the advisor's best move, easy a random legal one", () => {
+  const s = makeState({ a: "7h 8h 9h 2s", b: "3c 4h", c: "5h 6h" }, { turnIndex: 0 });
+  const options = advise({ hand: s.hands.a, currentCount: null, currentRankValue: null });
+  const best = options[0];
+  const expected = best.kind === "pass" ? { type: "pass" } : { type: "play", cardIds: best.cardIds };
+  assert.deepEqual(botMove(s, "a", "hard"), expected, "hard = advisor's cheapest option");
+  assert.ok(validateMove(s, "a", botMove(s, "a", "hard")).ok);
+  for (let i = 0; i < 20; i++) {
+    const mv = botMove(s, "a", "easy");
+    assert.ok(mv && validateMove(s, "a", mv).ok, "easy always returns a legal move");
+  }
+  // normal keeps the plain heuristic (lead lowest non-2 single)
+  assert.deepEqual(botMove(s, "a", "normal"), { type: "play", cardIds: [id("7h")] });
+  // not the bot's turn -> null, whatever the difficulty
+  assert.equal(botMove(s, "b", "hard"), null);
 });

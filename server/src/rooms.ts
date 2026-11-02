@@ -2,6 +2,7 @@ import { randomInt, timingSafeEqual } from "node:crypto";
 import type { WebSocket } from "ws";
 import {
   SPECTATOR_VIEW_ID,
+  type BotDifficulty,
   type Game,
   type GameId,
   type GameState,
@@ -16,8 +17,12 @@ export interface Player {
   nickname: string;
   /** Private seat token (never sent to other players); checked on rejoin. */
   secret: string;
-  ws: WebSocket | null; // null while disconnected (seat kept for rejoin)
+  ws: WebSocket | null; // null while disconnected (seat kept for rejoin) or for bots
   connected: boolean;
+  /** Bot seat: no socket, never host, driven by the game's `botMove`. */
+  isBot?: boolean;
+  /** Bot seat: difficulty passed to the game's `botMove`. */
+  botDifficulty?: BotDifficulty;
   /** Spectator only: they flipped "join next round" and are queued to be dealt in. */
   wantsPlay?: boolean;
   /** Pending removal while disconnected (see RoomManager.goneAfterMs). */
@@ -31,7 +36,13 @@ export interface GameRuntime {
   playerIds?: string[];
   state: GameState;
   timer?: ReturnType<typeof setTimeout>;
+  /** Pending bot move (bots "think" for a moment before playing). */
+  botTimer?: ReturnType<typeof setTimeout>;
 }
+
+/** How long a bot waits before its move is applied, plus random jitter. */
+export const BOT_MOVE_DELAY_MS = 600;
+const BOT_MOVE_JITTER_MS = 600;
 
 export interface Room {
   code: string;
@@ -171,7 +182,8 @@ export class RoomManager {
   addPlayer(room: Room, player: Player): void {
     this.cancelPrune(room);
     room.players.set(player.id, player);
-    if (!room.hostId) room.hostId = player.id;
+    // A bot never becomes host.
+    if (!room.hostId && !player.isBot) room.hostId = player.id;
   }
 
   /** Seat a watcher. Never becomes host and is never passed to game logic. */
@@ -229,9 +241,9 @@ export class RoomManager {
     p.ws = null;
     this.updateGamePlayers(room);
 
-    // Reassign host to another connected player if the host dropped.
+    // Reassign host to another connected human player if the host dropped.
     if (room.hostId === playerId) {
-      const next = [...room.players.values()].find((x) => x.connected);
+      const next = [...room.players.values()].find((x) => x.connected && !x.isBot);
       room.hostId = next ? next.id : room.hostId;
     }
 
@@ -243,22 +255,27 @@ export class RoomManager {
     room.players.delete(playerId);
     this.updateGamePlayers(room);
     if (room.hostId === playerId) {
-      const next = [...room.players.values()].find((x) => x.connected);
+      const next = [...room.players.values()].find((x) => x.connected && !x.isBot);
       room.hostId = next ? next.id : null;
     }
     this.pruneIfEmpty(room);
   }
 
+  /** A room counts as empty when no human is connected (bots alone don't keep it alive). */
+  private anyHumanConnected(room: Room): boolean {
+    return [...room.players.values()].some((x) => x.connected && !x.isBot);
+  }
+
   private pruneIfEmpty(room: Room): void {
-    const anyConnected = [...room.players.values()].some((x) => x.connected);
-    if (anyConnected) return;
+    if (this.anyHumanConnected(room)) return;
     // Delay deletion so navigation/reconnect (a brief socket drop) can recover
     // the room via `rejoin` before it disappears.
     if (room.pruneTimer) return;
     room.pruneTimer = setTimeout(() => {
-      const stillEmpty = ![...room.players.values()].some((x) => x.connected);
+      const stillEmpty = !this.anyHumanConnected(room);
       if (stillEmpty) {
         clearTimeout(room.runtime?.timer);
+        clearTimeout(room.runtime?.botTimer);
         this.rooms.delete(room.code);
         this.notifyRoomWatchers();
       }
@@ -270,6 +287,8 @@ export class RoomManager {
       id: p.id,
       nickname: p.nickname,
       connected: p.connected,
+      isBot: !!p.isBot,
+      botDifficulty: p.botDifficulty,
     }));
   }
 
@@ -399,6 +418,74 @@ export class RoomManager {
       [...room.players.values()].filter(p => p.connected).map(p => p.id), [...room.players.keys()]);
     this.sendGame(room, "gameState");
     this.scheduleGame(room);
+    this.driveBots(room);
+  }
+
+  /**
+   * Store a new game state and send it out, ending the game if it is over —
+   * then let any bot seats act.
+   */
+  publish(room: Room, next: unknown): void {
+    const runtime = room.runtime!;
+    runtime.state = next;
+    if (runtime.game.result(next).over) {
+      clearTimeout(runtime.timer);
+      clearTimeout(runtime.botTimer);
+      this.sendGame(room, "gameOver");
+      room.lastGame = runtime;
+      room.runtime = null;
+      this.sendRoomState(room);
+    } else {
+      // Seat any committed watcher the new state has dealt in, before projecting.
+      const migrated = this.reconcileJoiners(room);
+      this.sendGame(room, "gameState");
+      this.scheduleGame(room);
+      if (migrated.length) this.sendRoomState(room);
+    }
+    this.driveBots(room);
+  }
+
+  /**
+   * Let bot seats act: find the first bot with a valid move (`botMove`) and
+   * schedule it after a short human-like pause. When it fires, `publish`
+   * re-enters `driveBots` for the next bot, until no bot acts or the game ends.
+   * Every bot move waits on a timer, so a long chain never grows the stack.
+   */
+  driveBots(room: Room): void {
+    const runtime = room.runtime;
+    if (!runtime?.game.botMove) return;
+    for (const p of room.players.values()) {
+      if (!p.isBot || !p.connected) continue;
+      if (runtime.playerIds && !runtime.playerIds.includes(p.id)) continue;
+      const raw = runtime.game.botMove(runtime.state, p.id, p.botDifficulty ?? "normal");
+      if (raw === null || raw === undefined) continue;
+      const checked = runtime.game.validateMove(runtime.state, p.id, raw);
+      if (!checked.ok) continue;
+      this.scheduleBotMove(room, p.id, checked.move);
+      return;
+    }
+  }
+
+  /** Apply a bot's move after a short delay; re-validate at fire time. */
+  private scheduleBotMove(room: Room, playerId: string, move: unknown): void {
+    const runtime = room.runtime;
+    if (!runtime) return;
+    clearTimeout(runtime.botTimer);
+    const delay = BOT_MOVE_DELAY_MS + randomInt(BOT_MOVE_JITTER_MS);
+    runtime.botTimer = setTimeout(() => {
+      runtime.botTimer = undefined;
+      // The game may have ended or been replaced, or the bot removed, meanwhile.
+      if (room.runtime !== runtime) return;
+      const seat = room.players.get(playerId);
+      if (!seat?.isBot || !seat.connected) return;
+      // Timers may have changed the state since scheduling: re-validate.
+      const checked = runtime.game.validateMove(runtime.state, playerId, move);
+      if (!checked.ok) {
+        this.driveBots(room);
+        return;
+      }
+      this.publish(room, runtime.game.applyMove(runtime.state, playerId, checked.move));
+    }, delay);
   }
 
   /** Games without timed transitions retain the original request/response flow. */
@@ -424,6 +511,7 @@ export class RoomManager {
         this.scheduleGame(room);
         if (migrated.length) this.sendRoomState(room);
       }
+      this.driveBots(room);
     }, Math.max(0, delay));
   }
 
@@ -433,6 +521,7 @@ export class RoomManager {
       for (const p of [...room.players.values(), ...room.spectators.values()]) clearTimeout(p.goneTimer);
       clearTimeout(room.pruneTimer ?? undefined);
       clearTimeout(room.runtime?.timer);
+      clearTimeout(room.runtime?.botTimer);
     }
   }
 

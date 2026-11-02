@@ -21,6 +21,10 @@ export interface PlayerPublic {
   id: string;
   nickname: string;
   connected: boolean;
+  /** True for bot seats (host-added, server-driven via the game's `botMove`). */
+  isBot?: boolean;
+  /** Bot seats only: the difficulty passed to `botMove`. */
+  botDifficulty?: BotDifficulty;
 }
 
 /** A spectator as visible to everyone — a player who has committed to join next. */
@@ -116,6 +120,22 @@ export interface EndGameMsg {
   type: "endGame";
 }
 
+/** Difficulty of a bot seat, passed to the game's `botMove`. */
+export type BotDifficulty = "easy" | "normal" | "hard";
+
+/** Host only, lobby only: add a bot seat (it plays through the game's `botMove`). */
+export interface AddBotMsg {
+  type: "addBot";
+  name?: string;
+  difficulty?: BotDifficulty;
+}
+
+/** Host only: remove a bot seat from the room. */
+export interface RemoveBotMsg {
+  type: "removeBot";
+  playerId: string;
+}
+
 export interface WatchRoomsMsg {
   type: "watchRooms";
 }
@@ -143,6 +163,8 @@ export type ClientMessage =
   | SpectateMsg
   | JoinNextRoundMsg
   | EndGameMsg
+  | AddBotMsg
+  | RemoveBotMsg
   | WatchRoomsMsg
   | UnwatchRoomsMsg;
 

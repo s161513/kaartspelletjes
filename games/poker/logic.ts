@@ -1,4 +1,4 @@
-import { createDeck, shuffle, type Card, type Game } from "@app/shared";
+import { createDeck, secureRandom, shuffle, type Card, type Game } from "@app/shared";
 import { bestHand, compareHands } from "./hand.js";
 import { buildPots } from "./pots.js";
 import type { HandResult, PokerMove, PokerState, Seat } from "./types.js";
@@ -411,6 +411,30 @@ const poker: Game<PokerState, PokerMove> = {
       deck: [],
       seats: state.seats.map((s) => (reveal(s) ? s : { ...s, hole: s.hole.map(() => null) })),
     } satisfies PokerState;
+  },
+
+  /**
+   * Bot: start the next hand after showdown; otherwise check when free,
+   * call small bets (with the occasional bluff), fold when the pressure is
+   * high, and raise to the minimum now and then when checking is free.
+   */
+  botMove(state, playerId) {
+    if (state.phase === "showdown") return { type: "nextHand" };
+    const i = state.seats.findIndex((s) => s.id === playerId);
+    if (i < 0 || state.toAct !== i) return null;
+    const seat = state.seats[i];
+    const toCall = state.currentBet - seat.bet;
+    const r = secureRandom();
+    if (toCall <= 0) {
+      if (!seat.acted && r < 0.2) {
+        const { min, max } = raiseBounds(state, seat);
+        if (max > state.currentBet && min <= max) return { type: "raise", to: min };
+      }
+      return { type: "check" };
+    }
+    const pressure = toCall / Math.max(1, seat.chips);
+    if (pressure < 0.15 || r < 0.08) return { type: "call" };
+    return { type: "fold" };
   },
 };
 

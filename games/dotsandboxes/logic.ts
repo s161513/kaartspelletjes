@@ -1,4 +1,4 @@
-import type { Game } from "@app/shared";
+import { secureRandom, type Game } from "@app/shared";
 import type { DotsState, DotsMove } from "./types.js";
 
 // Game rules, run on the server. The server calls these in this order:
@@ -205,6 +205,25 @@ const dotsAndBoxes: Game<DotsState, DotsMove> = {
 
   result() {
     return { over: false };
+  },
+
+  /** Bot: next round in intermission; else a "safe" edge that completes no box, else any edge. */
+  botMove(state, playerId) {
+    if (state.phase === "intermission") return { again: true };
+    if (state.turn !== playerId) return null;
+    const edges: { line: "h" | "v"; i: number }[] = [
+      ...state.h.map((v, i) => ({ line: "h" as const, i })).filter((e) => state.h[e.i] === null),
+      ...state.v.map((v, i) => ({ line: "v" as const, i })).filter((e) => state.v[e.i] === null),
+    ];
+    if (!edges.length) return null;
+    const completesBox = (line: "h" | "v", i: number) => {
+      const h = line === "h" ? state.h.map((v, k) => (k === i ? playerId : v)) : state.h;
+      const v = line === "v" ? state.v.map((v, k) => (k === i ? playerId : v)) : state.v;
+      return bordering(line, i, state.rows, state.cols).some(([r, c]) => boxComplete(h, v, state.cols, r, c));
+    };
+    const safe = edges.filter((e) => !completesBox(e.line, e.i));
+    const pool = safe.length ? safe : edges;
+    return pool[Math.floor(secureRandom() * pool.length)];
   },
 };
 

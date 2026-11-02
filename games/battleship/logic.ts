@@ -1,4 +1,4 @@
-import type { Game } from "@app/shared";
+import { secureRandom, type Game } from "@app/shared";
 import type {
   BattleshipState,
   BattleshipMove,
@@ -261,6 +261,39 @@ const battleship: Game<BattleshipState, BattleshipMove> = {
 
   result() {
     return { over: false };
+  },
+
+  /**
+   * Bot: next round in intermission; in placement, drop the next ship at a
+   * random valid spot (lock in when the fleet is complete); in firing, shoot a
+   * random unshot cell of the enemy sea.
+   */
+  botMove(state, playerId) {
+    if (state.phase === "intermission") return { again: true };
+    const board = state.boards[playerId];
+    if (state.stage === "placement") {
+      if (board.ready) return null;
+      const slot = board.ships.findIndex((s) => s === null);
+      if (slot === -1) return { ready: true };
+      for (let tries = 0; tries < 500; tries++) {
+        const p = {
+          row: Math.floor(secureRandom() * SIZE),
+          col: Math.floor(secureRandom() * SIZE),
+          orient: (secureRandom() < 0.5 ? "h" : "v") as Orient,
+        };
+        if (!inBounds(p, FLEET[slot].size)) continue;
+        const taken = occupied(board, slot);
+        if (shipCells(p, FLEET[slot].size).some((c) => taken.has(c))) continue;
+        return { place: { ship: slot, ...p } };
+      }
+      return null;
+    }
+    if (state.turn !== playerId) return null;
+    const enemy = state.boards[opponent(state, playerId)];
+    const targets = enemy.shots.flatMap((hit, i) => (hit ? [] : [i]));
+    if (!targets.length) return null;
+    const cell = targets[Math.floor(secureRandom() * targets.length)];
+    return { fire: { row: Math.floor(cell / SIZE), col: cell % SIZE } };
   },
 
   playerView(state, viewerId): BattleshipView {

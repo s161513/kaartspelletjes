@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage } from "node:http";
 import type { WebSocket } from "ws";
-import { SEAT_TAKEN_CLOSE, type ClientMessage, type ServerMessage } from "@app/shared";
+import { SEAT_TAKEN_CLOSE, type BotDifficulty, type ClientMessage, type ServerMessage } from "@app/shared";
 import { RoomManager, ServerFullError, type Player, type Room } from "./rooms.js";
 import { games } from "./games/loader.js";
 
@@ -78,23 +78,9 @@ function err(ws: WebSocket, code: string, message: string): void {
   send(ws, { type: "error", code, message });
 }
 
-/** Store a new game state and send it out, ending the game if it is over. */
+/** Store a new game state and send it out (ending the game if over), then let bots act. */
 function publish(manager: RoomManager, room: Room, next: unknown): void {
-  const runtime = room.runtime!;
-  runtime.state = next;
-  if (runtime.game.result(next).over) {
-    clearTimeout(runtime.timer);
-    manager.sendGame(room, "gameOver");
-    room.lastGame = runtime;
-    room.runtime = null;
-    sendRoomState(manager, room);
-  } else {
-    // Seat any committed watcher the new state has dealt in, before projecting.
-    const migrated = manager.reconcileJoiners(room);
-    manager.sendGame(room, "gameState");
-    manager.scheduleGame(room);
-    if (migrated.length) sendRoomState(manager, room);
-  }
+  manager.publish(room, next);
 }
 
 /**
@@ -114,6 +100,7 @@ function playerLeftGame(manager: RoomManager, room: Room, playerId: string): voi
     (p) => p.connected && (!runtime.playerIds || runtime.playerIds.includes(p.id)),
   );
   clearTimeout(runtime.timer);
+  clearTimeout(runtime.botTimer);
   manager.sendGame(room, "gameOver", {
     winner: remaining.length === 1 ? remaining[0].id : "draw",
   });
@@ -243,6 +230,7 @@ function leaveRoom(
         // The host left mid-game: end the game for everyone and return to the
         // lobby, so the remaining players are not stuck in a hostless game.
         clearTimeout(runtime.timer);
+        clearTimeout(runtime.botTimer);
         room.runtime = null;
         room.lastGame = undefined;
         for (const s of room.spectators.values()) delete s.wantsPlay;
@@ -358,9 +346,11 @@ function handle(conn: Conn, manager: RoomManager, msg: ClientMessage): void {
       player.connected = true;
       conn.isSpectator = false;
       manager.updateGamePlayers(room);
-      // Take over the host role if there is none, or the host is no longer
-      // connected (e.g. they left while everyone else was in the grace window).
-      if (!room.hostId || !room.players.get(room.hostId)?.connected) room.hostId = player.id;
+      // Take over the host role if there is none, or the host is no longer a
+      // connected human (e.g. they left while everyone else was in the grace
+      // window) — a bot never hosts.
+      const host = room.hostId ? room.players.get(room.hostId) : undefined;
+      if (!host || !host.connected || host.isBot) room.hostId = player.id;
       conn.roomCode = room.code;
       conn.playerId = player.id;
 
@@ -422,6 +412,7 @@ function handle(conn: Conn, manager: RoomManager, msg: ClientMessage): void {
       manager.sendGame(room, "gameStarted");
       manager.scheduleGame(room);
       sendRoomState(manager, room);
+      manager.driveBots(room); // a bot may hold the opening turn
       return;
     }
 
@@ -535,6 +526,7 @@ function handle(conn: Conn, manager: RoomManager, msg: ClientMessage): void {
       if (!room.runtime && !room.lastGame) return err(ws, "no_game", "No game to end");
 
       clearTimeout(room.runtime?.timer);
+      clearTimeout(room.runtime?.botTimer);
       room.runtime = null;
       room.lastGame = undefined;
       // Watchers stay watchers in the lobby; a queued "join next round" is moot.
@@ -544,6 +536,41 @@ function handle(conn: Conn, manager: RoomManager, msg: ClientMessage): void {
       manager.broadcast(room, { type: "gameEnded", by });
       manager.broadcast(room, { type: "chat", from: "🛑", text: `${by} ended the game`, ts: Date.now() });
       sendRoomState(manager, room);
+      return;
+    }
+
+    case "addBot": {
+      const room = requireRoom(conn, manager);
+      if (!room) return;
+      if (room.hostId !== conn.playerId)
+        return err(ws, "not_host", "Only the host can add a bot");
+      if (room.runtime) return err(ws, "in_progress", "Finish the current game first");
+      const bots = [...room.players.values()].filter((p) => p.isBot).length;
+      if (bots >= 7 || room.players.size >= 10)
+        return err(ws, "too_many", "Too many players in this room");
+      const name = sanitizeText(msg.name, 24) ?? `Bot ${bots + 1}`;
+      const difficulty: BotDifficulty =
+        msg.difficulty === "easy" || msg.difficulty === "hard" ? msg.difficulty : "normal";
+      const bot: Player = {
+        id: randomUUID(), nickname: name, secret: randomUUID(),
+        ws: null, connected: true, isBot: true, botDifficulty: difficulty,
+      };
+      manager.addPlayer(room, bot);
+      manager.broadcast(room, {
+        type: "chat", from: "🤖", text: `${name} joined the room`, ts: Date.now(),
+      });
+      sendRoomState(manager, room);
+      return;
+    }
+
+    case "removeBot": {
+      const room = requireRoom(conn, manager);
+      if (!room) return;
+      if (room.hostId !== conn.playerId)
+        return err(ws, "not_host", "Only the host can remove a bot");
+      const bot = room.players.get(String(msg.playerId ?? ""));
+      if (!bot || !bot.isBot) return err(ws, "no_seat", "No such bot in this room");
+      leaveRoom(manager, room, bot.id, false, "was removed by the host");
       return;
     }
 

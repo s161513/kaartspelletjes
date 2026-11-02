@@ -1,4 +1,4 @@
-import type { Game } from "@app/shared";
+import { secureRandom, type Game } from "@app/shared";
 import type { Cell, Disc, ReversiState, ReversiMove } from "./types.js";
 
 // Game rules, run on the server. The server calls these in this order:
@@ -234,6 +234,24 @@ const reversi: Game<ReversiState, ReversiMove> = {
 
   result() {
     return { over: false };
+  },
+
+  /** Bot: next round when in intermission; else the move that flips the most discs. */
+  botMove(state, playerId) {
+    if (state.phase === "intermission") return { again: true };
+    if (state.turn !== playerId) return null;
+    const moves = legalMoves(state.board, state.discs[playerId]);
+    if (!moves.length) return null;
+    let best = moves[0];
+    let bestN = -1;
+    const besties: number[] = [];
+    for (const m of moves) {
+      const n = flips(state.board, m, state.discs[playerId]).length;
+      if (n > bestN) { bestN = n; besties.length = 0; besties.push(m); }
+      else if (n === bestN) besties.push(m);
+    }
+    best = besties[Math.floor(secureRandom() * besties.length)];
+    return { cell: best };
   },
 };
 

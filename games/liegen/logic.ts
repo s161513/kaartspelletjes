@@ -1,4 +1,4 @@
-import type { Game } from "@app/shared";
+import { secureRandom, type Game } from "@app/shared";
 import type { LiegenState, LiegenMove } from "./types.js";
 
 const RANKS = [
@@ -185,6 +185,29 @@ const logic: Game<LiegenState, LiegenMove> = {
             }
         }
         return next;
+    },
+
+    /**
+     * Bot: shake when it can, claim the highest legal value, and when facing a
+     * claim either call bluff on a steep one (or a 21, which must be called)
+     * or blind-pass with the next higher claim.
+     */
+    botMove(state, playerId) {
+        if (state.turn !== playerId) return null;
+        if (state.gameState === "WAITING_FOR_FIRST_SHAKE") return { action: "shake" };
+        if (state.gameState === "WAITING_FOR_CLAIM") {
+            const higher = RANKS.filter((v) => state.currentClaim === null || getRank(v) > getRank(state.currentClaim));
+            return { action: "claim", value: higher[higher.length - 1] };
+        }
+        if (state.gameState === "WAITING_FOR_ACTION" && state.currentClaim !== null) {
+            const claimIdx = getRank(state.currentClaim);
+            const steep = claimIdx >= RANKS.length - 4;
+            if ((steep && secureRandom() < 0.6) || claimIdx === RANKS.length - 1) return { action: "call_bluff" };
+            const higher = RANKS.filter((v) => getRank(v) > claimIdx);
+            if (!higher.length) return { action: "call_bluff" };
+            return { action: "blind_pass", value: higher[0] };
+        }
+        return null;
     }
 };
 

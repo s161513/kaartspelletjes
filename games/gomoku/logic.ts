@@ -1,4 +1,4 @@
-import type { Game } from "@app/shared";
+import { secureRandom, type Game } from "@app/shared";
 import type { Cell, GomokuState, GomokuMove } from "./types.js";
 
 // Game rules, run on the server. The server calls these in this order:
@@ -171,6 +171,37 @@ const gomoku: Game<GomokuState, GomokuMove> = {
   // (framework `endGame`) or a player leaves. So a round ending is never "over".
   result() {
     return { over: false };
+  },
+
+  /** Bot: next round when in intermission; else win, block, then a random empty cell near the action. */
+  botMove(state, playerId) {
+    if (state.phase === "intermission") return { again: true };
+    if (state.turn !== playerId) return null;
+    const mine = state.stones[playerId];
+    const foe = mine === "B" ? "W" : "B";
+    const empty = state.board.flatMap((v, i) => (v === null ? [i] : []));
+    if (!empty.length) return null;
+    const wins = (colour: "B" | "W", cell: number) => {
+      const board = state.board.slice();
+      board[cell] = colour;
+      return winningColour(board) === colour;
+    };
+    const winCell = empty.find((c) => wins(mine, c));
+    if (winCell !== undefined) return { cell: winCell };
+    const blockCell = empty.find((c) => wins(foe, c));
+    if (blockCell !== undefined) return { cell: blockCell };
+    // Prefer cells adjacent to existing stones so the bot builds a position.
+    const near = empty.filter((c) => {
+      const r = Math.floor(c / SIZE), col = c % SIZE;
+      for (let dr = -1; dr <= 1; dr++)
+        for (let dc = -1; dc <= 1; dc++) {
+          const i = (r + dr) * SIZE + (col + dc);
+          if (r + dr >= 0 && r + dr < SIZE && col + dc >= 0 && col + dc < SIZE && state.board[i] !== null) return true;
+        }
+      return false;
+    });
+    const pool = near.length ? near : empty;
+    return { cell: pool[Math.floor(secureRandom() * pool.length)] };
   },
 };
 

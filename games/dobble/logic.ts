@@ -107,6 +107,15 @@ const dobble: Game<DobbleState, DobbleMove> = {
   seatedPlayers(state) {
     return state.activeIds;
   },
+  // Bot: click the symbol that is on both its card and the center card.
+  botMove(state, playerId) {
+    if (state.winnerId || state.paused || !state.activeIds.includes(playerId)) return null;
+    if (state.round.status !== "active") return null;
+    const own = state.round.hands[playerId] ?? [];
+    const match = own.find((s) => state.round.center.includes(s));
+    if (match === undefined) return null;
+    return { type: "symbolClick", roundId: state.round.id, symbolId: match };
+  },
   // A committed watcher who left before a round dealt them in: just dequeue.
   // Dealt-in players leaving are handled by playersChanged (the activeIds filter).
   playerLeft(state, playerId) {

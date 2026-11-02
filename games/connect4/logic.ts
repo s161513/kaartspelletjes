@@ -1,4 +1,4 @@
-import type { Game } from "@app/shared";
+import { secureRandom, type Game } from "@app/shared";
 import type { Cell, Connect4State, Connect4Move } from "./types.js";
 
 // Game rules, run on the server. The server calls these in this order:
@@ -180,6 +180,26 @@ const connect4: Game<Connect4State, Connect4Move> = {
   // (framework `endGame`) or a player leaves. So a round ending is never "over".
   result() {
     return { over: false };
+  },
+
+  /** Bot: next round when in intermission; else win, block, then a random column. */
+  botMove(state, playerId) {
+    if (state.phase === "intermission") return { again: true };
+    if (state.turn !== playerId) return null;
+    const mine = state.discs[playerId];
+    const foe = mine === "R" ? "Y" : "R";
+    const cols = Array.from({ length: COLS }, (_, c) => c).filter((c) => lowestEmptyRow(state.board, c) !== -1);
+    if (!cols.length) return null;
+    const wins = (colour: "R" | "Y", col: number) => {
+      const board = state.board.slice();
+      board[idx(lowestEmptyRow(board, col), col)] = colour;
+      return winningColour(board) === colour;
+    };
+    const winCol = cols.find((c) => wins(mine, c));
+    if (winCol !== undefined) return { col: winCol };
+    const blockCol = cols.find((c) => wins(foe, c));
+    if (blockCol !== undefined) return { col: blockCol };
+    return { col: cols[Math.floor(secureRandom() * cols.length)] };
   },
 };
 

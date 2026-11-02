@@ -235,7 +235,7 @@ test("a finished hand rolls into the exchange, dealing fresh and keeping roles",
   assert.equal(after.phase, "EXCHANGE", "three players keep going into the next hand");
   assert.equal(after.round, 2, "a fresh hand was dealt");
   assert.deepEqual(after.roles, { a: "president", b: "citizen", c: "scum" });
-  assert.deepEqual(after.exchange?.pairs, [{ winner: "a", loser: "c", count: 2 }]);
+  assert.deepEqual(after.exchange?.pairs, [{ winner: "a", loser: "c", count: 1 }]);
   assert.equal(game.result(after).over, false, "the game continues");
   assert.ok(after.hands.a.length > 0 && after.hands.c.length > 0, "everyone was re-dealt");
 });
@@ -322,7 +322,7 @@ test("standings split the field into thirds and pair winners with losers", () =>
     { winner: "p3", loser: "p7", count: 1 },
   ]);
   assert.deepEqual(assignRoles(["a", "b", "c"]), { a: "president", b: "citizen", c: "scum" });
-  assert.deepEqual(exchangePairs(["a", "b", "c"]), [{ winner: "a", loser: "c", count: 2 }]);
+  assert.deepEqual(exchangePairs(["a", "b", "c"]), [{ winner: "a", loser: "c", count: 1 }]);
   assert.deepEqual(assignRoles(["a", "b", "c", "d"]), {
     a: "president", b: "citizen", c: "citizen", d: "scum",
   });
@@ -360,8 +360,8 @@ test("exchange pairings and card counts per player count (3-4: 2, 5-6: 2/1, 7-8:
     { winner: "p3", loser: "p5", count: 1 },
   ]);
   assert.equal(assignRoles(seven).p4, "citizen", "the middle player stays a citizen");
-  // 3-4 players: only President↔Scum, two cards.
-  assert.deepEqual(exchangePairs(["a", "b", "c", "d"]), [{ winner: "a", loser: "d", count: 2 }]);
+  // 3-4 players: only President↔Scum, one card (dynamic: tier 1 -> 1 card).
+  assert.deepEqual(exchangePairs(["a", "b", "c", "d"]), [{ winner: "a", loser: "d", count: 1 }]);
 });
 
 test("only the paired winner may drive the exchange — citizens and the loser cannot", () => {

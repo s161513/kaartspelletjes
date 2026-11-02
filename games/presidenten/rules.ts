@@ -41,13 +41,12 @@ export function tierSize(n: number): number {
 }
 
 /**
- * Cards pair `i` exchanges (0 = President↔Scum): descending from the tier
- * size — 3, 2, 1 with three pairs (7–8 players), 2, 1 with two (5–6), and the
- * top pair always at least 2 (3–4 players). Capped so it can never exceed a
- * dealt hand.
+ * Cards pair `i` exchanges (0 = President↔Scum): dynamic, descending from the
+ * tier size — with 3–4 players (1 pair) just 1 card, 5–6 players 2 and 1,
+ * 7–8 players 3, 2, 1. Capped at 5 so it can never exceed a dealt hand.
  */
 export function exchangeCount(tier: number, i: number): number {
-  return Math.min(5, Math.max(i === 0 ? 2 : 1, tier - i));
+  return Math.max(1, Math.min(5, tier - i));
 }
 
 /**
@@ -76,8 +75,8 @@ export function assignRoles(finished: readonly string[]): Record<string, Role> {
 /**
  * Pair the i-th best winner with the i-th worst loser (President↔Scum first),
  * for `tierSize(n)` pairs. Citizens in the middle do not exchange. Pair i
- * exchanges `exchangeCount(tier, i)` cards: 2/1 for 5–6 players, 3/2/1 for
- * 7–8, and always at least 2 for the President↔Scum pair.
+ * exchanges `exchangeCount(tier, i)` cards — dynamic: 1 card with 3–4
+ * players, 2/1 with 5–6, 3/2/1 with 7–8.
  */
 export function exchangePairs(finished: readonly string[]): ExchangePair[] {
   const n = finished.length;

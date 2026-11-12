@@ -1805,6 +1805,9 @@ export interface VillagerLook {
   /** A player's own NPC: hat and pattern from the tailor (else the era's look). */
   hat?: string;
   pattern?: string;
+  /** A HAIR_STYLES id and its color (update 26); none: bald. */
+  hair?: string;
+  hairColor?: string;
 }
 
 export function drawVillager(ctx: Ctx, x: number, y: number, v: VillagerLook): void {
@@ -1850,6 +1853,7 @@ function villagerShapes(ctx: Ctx, x: number, y: number, v: VillagerLook): void {
   ctx.fillRect(x - 3, by - 11, 6, 7);
   if (v.pattern) drawPattern(ctx, x - 3, by - 11, v.pattern, v.clothes, v.phase);
   ellipse(ctx, x, by - 13.5, 2.8, 2.8, v.skin);
+  if (v.hair && v.hairColor) drawHair(ctx, x, by - 13.5, v.hair, v.hairColor, v.hat);
   if (v.hat !== undefined) drawHat(ctx, x, by - 13.5, v.hat);
   // Era headwear.
   else if (v.level === 6) {
@@ -2013,6 +2017,63 @@ function drawPattern(ctx: Ctx, x: number, y: number, pattern: string, base: stri
 }
 
 /** A hat on a head centered at (x, y). */
+/** Hair on a head centered at (x, y), radius 2.8; baked into pixels like the rest (update 26). Under a hat only what sticks out. */
+function drawHair(ctx: Ctx, x: number, y: number, hair: string, color: string, hat?: string): void {
+  const dark = shade(color, -0.3);
+  const covered = hat !== undefined && hat !== "none" && hat !== "headphones";
+  // The top of the head: a cap of hair over the upper half.
+  const cap = () => poly(ctx, [x - 3, y + 0.2, x - 2.6, y - 2, x - 1, y - 3.1, x + 1, y - 3.1, x + 2.6, y - 2, x + 3, y + 0.2, x + 2, y - 1, x - 2, y - 1], color);
+  switch (hair) {
+    case "short":
+      if (!covered) cap();
+      return;
+    case "spiky":
+      if (!covered) {
+        cap();
+        poly(ctx, [x - 2.5, y - 2, x - 2, y - 4.6, x - 1, y - 2.6, x, y - 5, x + 1, y - 2.6, x + 2, y - 4.6, x + 2.5, y - 2], color);
+      }
+      return;
+    case "long":
+      if (!covered) cap();
+      // Down both sides to the shoulders.
+      ctx.fillStyle = color;
+      ctx.fillRect(x - 3.4, y - 1.5, 1.4, 5);
+      ctx.fillRect(x + 2, y - 1.5, 1.4, 5);
+      return;
+    case "ponytail":
+      if (!covered) cap();
+      ctx.fillStyle = color;
+      ctx.fillRect(x + 2.6, y - 1.6, 1.4, 1.4);
+      ellipse(ctx, x + 4, y + 1.2, 1.2, 2.2, color);
+      ctx.fillStyle = dark;
+      ctx.fillRect(x + 3, y - 1.2, 1, 1);
+      return;
+    case "bun":
+      if (!covered) {
+        cap();
+        ellipse(ctx, x, y - 3.8, 1.7, 1.5, color);
+        ctx.fillStyle = dark;
+        ctx.fillRect(x - 1, y - 2.6, 2, 0.6);
+      }
+      return;
+    case "curly":
+      // Little curls round the head, also under a hat.
+      for (const [dx, dy] of covered ? [[-3, 0], [3, 0], [-3.2, -1.5], [3.2, -1.5]] : [[-3, 0], [3, 0], [-2.8, -2], [2.8, -2], [-1.5, -3.2], [1.5, -3.2], [0, -3.6]]) {
+        ellipse(ctx, x + dx, y + dy, 1.3, 1.3, color);
+      }
+      if (!covered) ellipse(ctx, x, y - 2.2, 2, 1, dark);
+      return;
+    case "mohawk":
+      if (!covered) {
+        ctx.fillStyle = color;
+        ctx.fillRect(x - 0.8, y - 5, 1.6, 3);
+        ctx.fillStyle = dark;
+        ctx.fillRect(x - 0.8, y - 2.4, 1.6, 0.8);
+      }
+      return;
+  }
+}
+
 function drawHat(ctx: Ctx, x: number, y: number, hat: string): void {
   switch (hat) {
     case "cap":

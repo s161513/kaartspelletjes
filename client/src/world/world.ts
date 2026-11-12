@@ -27,6 +27,7 @@ import {
   middleOf,
   tilesOf,
   type RaidStage,
+  censor,
 } from "@app/shared/idle";
 import {
   RESOURCE_COLORS,
@@ -112,6 +113,8 @@ export interface TownWorld {
   setGather(id: string, g: Gather | null): void;
   /** Two players did something together (update 14). */
   social(from: string, to: string, emoji: string): void;
+  /** A player said something in the chat: a bubble over their NPC (update 26). */
+  say(from: string, text: string): void;
   focus(b: PlacedBuilding): void;
   /** Move the view to a tile. */
   lookAt(x: number, y: number): void;
@@ -808,7 +811,7 @@ export function createWorld(opts: WorldOptions): TownWorld {
     }
 
     for (const [x, y, name, mine] of tags) drawNameTag(ctx, x, y, name, mine);
-    for (const [x, y, text] of bubbles) drawBubble(ctx, x, y, text);
+    for (const [x, y, text] of bubbles) drawBubble(ctx, x, y, censor(text));
 
     // Particles and floating "+n".
     const pt = performance.now();
@@ -903,6 +906,9 @@ export function createWorld(opts: WorldOptions): TownWorld {
     },
     social(from, to, emoji) {
       pop.social(from, to, emoji, Date.now());
+    },
+    say(from, text) {
+      pop.say(from, text, Date.now());
     },
     setWorld(w) {
       let changed =

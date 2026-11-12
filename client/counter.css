@@ -447,6 +447,66 @@ body.sx-era-10 { --sx-bg: #12002b; --sx-bg2: #2a0050; }
   box-shadow: 0 2px 0 #000;
 }
 
+/* ---------- the village chat (update 26) ---------- */
+
+.sx-fab-news {
+  background: var(--sx-yellow);
+}
+
+.sx-chat {
+  position: fixed;
+  right: 16px;
+  bottom: 76px;
+  z-index: 7;
+  display: flex;
+  flex-direction: column;
+  width: min(340px, calc(100vw - 32px));
+  max-height: min(420px, calc(100vh - 240px));
+  padding: 12px 14px;
+  border: 3px solid #000;
+  background: rgba(18, 10, 40, 0.96);
+  color: #fff;
+  font: 0.9rem var(--sx-font);
+  box-shadow: 0 6px 0 #000;
+}
+
+.sx-chat[hidden] {
+  display: none;
+}
+
+.sx-chat-list {
+  flex: 1;
+  min-height: 80px;
+  overflow-y: auto;
+  margin-bottom: 8px;
+  overflow-wrap: anywhere;
+}
+
+.sx-chat-line {
+  padding: 2px 0;
+  font-size: 0.85rem;
+}
+
+.sx-chat-mine b {
+  color: var(--sx-yellow);
+}
+
+.sx-chat-time {
+  margin-right: 6px;
+  color: var(--sx-muted);
+  font-size: 0.75rem;
+}
+
+.sx-chat-form {
+  display: flex;
+  gap: 6px;
+}
+
+.sx-chat-input {
+  flex: 1;
+  min-width: 0;
+}
+
 /* ---------- developer menu (update 23), only with IDLE_DEV=1 on this computer ---------- */
 
 .sx-dev {

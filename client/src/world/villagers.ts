@@ -33,6 +33,8 @@ import {
   housingOf,
   resourceDef,
   SKIN_TONES,
+  HAIR_COLORS,
+  defaultHair,
   terrainAt,
   type IdlePerson,
   type IdleWorld,
@@ -141,6 +143,9 @@ export interface Villager {
   nextChat: number;
   /** Set for a player's own NPC. */
   player?: { id: string; name: string; hat: string; pattern: string; mine: boolean };
+  /** A HAIR_STYLES id and its color (update 26): the player's choice, else from the villager's id. */
+  hair: string;
+  hairColor: string;
   /** A newcomer waiting at the edge of town for the vote. */
   visitor?: boolean;
 }
@@ -150,6 +155,11 @@ const TOOLS: Record<string, VillagerLook["tool"]> = { farm: "hoe", hunter: "spea
 
 const pick = <T>(a: readonly T[]): T => a[Math.floor(Math.random() * a.length)];
 const hashStr = (s: string) => [...s].reduce((h, c) => (Math.imul(h, 31) + c.charCodeAt(0)) | 0, 7);
+/** The town's villagers get hair from their id, like their name and skin (update 26: nobody is bald by force any more). */
+const hairOf = (seed: number): { hair: string; hairColor: string } => {
+  const h = defaultHair(seed);
+  return { hair: h.hair, hairColor: HAIR_COLORS[h.hairColor] };
+};
 
 export class Population {
   readonly villagers = new Map<string, Villager>();
@@ -236,7 +246,7 @@ export class Population {
           x: start.x, y: start.y, ox: (r(3) - 0.5) * 0.5, oy: (r(4) - 0.5) * 0.5,
           path: [], pathI: 0, task: { kind: "stay", until: now + r(5) * 3000, action: "none" },
           action: "none", carry: null, hidden: false, bubble: null, jumpUntil: 0, sixSevenUntil: 0,
-          nextChat: now + 5000 + r(6) * 30_000,
+          nextChat: now + 5000 + r(6) * 30_000, ...hairOf(seed),
         };
         this.villagers.set(p.id, v);
       } else if (v.job !== job || v.gather?.resource !== gather?.resource) {
@@ -265,7 +275,7 @@ export class Population {
       clothes: "#8b5a2b", skin: SKINS[Math.abs(seed) % SKINS.length],
       x: spot.x, y: spot.y, ox: 0, oy: 0, path: [], pathI: 0, task: { kind: "stay", until: Infinity, action: "none" },
       action: "none", carry: null, hidden: false, bubble: { text: "mag ik hier wonen? 🧳", until: now + 4000 }, jumpUntil: now + 800, sixSevenUntil: 0,
-      nextChat: now + 10_000, visitor: true,
+      nextChat: now + 10_000, visitor: true, ...hairOf(seed),
     });
   }
 
@@ -288,7 +298,7 @@ export class Population {
           x: start.x, y: start.y, ox: (Math.random() - 0.5) * 0.4, oy: (Math.random() - 0.5) * 0.4,
           path: [], pathI: 0, task: { kind: "stay", until: now + 1000, action: "none" },
           action: "none", carry: null, hidden: false, bubble: { text: "👋 hoi!", until: now + 2500 }, jumpUntil: now + 800, sixSevenUntil: 0,
-          nextChat: now + 20_000 + Math.random() * 30_000,
+          nextChat: now + 20_000 + Math.random() * 30_000, hair: "bald", hairColor: HAIR_COLORS[0],
         };
         this.villagers.set(id, v);
       }
@@ -296,6 +306,8 @@ export class Population {
       v.skin = SKIN_TONES[p.look.skin] ?? SKIN_TONES[0];
       v.clothes = CLOTHES_COLORS[p.look.clothes] ?? CLOTHES_COLORS[0];
       v.player = { id: p.id, name: p.name, hat: p.look.hat, pattern: p.look.pattern, mine: p.id === me };
+      v.hair = p.look.hair ?? "bald";
+      v.hairColor = HAIR_COLORS[p.look.hairColor] ?? HAIR_COLORS[0];
       // Their task (update 14): off to that building or that nature, like any villager with a job.
       const job = p.task?.kind === "work" ? p.task.building : null;
       const gather = p.task?.kind === "gather" ? p.task.res : null;
@@ -562,6 +574,13 @@ export class Population {
     v.bubble = { text: `${v.name} · ${what}`, until: now + 3500 };
   }
 
+  /** Someone said something in the chat: it shows over their NPC for a while (update 26). */
+  say(from: string, text: string, now: number): void {
+    const v = this.villagers.get(`p:${from}`);
+    if (!v) return;
+    v.bubble = { text: text.length > 40 ? `${text.slice(0, 39)}…` : text, until: now + 3000 + Math.min(4000, text.length * 80) };
+  }
+
   /** Two players did something together: a bubble over both. */
   social(from: string, to: string, emoji: string, now: number): void {
     for (const id of [from, to]) {
@@ -643,6 +662,8 @@ export class Population {
       jump: jumpLeft > 0 ? Math.sin((jumpLeft / 700) * Math.PI * 2) ** 2 * 6 : 0,
       hat: v.player?.hat,
       pattern: v.player?.pattern,
+      hair: v.hair === "bald" ? undefined : v.hair,
+      hairColor: v.hairColor,
     };
   }
 }

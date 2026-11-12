@@ -220,6 +220,9 @@ export function createCounterServer(opts: CounterServerOptions = {}): WebSocketS
           return reply(idle.idea(clientId, msg.text, now));
         case "unidea":
           return reply(idle.unidea(clientId, msg.id));
+        // The village chat (update 26).
+        case "chat":
+          return reply(idle.chat(clientId, msg.text, now));
         case "forge":
           return reply(idle.forge(clientId, msg.name, msg.building, msg.score, now));
         case "outfit":

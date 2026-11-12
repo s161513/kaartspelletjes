@@ -740,16 +740,27 @@ Status: gedaan (PR #50). Gekozen door De raad (2026-10-28: 3 stemmen, de rest 0)
       raad, "De characters glitchen door de muren")
 
 ### Update 26: Chat & kapsels
-Status: gepland. Ideeën van spelers via De raad (2026-10-28).
+Status: in review (PR #57). Ideeën van spelers via De raad (2026-10-28).
 
-- [ ] Een chat in het dorp, voor de spelers onder elkaar. (bron: Nathan,
-      "ik mis een interne chat")
-- [ ] Kapsels voor de mannetjes, nu is iedereen kaal. Kaal blijft een
-      keuze, maar is niet meer verplicht. (bron: Soufiane, "Haarstijlen
-      toevoegen want nu is iedereen kaal xD" en 2026-10-29 "Kaal zijn moet
-      een optie zijn niet een verplichting!!")
-- [ ] Het woord "werk" gecensureerd als "w*rk". (bron: JJ, "het woord w*rk
-      censureren")
+- [x] Een chat in het dorp, voor de spelers onder elkaar. Gedaan: knop 💬
+      rechtsonder (met het aantal ongelezen berichten), een venster met de
+      laatste 50 berichten, Enter om te sturen. De server bewaart ze bij het
+      dorp (`chat` in de staat, ook na een herstart); wat je zegt staat ook
+      even in een wolkje boven je eigen NPC. Hooguit 200 tekens per bericht.
+      (bron: Nathan, "ik mis een interne chat")
+- [x] Kapsels voor de mannetjes, nu is iedereen kaal. Kaal blijft een
+      keuze, maar is niet meer verplicht. Gedaan: 8 kapsels (kaal, kort,
+      stekeltjes, lang, paardenstaart, knotje, krullen, hanenkam) en 10
+      haarkleuren, gratis, bij 🧍 Jouw NPC → Haar. Wie al een NPC had, krijgt
+      een kapsel dat bij zijn id hoort (`defaultHair`); de gewone inwoners
+      ook. Onder een hoed zie je alleen wat eronder uitsteekt. Getekend als
+      vormen die net als de rest tot pixels gebakken worden. (bron:
+      Soufiane, "Haarstijlen toevoegen want nu is iedereen kaal xD" en
+      2026-10-29 "Kaal zijn moet een optie zijn niet een verplichting!!")
+- [x] Het woord "werk" gecensureerd als "w*rk". Gedaan: overal op de pagina
+      (ook in werkers, bewerken, ...) en in de wolkjes boven de mannetjes
+      (`censor`). Wat je typt, blijft zoals je het typt; in de chat staat
+      het daarna ook als w*rk. (bron: JJ, "het woord w*rk censureren")
 
 ### Update 15: Liefde & trouwen
 Status: gepland. Steunt op update 14. Beide spelers moeten zelf ja zeggen
@@ -764,6 +775,32 @@ voor ze iets samen beginnen.
 - [ ] Vreemdgaan: wie getrouwd is en met iemand anders een sterke relatie
       opbouwt, breekt het huwelijk. Het dorp hoort ervan. (bron: idem, "een
       sterke relatie opbouwen met iemand anders zal deze trouw breken")
+
+### Update 27: Natuur opruimen & verplaatsen
+Status: gepland. Feedback van 2026-11-12. Vraag Richard eerst wat het kost
+en of het via een stemming gaat, voor je bouwt.
+
+- [ ] Stenen, bosjes en bomen weghalen of ergens anders neerzetten, zodat je
+      je dorp beter kunt indelen. Het kost iets, bijvoorbeeld een paar
+      grondstoffen per tegel, net als paden. Nog te beslissen: kun je alleen
+      kleine dingen (rotsblokken, struiken) verplaatsen of ook bos en
+      steengroeves, en wat gebeurt er met wat erin zat (meteen in de opslag,
+      of weg)? Weghalen maakt de natuur rond het dorp kleiner, dus
+      verzamelaars en werkgebouwen in de buurt vinden minder. (bron:
+      feedback 2026-11-12, "objecten zoals stenen of bosjes herplaatsen of
+      verwijderen, mss een kost aanplakken, zo kan je citys beter bouwen")
+
+### Update 28: Je mannetje kiest een beroep
+Status: gepland. Feedback van 2026-11-12. Steunt op update 14.
+
+- [ ] Bij je eigen mannetje (🎯 jouw taak) kies je een beroep, zoals
+      houthakker, in plaats van één bepaalde werkplek. Per beroep staat
+      hoeveel plekken er vrij zijn ("🪓 houthakker: 3/8 plekken vrij"), en
+      je mannetje gaat naar het dichtstbijzijnde gebouw met een vrije plek.
+      Raakt dat vol of brandt het af, dan schuift het door naar een ander.
+      (bron: Nick, "als ik op mijn mannetje klik dat je een job kan kiezen
+      in plaats van een specifieke werkplek, zo eerder als 3/8 werkplekken
+      voor houthakker zijn over in plaats van 3 houthakkers")
 
 ### Update 16: Pixel-art
 Status: gedaan (PR #38).

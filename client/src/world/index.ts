@@ -11,6 +11,7 @@ import {
 } from "@app/shared/idle";
 import { session } from "../session";
 import { createAvatarEditor, playerKey } from "./avatar";
+import { createChat } from "./chat";
 import { createPanels } from "./panels";
 import { createWorld } from "./world";
 
@@ -69,6 +70,8 @@ export function createTown(send: (msg: IdleClientMsg) => void): Town {
     },
   });
 
+  const chat = createChat({ send, msg: () => latest, connected: () => connected });
+
   window.addEventListener("sx-recenter", () => world.recenter());
 
   return {
@@ -81,6 +84,7 @@ export function createTown(send: (msg: IdleClientMsg) => void): Town {
       world.setNewcomer(knock?.kind === "newcomer" ? knock.who.name : null);
       panels.refresh();
       avatar.refresh();
+      chat.refresh();
     },
     event(ev) {
       if (ev.kind === "bought" && ev.building) {
@@ -91,6 +95,8 @@ export function createTown(send: (msg: IdleClientMsg) => void): Town {
         world.raid(ev.stage, ev.damaged);
       } else if (ev.kind === "social") {
         world.social(ev.from, ev.to, ev.emoji);
+      } else if (ev.kind === "chat") {
+        world.say(ev.from, ev.text);
       }
     },
     setConnected(open) {
@@ -98,6 +104,7 @@ export function createTown(send: (msg: IdleClientMsg) => void): Town {
       // Every (re)connect: tell the server who we are, so our NPC shows up.
       if (open) send({ type: "hello", key: playerKey(), name: session.nickname || undefined });
       panels.refresh();
+      chat.refresh();
     },
     cheer() {
       world.cheer();

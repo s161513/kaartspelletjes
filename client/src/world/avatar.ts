@@ -4,6 +4,8 @@
 
 import {
   CLOTHES_COLORS,
+  HAIR_COLORS,
+  HAIR_STYLES,
   MAX_NAME_LENGTH,
   OUTFITS,
   SKIN_TONES,
@@ -67,6 +69,8 @@ export function createAvatarEditor(deps: AvatarDeps): AvatarEditor {
   preview.height = 112;
   const skins = h("div", "sx-swatches");
   const colors = h("div", "sx-swatches");
+  const hairs = h("div", "sx-outfits");
+  const hairColors = h("div", "sx-swatches");
   const hats = h("div", "sx-outfits");
   const patterns = h("div", "sx-outfits");
   const status = h("p", "sx-note");
@@ -100,6 +104,9 @@ export function createAvatarEditor(deps: AvatarDeps): AvatarEditor {
     skins,
     h("h4", "sx-h", "Kleren"),
     colors,
+    h("h4", "sx-h", "Haar"),
+    hairs,
+    hairColors,
     h("h4", "sx-h", "Hoofd"),
     hats,
     h("h4", "sx-h", "Patroon"),
@@ -115,6 +122,13 @@ export function createAvatarEditor(deps: AvatarDeps): AvatarEditor {
   };
   SKIN_TONES.forEach((c, i) => skins.append(swatch(c, () => pick({ skin: i }))));
   CLOTHES_COLORS.forEach((c, i) => colors.append(swatch(c, () => pick({ clothes: i }))));
+  HAIR_COLORS.forEach((c, i) => hairColors.append(swatch(c, () => pick({ hairColor: i }))));
+  // Hair styles are free, bald is just one of them.
+  for (const st of HAIR_STYLES) {
+    const el = h("div", "sx-outfit");
+    el.append(button("sx-outfit-wear", `${st.emoji} ${st.name}`, () => pick({ hair: st.id })));
+    hairs.append(el);
+  }
 
   /** One outfit tile: wear it if owned, else its price and a buy button. */
   const tiles = new Map<string, { el: HTMLDivElement; wear: HTMLButtonElement; buy: HTMLButtonElement; cost: HTMLDivElement }>();
@@ -145,6 +159,7 @@ export function createAvatarEditor(deps: AvatarDeps): AvatarEditor {
     drawVillager(g, 0, 0, {
       clothes: CLOTHES_COLORS[draft.clothes], skin: SKIN_TONES[draft.skin], level: 0, walking: false,
       phase: performance.now(), action: "pose", tool: "none", carry: null, jump: 0, hat: draft.hat, pattern: draft.pattern,
+      hair: draft.hair === "bald" ? undefined : draft.hair, hairColor: HAIR_COLORS[draft.hairColor],
     });
   }
 
@@ -154,6 +169,9 @@ export function createAvatarEditor(deps: AvatarDeps): AvatarEditor {
     if (!me || !world || !draft) return;
     [...skins.children].forEach((b, i) => b.setAttribute("aria-pressed", String(i === draft!.skin)));
     [...colors.children].forEach((b, i) => b.setAttribute("aria-pressed", String(i === draft!.clothes)));
+    [...hairColors.children].forEach((b, i) => b.setAttribute("aria-pressed", String(i === draft!.hairColor)));
+    [...hairs.children].forEach((el, i) => el.firstElementChild!.setAttribute("aria-pressed", String(HAIR_STYLES[i].id === draft!.hair)));
+    hairColors.hidden = draft.hair === "bald";
     for (const o of OUTFITS) {
       const t = tiles.get(o.id)!;
       const owned = ownsOutfit(me, o.id);

@@ -9,6 +9,7 @@
 // like the town's shapes (world/pixel.ts). The emoji itself stays in the span (not
 // shown), so copying text and screen readers still get it.
 
+import { censor } from "@app/shared/idle";
 import iconsUrl from "./world/sprites/icons.png?url";
 import iconIndex from "./world/sprites/icons.json";
 
@@ -113,6 +114,8 @@ function addRule(key: string, url: string): void {
 }
 
 function wrap(text: Text): void {
+  // "werk" is w*rk on this page (update 26); the change comes back here once more, without it.
+  if (/werk/i.test(text.data)) text.data = censor(text.data);
   const s = text.data;
   EMOJI.lastIndex = 0;
   if (!EMOJI.test(s)) return;

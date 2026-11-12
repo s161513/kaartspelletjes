@@ -444,6 +444,19 @@ export const OUTFITS: readonly Outfit[] = [
   { id: "galaxy", kind: "pattern", name: "Sterrenstelsel", emoji: "🌌", cost: { stone: 150, wood: 100, food: 100 }, minEra: 10 },
 ];
 
+/** Hair styles (update 26): all free, bald is one of them. */
+export const HAIR_STYLES: readonly { id: string; name: string; emoji: string }[] = [
+  { id: "bald", name: "Kaal", emoji: "🥚" },
+  { id: "short", name: "Kort", emoji: "💇" },
+  { id: "spiky", name: "Stekeltjes", emoji: "🦔" },
+  { id: "long", name: "Lang", emoji: "👱" },
+  { id: "ponytail", name: "Paardenstaart", emoji: "🐴" },
+  { id: "bun", name: "Knotje", emoji: "🍙" },
+  { id: "curly", name: "Krullen", emoji: "🌀" },
+  { id: "mohawk", name: "Hanenkam", emoji: "🐓" },
+];
+export const HAIR_COLORS: readonly string[] = ["#1c1917", "#4a2c17", "#8b5a2b", "#d4a056", "#f5e1a4", "#b91c1c", "#9ca3af", "#f5f5f4", "#ec4899", "#3b82f6"];
+
 export interface NpcLook {
   /** Index into SKIN_TONES. */
   skin: number;
@@ -452,7 +465,16 @@ export interface NpcLook {
   /** Outfit ids. */
   hat: string;
   pattern: string;
+  /** HAIR_STYLES id, and an index into HAIR_COLORS (update 26). */
+  hair: string;
+  hairColor: number;
 }
+
+// ---------- the village chat (update 26) ----------
+
+/** How long a chat message may be, and how many the town keeps (the oldest go). */
+export const CHAT_LENGTH = 200;
+export const CHAT_KEEP = 50;
 
 // ---------- eras: goals and world wonders ----------
 
@@ -671,9 +693,10 @@ export interface CouncilItem {
   desc: string;
 }
 export const COUNCIL_ITEMS: readonly CouncilItem[] = [
-  { id: "u26", emoji: "💬", title: "Chat & kapsels", desc: "Een chat voor de spelers in het dorp, kapsels voor de mannetjes, en w*rk gecensureerd." },
   { id: "u15", emoji: "💍", title: "Liefde & trouwen", desc: "Romantiek, trouwen met een bruiloft in het dorp, en vreemdgaan. Komt na 'Je eigen dorpeling'." },
   { id: "space-sprites", emoji: "🚀", title: "Ruimte en Sci-fi in pixel-art", desc: "Eigen gebouwen voor de Ruimte- en de Sci-fi-tijd, en stenen muren uit City Sim." },
+  { id: "u27", emoji: "🪨", title: "Natuur opruimen & verplaatsen", desc: "Stenen, bosjes en bomen weghalen of verplaatsen (tegen betaling), zodat je je dorp beter kunt indelen." },
+  { id: "u28", emoji: "🪓", title: "Je mannetje kiest een beroep", desc: "Kies een beroep (bv. houthakker, 3/8 plekken vrij) in plaats van één bepaalde werkplek." },
 ];
 /** How long an idea the players send in may be (as many as they like). */
 export const IDEA_LENGTH = 200;

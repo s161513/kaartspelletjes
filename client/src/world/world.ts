@@ -13,7 +13,6 @@ import {
   goneTiles,
   patches,
   natureAt,
-  resourceDef,
   terrainAt,
   tileOf,
   type IdlePerson,
@@ -27,9 +26,9 @@ import {
   middleOf,
   tilesOf,
   type RaidStage,
+  censor,
 } from "@app/shared/idle";
 import {
-  RESOURCE_COLORS,
   buildingBounds,
   drawBridge,
   drawBubble,
@@ -112,6 +111,8 @@ export interface TownWorld {
   setGather(id: string, g: Gather | null): void;
   /** Two players did something together (update 14). */
   social(from: string, to: string, emoji: string): void;
+  /** A player said something in the chat: a bubble over their NPC (update 26). */
+  say(from: string, text: string): void;
   focus(b: PlacedBuilding): void;
   /** Move the view to a tile. */
   lookAt(x: number, y: number): void;
@@ -240,11 +241,6 @@ export function createWorld(opts: WorldOptions): TownWorld {
   }
 
   /** Nature was clicked: the villagers gather it, say so. */
-  function showNature(resource: ResourceId, x: number, y: number): void {
-    const p = toWorld(x + 0.5, y + 0.5);
-    floatText(p.x, p.y - 20, `${resourceDef(resource)?.emoji ?? ""} dorpelingen zonder werk verzamelen dit`, RESOURCE_COLORS[resource] ?? "#fff");
-  }
-
   // ---------- input ----------
 
   const pointers = new Map<number, { x: number; y: number }>();
@@ -435,9 +431,8 @@ export function createWorld(opts: WorldOptions): TownWorld {
     } else if (h.kind === "building") {
       select(h.b.id);
       opts.onSelect(h.b);
-    } else {
-      showNature(h.resource, h.x, h.y);
     }
+    // Trees, rocks and bushes aren't clickable (the cursor says so): nothing happens, no explanation.
   }
 
   // ---------- the land ----------
@@ -808,7 +803,7 @@ export function createWorld(opts: WorldOptions): TownWorld {
     }
 
     for (const [x, y, name, mine] of tags) drawNameTag(ctx, x, y, name, mine);
-    for (const [x, y, text] of bubbles) drawBubble(ctx, x, y, text);
+    for (const [x, y, text] of bubbles) drawBubble(ctx, x, y, censor(text));
 
     // Particles and floating "+n".
     const pt = performance.now();
@@ -903,6 +898,9 @@ export function createWorld(opts: WorldOptions): TownWorld {
     },
     social(from, to, emoji) {
       pop.social(from, to, emoji, Date.now());
+    },
+    say(from, text) {
+      pop.say(from, text, Date.now());
     },
     setWorld(w) {
       let changed =

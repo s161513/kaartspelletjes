@@ -782,6 +782,13 @@ export function createPanels(deps: PanelDeps): Panels {
     deps.mark(null);
   }
 
+  /** Whether the build popup would offer anything here; if not, the tile isn't clickable and no popup opens. */
+  function tileHasOptions(world: IdleWorld, x: number, y: number): boolean {
+    if (isRoad(world.roads, x, y) || isRoad(world.walls, x, y)) return true;
+    if (!pathError(world.buildings, world.roads, x, y, world.walls) || !wallError(world.buildings, world.roads, world.walls, x, y)) return true;
+    return buildableTypes(world).some((t) => !placeError(world.buildings, world.roads, t.id, x, y, world.walls));
+  }
+
   function renderPlace(): void {
     const world = deps.world();
     if (!world || !placeTile) return;
@@ -1977,7 +1984,7 @@ export function createPanels(deps: PanelDeps): Panels {
       // Clicking the same tile again, or water/mountains (unless a path or bridge is there), just closes the popup.
       const w = deps.world();
       const land = ["grass", "sand"].includes(terrainAt(x, y)) || (!!w && isRoad(w.roads, x, y));
-      if ((placeTile && placeTile.x === x && placeTile.y === y) || !land) return closePlace();
+      if ((placeTile && placeTile.x === x && placeTile.y === y) || !land || !w || !tileHasOptions(w, x, y)) return closePlace();
       openPlace(x, y, px, py);
     },
     paint,

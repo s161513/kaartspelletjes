@@ -20,6 +20,24 @@ thema (zie [ROADMAP.md](ROADMAP.md)):
 
 ## Verwerkt
 
+- 2026-11-12:
+  - "Objecten zoals stenen of bosjes herplaatsen of verwijderen. mss een
+    kost aanplakken ma zo kan je citys beter bouwen.": Update 27 (staat
+    ook in De raad)
+  - "Bug fix: als je op iets non clickable klikt dan mag er geen melding
+    komen, het blijft gewoon non clickable zonder uitleg.": bugfix, meteen
+    gedaan (in PR #57, bij update 26). Een klik op een boom, rots of struik
+    deed "dorpelingen zonder w*rk verzamelen dit"; een klik op een stuk
+    grond waar niets past, opende een popup "Hier past niets". Nu gebeurt
+    er in beide gevallen niets.
+  - Nick: "Als ik op mijn mannetje klik en dan jobs dat je een job kan
+    kiezen inplaats van een specifieke werkplek moet kiezen. zo eerder als
+    3/8 werkplekken voor houthakker zijn over inplaats van 3
+    houthakkers": Update 28 (staat ook in De raad)
+- 2026-11-12, Richard: "3 soorten voedsel maar 2 bevestigd": geen bug,
+  er waren geen werkers bij vlees. Nu is er een 📋 Overzicht (grondstoffen,
+  gebouwen met werkers, elke soort voedsel met ✅/❌ en waarom) (PR #51)
+
 - 2026-10-29, uitslag van De raad (ideeën tot 11:29 verwerkt):
   - Soufiane: "Wel haarstijlen toevoegen Kaal zijn moet een optie zijn niet
     een verplichting!!": Update 26 (kaal blijft een keuze)

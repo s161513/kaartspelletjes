@@ -776,6 +776,32 @@ voor ze iets samen beginnen.
       opbouwt, breekt het huwelijk. Het dorp hoort ervan. (bron: idem, "een
       sterke relatie opbouwen met iemand anders zal deze trouw breken")
 
+### Update 27: Natuur opruimen & verplaatsen
+Status: gepland. Feedback van 2026-11-12. Vraag Richard eerst wat het kost
+en of het via een stemming gaat, voor je bouwt.
+
+- [ ] Stenen, bosjes en bomen weghalen of ergens anders neerzetten, zodat je
+      je dorp beter kunt indelen. Het kost iets, bijvoorbeeld een paar
+      grondstoffen per tegel, net als paden. Nog te beslissen: kun je alleen
+      kleine dingen (rotsblokken, struiken) verplaatsen of ook bos en
+      steengroeves, en wat gebeurt er met wat erin zat (meteen in de opslag,
+      of weg)? Weghalen maakt de natuur rond het dorp kleiner, dus
+      verzamelaars en werkgebouwen in de buurt vinden minder. (bron:
+      feedback 2026-11-12, "objecten zoals stenen of bosjes herplaatsen of
+      verwijderen, mss een kost aanplakken, zo kan je citys beter bouwen")
+
+### Update 28: Je mannetje kiest een beroep
+Status: gepland. Feedback van 2026-11-12. Steunt op update 14.
+
+- [ ] Bij je eigen mannetje (🎯 jouw taak) kies je een beroep, zoals
+      houthakker, in plaats van één bepaalde werkplek. Per beroep staat
+      hoeveel plekken er vrij zijn ("🪓 houthakker: 3/8 plekken vrij"), en
+      je mannetje gaat naar het dichtstbijzijnde gebouw met een vrije plek.
+      Raakt dat vol of brandt het af, dan schuift het door naar een ander.
+      (bron: Nick, "als ik op mijn mannetje klik dat je een job kan kiezen
+      in plaats van een specifieke werkplek, zo eerder als 3/8 werkplekken
+      voor houthakker zijn over in plaats van 3 houthakkers")
+
 ### Update 16: Pixel-art
 Status: gedaan (PR #38).
 

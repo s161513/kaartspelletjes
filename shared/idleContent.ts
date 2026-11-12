@@ -695,6 +695,8 @@ export interface CouncilItem {
 export const COUNCIL_ITEMS: readonly CouncilItem[] = [
   { id: "u15", emoji: "💍", title: "Liefde & trouwen", desc: "Romantiek, trouwen met een bruiloft in het dorp, en vreemdgaan. Komt na 'Je eigen dorpeling'." },
   { id: "space-sprites", emoji: "🚀", title: "Ruimte en Sci-fi in pixel-art", desc: "Eigen gebouwen voor de Ruimte- en de Sci-fi-tijd, en stenen muren uit City Sim." },
+  { id: "u27", emoji: "🪨", title: "Natuur opruimen & verplaatsen", desc: "Stenen, bosjes en bomen weghalen of verplaatsen (tegen betaling), zodat je je dorp beter kunt indelen." },
+  { id: "u28", emoji: "🪓", title: "Je mannetje kiest een beroep", desc: "Kies een beroep (bv. houthakker, 3/8 plekken vrij) in plaats van één bepaalde werkplek." },
 ];
 /** How long an idea the players send in may be (as many as they like). */
 export const IDEA_LENGTH = 200;

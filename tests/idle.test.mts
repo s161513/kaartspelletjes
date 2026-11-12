@@ -71,6 +71,12 @@ import {
   classicStreets,
   foodKindsOf,
   missingFoodOf,
+  censor,
+  defaultHair,
+  defaultLook,
+  lookError,
+  CHAT_KEEP,
+  HAIR_STYLES,
   foodOverviewOf,
   gatherable,
   gatherPatches,
@@ -1501,7 +1507,7 @@ test("idle game: a town from an older version starts over; players keep their na
     game.flush();
     const saved = JSON.parse(readFileSync(file, "utf8"));
     assert.equal(saved.v, 7);
-    assert.deepEqual(saved.players["0123456789ab"], { ...ann, owned: [], look: { skin: 2, clothes: 5, hat: "none", pattern: "stripes" } });
+    assert.deepEqual(saved.players["0123456789ab"], { ...ann, owned: [], look: { skin: 2, clothes: 5, hat: "none", pattern: "stripes", ...defaultHair(parseInt("0123456789ab", 16)) } });
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -1583,6 +1589,90 @@ test("players together: tasks count while online, waving, talking, gifts and mat
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("update 26: the village chat, kept with the town; the last CHAT_KEEP lines; a bubble over who said it", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "idle-"));
+  try {
+    const file = path.join(dir, "idle.json");
+    writeFileSync(file, JSON.stringify(town(T0)));
+    const game = createIdleGame(file, T0);
+    assert.equal(game.chat("a", "hoi", T0).error, "eerst inloggen");
+    game.hello("a", "0123456789abcdef-annann", "Ann", T0);
+    game.hello("b", "0123456789abcdef-bobbob", "Bob", T0);
+    assert.equal(game.chat("a", "   ", T0).error, "typ eerst iets");
+    assert.equal(game.chat("a", "x".repeat(201), T0).error, "hooguit 200 tekens");
+    assert.equal(game.chat("a", 5, T0).error, "typ eerst iets");
+    const said = game.chat("a", "  hoi   allemaal ", T0 + 1);
+    const ann = game.message("a", 0, 0, 2, T0).me!.id;
+    assert.deepEqual(said.events, [{ kind: "chat", from: ann, text: "hoi allemaal" }]);
+    game.chat("b", "yo", T0 + 2);
+    const lines = game.message("b", 0, 0, 2, T0).chat;
+    assert.deepEqual(lines.map((l) => [l.by, l.text, l.mine]), [["Ann", "hoi allemaal", false], ["Bob", "yo", true]]);
+    assert.equal("chat" in game.message("b", 0, 0, 2, T0).state, false, "the chat isn't part of the world");
+
+    // Only the last CHAT_KEEP lines stay; they survive a restart.
+    for (let i = 0; i < CHAT_KEEP + 5; i++) game.chat("a", `regel ${i}`, T0 + 10 + i);
+    game.flush();
+    const again = createIdleGame(file, T0 + 1000);
+    const kept = again.message("x", 0, 0, 1, T0 + 1000).chat;
+    assert.equal(kept.length, CHAT_KEEP);
+    assert.equal(kept.at(-1)!.text, `regel ${CHAT_KEEP + 4}`);
+    // New ids go on after the saved ones.
+    again.hello("a", "0123456789abcdef-annann", "Ann", T0 + 1000);
+    again.chat("a", "terug", T0 + 1001);
+    const after = again.message("a", 0, 0, 1, T0 + 1001).chat;
+    assert.ok(after.at(-1)!.id > after.at(-2)!.id);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("update 26: hair for everyone (bald is a choice), players from before keep a look with hair", () => {
+  // Every style can be worn without buying anything, in every color.
+  for (const st of HAIR_STYLES) assert.equal(lookError({ owned: [] }, { ...defaultLook(1), hair: st.id }), null);
+  assert.equal(lookError({ owned: [] }, { ...defaultLook(1), hair: "afro" }), "onbekend kapsel");
+  assert.equal(lookError({ owned: [] }, { ...defaultLook(1), hairColor: 99 }), "onbekende haarkleur");
+  assert.equal(lookError({ owned: [] }, { ...defaultLook(1), hair: "bald" }), null);
+  // From a seed: always a known style; not everyone the same.
+  const styles = new Set(Array.from({ length: 200 }, (_, i) => defaultHair(i * 7919).hair));
+  assert.ok(styles.size > 3);
+  for (const id of styles) assert.ok(HAIR_STYLES.some((x) => x.id === id));
+
+  const dir = mkdtempSync(path.join(tmpdir(), "idle-"));
+  try {
+    const file = path.join(dir, "idle.json");
+    writeFileSync(file, JSON.stringify(town(T0)));
+    const game = createIdleGame(file, T0);
+    game.hello("a", "0123456789abcdef-annann", "Ann", T0);
+    assert.deepEqual(game.look("a", "Ann", { skin: 1, clothes: 1, hat: "none", pattern: "plain", hair: "mohawk", hairColor: 8 }), {});
+    let me = game.message("a", 0, 0, 1, T0).me!;
+    assert.deepEqual([me.look.hair, me.look.hairColor], ["mohawk", 8]);
+    // An old browser that doesn't send hair keeps the hair you have.
+    assert.deepEqual(game.look("a", "Ann", { skin: 2, clothes: 1, hat: "none", pattern: "plain" }), {});
+    me = game.message("a", 0, 0, 1, T0).me!;
+    assert.deepEqual([me.look.skin, me.look.hair], [2, "mohawk"]);
+    // A saved player from before update 26 (no hair) loads with hair from their id, the rest as it was.
+    game.flush();
+    const saved = JSON.parse(readFileSync(file, "utf8"));
+    const id = Object.keys(saved.players)[0];
+    const { hair: _h, hairColor: _c, ...old } = saved.players[id].look;
+    saved.players[id].look = old;
+    writeFileSync(file, JSON.stringify(saved));
+    const again = createIdleGame(file, T0);
+    again.hello("a", "0123456789abcdef-annann", "Ann", T0);
+    const look = again.message("a", 0, 0, 1, T0).me!.look;
+    assert.equal(look.skin, 2);
+    assert.deepEqual({ hair: look.hair, hairColor: look.hairColor }, defaultHair(parseInt(id, 16)));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("update 26: werk is w*rk, in any case and inside longer words (JJ via De raad)", () => {
+  assert.equal(censor("werk"), "w*rk");
+  assert.equal(censor("Werkers aan het WERK, bewerken"), "W*rkers aan het W*RK, bew*rken");
+  assert.equal(censor("wrak en wereld"), "wrak en wereld");
 });
 
 test("De raad: one vote per player for the next update, ideas sent in, kept in the town (even through a reset)", () => {
@@ -1684,7 +1774,7 @@ test("players: a key becomes a hidden id, looks and names stick, outfits are bou
     again.hello("c", KEY, "ignored", T0 + 1000);
     const me = again.message("c", 0, 0, 1, T0 + 1000).me!;
     assert.equal(me.name, "Annie");
-    assert.deepEqual(me.look, { skin: 2, clothes: 3, hat: "straw", pattern: "stripes" });
+    assert.deepEqual({ ...me.look, hair: undefined, hairColor: undefined }, { skin: 2, clothes: 3, hat: "straw", pattern: "stripes", hair: undefined, hairColor: undefined });
     assert.deepEqual(me.owned, ["straw"]);
   } finally {
     rmSync(dir, { recursive: true, force: true });

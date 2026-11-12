@@ -34,6 +34,10 @@ import {
   councilView,
   isNewIdea,
   ideaError,
+  chatError,
+  CHAT_KEEP,
+  CHAT_LENGTH,
+  type ChatLine,
   type Council,
   FORGE_COOLDOWN_MS,
   RARITIES,
@@ -64,6 +68,7 @@ import {
   buyOutfit,
   canPave,
   defaultLook,
+  defaultHair,
   itemError,
   lookError,
   luckyEvent,
@@ -136,6 +141,8 @@ export interface IdleGame {
   councilVote(clientId: string, item: unknown): { error?: string; events: IdleEvent[] };
   /** De raad: send in an idea (as many as you like), or take your own back. */
   idea(clientId: string, text: unknown, now: number): { error?: string; events: IdleEvent[] };
+  /** The village chat (update 26): say something; everyone sees it, and a bubble over your NPC. */
+  chat(clientId: string, text: unknown, now: number): { error?: string; events: IdleEvent[] };
   unidea(clientId: string, id: unknown): { error?: string; events: IdleEvent[] };
   /** Smith a tool yourself at a smith (the game in the browser): once per player per FORGE_COOLDOWN_MS. */
   forge(clientId: string, name: unknown, building: unknown, score: unknown, now: number, rand?: () => number): { error?: string; events: IdleEvent[] };
@@ -201,12 +208,27 @@ function parseRelations(raw: unknown, players: Record<string, IdlePlayer>): Reco
   return out;
 }
 
-/** The shape of a look; whether it may be worn is lookError's job. */
-function parseLook(raw: unknown): NpcLook | null {
+/** The shape of a look; whether it may be worn is lookError's job. Without hair (from before update 26): `hair`. */
+function parseLook(raw: unknown, hair: Pick<NpcLook, "hair" | "hairColor">): NpcLook | null {
   const r = record(raw);
   if (!finite(r.skin) || !finite(r.clothes) || typeof r.hat !== "string" || typeof r.pattern !== "string") return null;
-  return { skin: r.skin, clothes: r.clothes, hat: r.hat, pattern: r.pattern };
+  const own = typeof r.hair === "string" && finite(r.hairColor);
+  return { skin: r.skin, clothes: r.clothes, hat: r.hat, pattern: r.pattern, hair: own ? (r.hair as string) : hair.hair, hairColor: own ? (r.hairColor as number) : hair.hairColor };
 }
+
+/** The village chat: lines that make sense, the last CHAT_KEEP. */
+function parseChat(raw: unknown): ChatLine[] {
+  if (!Array.isArray(raw)) return [];
+  const out: ChatLine[] = [];
+  for (const c of raw.map(record)) {
+    if (!Number.isInteger(c.id) || typeof c.player !== "string" || typeof c.text !== "string" || !c.text.trim() || !finite(c.at)) continue;
+    out.push({ id: c.id as number, player: c.player, by: cleanName(c.by), text: c.text.slice(0, CHAT_LENGTH), at: c.at });
+  }
+  return out.slice(-CHAT_KEEP);
+}
+
+const nextChatIdOf = (r: Record<string, unknown>, chat: ChatLine[]): number =>
+  Math.max(Number.isInteger(r.nextChatId) ? (r.nextChatId as number) : 1, ...chat.map((c) => c.id + 1));
 
 function parsePlayers(raw: unknown): Record<string, IdlePlayer> {
   const out: Record<string, IdlePlayer> = {};
@@ -214,7 +236,7 @@ function parsePlayers(raw: unknown): Record<string, IdlePlayer> {
     const r = record(v);
     if (!/^[0-9a-f]{12}$/.test(id) || typeof r.name !== "string") continue;
     const owned = Array.isArray(r.owned) ? [...new Set(r.owned.filter((o): o is string => typeof o === "string" && !!outfit(o)?.cost))] : [];
-    let look = parseLook(r.look);
+    let look = parseLook(r.look, defaultHair(parseInt(id, 16)));
     if (!look || lookError({ owned }, look)) look = defaultLook(parseInt(id, 16));
     out[id] = { name: cleanName(r.name), look, owned, seen: finite(r.seen) ? r.seen : 0 };
     const task = parseTask(r.task);
@@ -257,7 +279,8 @@ function parseIdle(raw: unknown, now: number): IdleState | null {
   // De raad survives a reset too: it's about the game, not this town.
   if (r.v !== STATE_VERSION) {
     const players = resetPlayers(parsePlayers(r.players));
-    return { ...newIdleState(now), players, council: parseCouncil(r.council), relations: parseRelations(r.relations, players) };
+    const chat = parseChat(r.chat);
+    return { ...newIdleState(now), players, council: parseCouncil(r.council), relations: parseRelations(r.relations, players), chat, nextChatId: nextChatIdOf(r, chat) };
   }
   const s = newIdleState(now);
   if (Number.isInteger(r.era)) s.era = Math.max(0, Math.min(ERAS.length - 1, r.era as number));
@@ -360,6 +383,8 @@ function parseIdle(raw: unknown, now: number): IdleState | null {
   s.players = parsePlayers(r.players);
   s.council = parseCouncil(r.council);
   s.relations = parseRelations(r.relations, s.players);
+  s.chat = parseChat(r.chat);
+  s.nextChatId = nextChatIdOf(r, s.chat);
   return makeRoomForSenate(s);
 }
 
@@ -493,7 +518,7 @@ export function createIdleGame(file: string, now = Date.now()): IdleGame {
 
   return {
     message(clientId, count, peak, online, now) {
-      const { proposals, nextProposalId: _, players, council: __, ...world } = advance(state, now);
+      const { proposals, nextProposalId: _, players, council: __, chat: ___, nextChatId: ____, ...world } = advance(state, now);
       const ids = [...new Set(connected.values())].filter((id) => players[id]);
       const mine = playerOf(clientId);
       return {
@@ -519,6 +544,7 @@ export function createIdleGame(file: string, now = Date.now()): IdleGame {
               .map((id) => ({ id, name: players[id].name, points: relationPoints(state.relations[pairKey(mine[0], id)], now) }))
               .sort((a, b) => b.points - a.points)
           : [],
+        chat: state.chat.map((c) => ({ id: c.id, by: c.by, text: c.text, at: c.at, mine: c.player === mine?.[0] })),
         count,
         peak,
         online,
@@ -654,6 +680,18 @@ export function createIdleGame(file: string, now = Date.now()): IdleGame {
       return { events: [{ kind: "deal", label: "💡 een idee ingestuurd bij De raad", by: mine[1].name }] };
     },
 
+    chat(clientId, text, now) {
+      const mine = playerOf(clientId);
+      if (!mine) return { error: "eerst inloggen", events: [] };
+      if (typeof text !== "string") return { error: "typ eerst iets", events: [] };
+      const err = chatError(text);
+      if (err) return { error: err, events: [] };
+      const line = { id: state.nextChatId, player: mine[0], by: mine[1].name, text: text.trim().replace(/\s+/g, " "), at: now };
+      state = { ...state, chat: [...state.chat, line].slice(-CHAT_KEEP), nextChatId: line.id + 1 };
+      saver.schedule();
+      return { events: [{ kind: "chat", from: mine[0], text: line.text }] };
+    },
+
     unidea(clientId, id) {
       const mine = playerOf(clientId);
       if (!mine) return { error: "eerst inloggen", events: [] };
@@ -702,7 +740,7 @@ export function createIdleGame(file: string, now = Date.now()): IdleGame {
     look(clientId, name, rawLook) {
       const mine = playerOf(clientId);
       if (!mine) return { error: "eerst inloggen" };
-      const look = parseLook(rawLook);
+      const look = parseLook(rawLook, mine[1].look);
       const err = look ? lookError(mine[1], look) : "onbekende kleding";
       if (err) return { error: err };
       setPlayer(mine[0], { ...mine[1], name: typeof name === "string" && name.trim() ? cleanName(name) : mine[1].name, look: look! });

@@ -125,6 +125,9 @@ import {
   ROAD_SPECIAL_COST,
   CLOTHES_COLORS,
   SKIN_TONES,
+  HAIR_STYLES,
+  HAIR_COLORS,
+  CHAT_LENGTH,
   SHOP_ITEMS,
   SPECIAL_BASE_RATE,
   STORAGE_CAP,
@@ -398,7 +401,20 @@ export interface Council {
   nextIdeaId: number;
 }
 
+/** A line in the village chat (update 26). */
+export interface ChatLine {
+  id: number;
+  /** Public id of the player, and their name then. */
+  player: string;
+  by: string;
+  text: string;
+  at: number;
+}
+
 export interface IdleState extends IdleWorld {
+  /** The village chat, oldest first (at most CHAT_KEEP). */
+  chat: ChatLine[];
+  nextChatId: number;
   /** Open votes, oldest first. */
   proposals: IdleProposal[];
   nextProposalId: number;
@@ -484,6 +500,16 @@ export function councilText(view: CouncilView, now: number): string {
 }
 
 /** Why this text can't be sent in as an idea, or null. */
+/** Why this can't go in the chat, or null. */
+export function chatError(text: string): string | null {
+  if (!text.trim()) return "typ eerst iets";
+  if (text.trim().length > CHAT_LENGTH) return `hooguit ${CHAT_LENGTH} tekens`;
+  return null;
+}
+
+/** "werk" as "w*rk", any case, also inside longer words (JJ via De raad, update 26). */
+export const censor = (text: string): string => text.replace(/([wW])[eE]([rR][kK])/g, "$1*$2");
+
 export function ideaError(text: string): string | null {
   if (!text.trim()) return "schrijf eerst je idee";
   if (text.trim().length > IDEA_LENGTH) return `hooguit ${IDEA_LENGTH} tekens`;
@@ -502,7 +528,7 @@ export function newIdleState(now: number): IdleState {
   let s: IdleState = {
     v: STATE_VERSION, era: 0, resources: { food: 150, wood: 200, stone: 100 }, buildings: [], nextBuildingId: 1,
     lastTick: now, boostUntil: 0, boosts: [], perks: {}, roadLevel: 0, roads: [], nature: {}, gatherers: {}, population: 0, happiness: HAPPY_BASE, drops: [], nextDropId: 1, lastLucky: 0,
-    walls: [], wallLevel: 0, gates: [], raid: null, nextRaid: 0, lastRaid: null, nextNewcomer: 0, nextBirth: 0, tools: {}, forged: 0, helpers: [], proposals: [], nextProposalId: 1, players: {}, council: { votes: {}, ideas: [], nextIdeaId: 1 }, relations: {},
+    walls: [], wallLevel: 0, gates: [], raid: null, nextRaid: 0, lastRaid: null, nextNewcomer: 0, nextBirth: 0, tools: {}, forged: 0, helpers: [], proposals: [], nextProposalId: 1, players: {}, council: { votes: {}, ideas: [], nextIdeaId: 1 }, relations: {}, chat: [], nextChatId: 1,
   };
   for (const type of ["center", "house", "storage"]) s = addBuilding(s, type, 0, placeBuilding(s.buildings, type)!).state;
   return { ...s, roads: classicStreets(s.buildings), population: bedsOf(s) };
@@ -1811,7 +1837,17 @@ export function refundOf(s: Pick<IdleWorld, "buildings" | "roadLevel" | "wallLev
 /** A look picked from a seed, for someone who hasn't chosen yet. */
 export function defaultLook(seed: number): NpcLook {
   const n = Math.abs(seed | 0);
-  return { skin: n % SKIN_TONES.length, clothes: Math.floor(n / 7) % CLOTHES_COLORS.length, hat: "none", pattern: "plain" };
+  return {
+    skin: n % SKIN_TONES.length, clothes: Math.floor(n / 7) % CLOTHES_COLORS.length, hat: "none", pattern: "plain",
+    ...defaultHair(n),
+  };
+}
+
+/** Hair picked from a seed: for players who never chose (also from before update 26) and the town's villagers. */
+export function defaultHair(seed: number): Pick<NpcLook, "hair" | "hairColor"> {
+  const n = Math.abs(seed | 0);
+  // Mostly natural colors (the first six), and bald now and then.
+  return { hair: HAIR_STYLES[Math.floor(n / 13) % HAIR_STYLES.length].id, hairColor: Math.floor(n / 101) % 6 };
 }
 
 export const ownsOutfit = (p: Pick<IdlePlayer, "owned">, id: string): boolean => !!outfit(id) && (!outfit(id)!.cost || p.owned.includes(id));
@@ -1821,6 +1857,8 @@ export function lookError(p: Pick<IdlePlayer, "owned">, look: NpcLook): string |
   if (!Number.isInteger(look.skin) || look.skin < 0 || look.skin >= SKIN_TONES.length) return "onbekende huidskleur";
   if (!Number.isInteger(look.clothes) || look.clothes < 0 || look.clothes >= CLOTHES_COLORS.length) return "onbekende kleur";
   if (outfit(look.hat)?.kind !== "hat" || outfit(look.pattern)?.kind !== "pattern") return "onbekende kleding";
+  if (!HAIR_STYLES.some((x) => x.id === look.hair)) return "onbekend kapsel";
+  if (!Number.isInteger(look.hairColor) || look.hairColor < 0 || look.hairColor >= HAIR_COLORS.length) return "onbekende haarkleur";
   if (!ownsOutfit(p, look.hat) || !ownsOutfit(p, look.pattern)) return "nog niet gekocht";
   return null;
 }
@@ -2156,6 +2194,8 @@ export interface IdleStateMsg {
   council: CouncilView;
   /** This player's relations with the other players the town knows, best first (update 14). */
   relations: { id: string; name: string; points: number }[];
+  /** The village chat, oldest first (update 26); `mine` for this player's own lines. */
+  chat: { id: number; by: string; text: string; at: number; mine: boolean }[];
 }
 
 export type IdleEvent =
@@ -2170,6 +2210,8 @@ export type IdleEvent =
   | { kind: "lucky"; label: string }
   /** Enemies: seen coming, or how the fight went (`damaged`: the building set on fire). */
   | { kind: "raid"; stage: RaidStage; label: string; damaged?: number }
+  /** Someone said something in the chat: a bubble over their NPC (update 26). */
+  | { kind: "chat"; from: string; text: string }
   /** Two players did something together (update 14): a bubble over both. */
   | { kind: "social"; from: string; to: string; emoji: string; label: string }
   /** Only to the one connection whose request failed. */
@@ -2187,6 +2229,8 @@ export type IdleClientMsg =
   | { type: "look"; name: string; look: NpcLook }
   /** Buy an outfit at the tailor, for yourself. */
   | { type: "outfit"; item: string }
+  /** Say something in the village chat (update 26). */
+  | { type: "chat"; text: string }
   /** Put one villager without a job on `to` (null: let them choose), off `from` if they were put there. */
   | { type: "assign"; from: ResourceId | null; to: ResourceId | null }
   | { type: "propose"; action: ProposalAction; name?: string }

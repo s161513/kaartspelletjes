@@ -52,6 +52,7 @@ import {
   BRIDGE_TILE_COST,
   BUILDING_TYPES,
   BUILD_COST_MULT,
+  FOOD_KINDS,
   CENTER_CAP,
   CLICK_BASE,
   COST_GROWTH,
@@ -134,6 +135,7 @@ import {
   RELATION_MAX,
   COUNCIL_ITEMS,
   IDEA_LENGTH,
+  IDEAS_DONE_UNTIL,
   EPIC_CHANCE,
   NO_TOOL_MULT,
   RARE_CHANCE,
@@ -463,17 +465,21 @@ export function councilView(s: Pick<IdleState, "council" | "players">, me: strin
   return {
     items,
     myVote: mine && COUNCIL_ITEMS.some((x) => x.id === mine) ? mine : null,
-    ideas: [...s.council.ideas].reverse().map((x) => ({ id: x.id, by: x.by, text: x.text, at: x.at, mine: x.player === me })),
+    ideas: s.council.ideas.filter(isNewIdea).reverse().map((x) => ({ id: x.id, by: x.by, text: x.text, at: x.at, mine: x.player === me })),
   };
 }
 
-/** The standings as text, to paste into FEEDBACK.md. */
+/** Not processed yet: sent in after the ideas already in FEEDBACK.md. */
+export const isNewIdea = (idea: Pick<CouncilIdea, "at">): boolean => idea.at > IDEAS_DONE_UNTIL;
+
+/** The standings as text, to paste into FEEDBACK.md; the last line tells Claude up to when the ideas go. */
 export function councilText(view: CouncilView, now: number): string {
   const d = new Date(now);
   const date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   const lines = [`- ${date}, uitslag van De raad:`];
   for (const item of view.items) lines.push(`  - ${item.emoji} ${item.title}: ${item.votes} ${item.votes === 1 ? "stem" : "stemmen"}`);
   for (const idea of [...view.ideas].reverse()) lines.push(`  - ingestuurd door ${idea.by}: "${idea.text}"`);
+  if (view.ideas.length) lines.push(`  <!-- ideeën t/m ${Math.max(...view.ideas.map((x) => x.at))} -->`);
   return lines.join("\n");
 }
 
@@ -849,6 +855,8 @@ function regrow(used: Used, ms: number): Record<string, number> {
 interface Output {
   res: ResourceId;
   kind?: FoodKind;
+  /** The work building that makes it (none: the gatherers). */
+  building?: number;
   rate: number;
   src: Patch[] | null;
   drain: number;
@@ -884,11 +892,11 @@ function outputs(s: ToolTown & { nature?: Used }): Output[] {
     if (t.sparesSource) {
       // Hunters: as much as the forest around them still stands.
       const share = s.nature ? sourceShare(s.nature, src) : 1;
-      if (share > 0.001) out.push({ res, kind: t.foodKind, rate: rate * share, src: null, drain: 0 });
+      if (share > 0.001) out.push({ res, kind: t.foodKind, building: b.id, rate: rate * share, src: null, drain: 0 });
       continue;
     }
     if (!left(src)) continue;
-    out.push({ res, kind: t.foodKind, rate, src, drain: WORK_DRAIN, uses: t.consumes });
+    out.push({ res, kind: t.foodKind, building: b.id, rate, src, drain: WORK_DRAIN, uses: t.consumes });
   }
   const { chosen, auto } = gatheringOf(s);
   for (const res of gatherable(s.era)) {
@@ -916,6 +924,79 @@ export function foodKindsOf(s: Pick<IdleWorld, "buildings" | "perks" | "era" | "
   const out: Partial<Record<FoodKind, number>> = {};
   // What the town eats doesn't change while the food storage happens to be full.
   for (const { kind, rate } of outputs({ ...s, resources: undefined })) if (kind && rate > 0) out[kind] = (out[kind] ?? 0) + rate;
+  return out;
+}
+
+/** One line of the food overview: a kind, and what makes it or why nothing does. */
+export interface FoodLine {
+  kind: FoodKind;
+  made: boolean;
+  /** "Akker", "2× Jagerskamp", "plukkers": who makes it (when made). */
+  from: string[];
+  /** Why the town doesn't make it (when not made). */
+  why?: string;
+}
+
+/**
+ * Every kind of food the town can have now, in FOOD_KINDS order: made or not,
+ * by which buildings (or the pickers), and otherwise why not. Counts exactly
+ * like foodKindsOf, so the goal and this list never disagree.
+ */
+export function foodOverviewOf(s: Pick<IdleWorld, "buildings" | "perks" | "era" | "gatherers" | "population"> & { nature?: Used }): FoodLine[] {
+  const from: Partial<Record<FoodKind, Record<string, number>>> = {};
+  for (const o of outputs({ ...s, resources: undefined })) {
+    if (!o.kind || !(o.rate > 0)) continue;
+    const b = o.building === undefined ? undefined : s.buildings.find((x) => x.id === o.building);
+    const who = b ? buildingName(b.type, s.era) : "plukkers";
+    const list = (from[o.kind] ??= {});
+    list[who] = (list[who] ?? 0) + 1;
+  }
+  const missing = missingFoodOf(s);
+  const out: FoodLine[] = [];
+  for (const { id: kind } of FOOD_KINDS) {
+    const by = from[kind];
+    if (by) out.push({ kind, made: true, from: Object.entries(by).map(([who, n]) => (n > 1 ? `${n}× ${who}` : who)) });
+    else {
+      const m = missing.find((x) => x.kind === kind);
+      if (m) out.push({ kind, made: false, from: [], why: m.why });
+    }
+  }
+  return out;
+}
+
+/**
+ * Per kind of food the town doesn't make (of the ones it could): why not, for
+ * the goal. Berries are the easy one to lose: only villagers without a job
+ * pick them, so a new work building can take the last pickers away.
+ */
+export function missingFoodOf(s: Pick<IdleWorld, "buildings" | "perks" | "era" | "gatherers" | "population"> & { nature?: Used }): { kind: FoodKind; why: string }[] {
+  const made = foodKindsOf(s);
+  const { workers, idle } = assignWorkers(s);
+  const out: { kind: FoodKind; why: string }[] = [];
+  for (const { id: kind } of FOOD_KINDS) {
+    if (made[kind]) continue;
+    if (kind === "berries") {
+      if (!gatherable(s.era).includes("food")) continue;
+      const why = !idle
+        ? "die plukken alleen inwoners zonder baan, en iedereen heeft er nu een"
+        : s.nature && !gatherPatches("food").some((p) => leftIn(p, s.nature!) > 0.01)
+          ? "de struiken zijn leeg, ze groeien vanzelf terug"
+          : "de inwoners zonder baan zijn allemaal op iets anders gezet, zet er een op 🍖";
+      out.push({ kind, why });
+      continue;
+    }
+    const types = BUILDING_TYPES.filter((t) => t.foodKind === kind && t.category === "work" && t.minEra <= s.era);
+    const mine = s.buildings.filter((b) => types.some((t) => t.id === b.type));
+    const name = (type: string) => buildingName(type, s.era);
+    const why = !mine.length
+      ? `bouw een ${types.map((t) => name(t.id)).join(" of een ")}`
+      : mine.every((b) => b.damaged)
+        ? `${name(mine[0].type)} staat in brand`
+        : !mine.some((b) => workers[b.id])
+          ? `${name(mine[0].type)} heeft geen werkers (meer inwoners nodig)`
+          : `het bos rond ${name(mine[0].type)} is gekapt, dus geen wild`;
+    out.push({ kind, why });
+  }
   return out;
 }
 
@@ -1262,6 +1343,8 @@ export interface GoalStatus {
   have: number;
   need: number;
   done: boolean;
+  /** What counts and what's missing, when that isn't obvious from the label. */
+  note?: string;
 }
 
 const countsAsCurrent = (b: PlacedBuilding) => !["decor", "wonder"].includes(buildingType(b.type)?.category ?? "");
@@ -1278,8 +1361,16 @@ export function eraGoals(s: IdleWorld): GoalStatus[] {
       return { goal, label: `😊 minstens ${goal.n}% geluk`, have, need: goal.n, done: have >= goal.n };
     }
     if (goal.kind === "foodKinds") {
-      const have = Object.keys(foodKindsOf(s)).length;
-      return { goal, label: `🍽️ ${goal.n} soorten voedsel`, have, need: goal.n, done: have >= goal.n };
+      // Every kind on its own line: ✅ with what makes it, ❌ with why not.
+      const lines = foodOverviewOf(s);
+      const have = lines.filter((l) => l.made).length;
+      const note = lines
+        .map((l) => {
+          const k = FOOD_KINDS.find((f) => f.id === l.kind)!;
+          return `${l.made ? "✅" : "❌"} ${k.emoji} ${k.name}: ${l.made ? l.from.join(", ") : l.why}`;
+        })
+        .join(" · ");
+      return { goal, label: `🍽️ ${goal.n} soorten voedsel`, have, need: goal.n, done: have >= goal.n, note };
     }
     if (goal.kind === "building") {
       const have = hasBuilding(s, goal.type) ? 1 : 0;

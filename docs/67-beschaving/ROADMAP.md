@@ -740,7 +740,7 @@ Status: gedaan (PR #50). Gekozen door De raad (2026-10-28: 3 stemmen, de rest 0)
       raad, "De characters glitchen door de muren")
 
 ### Update 26: Chat & kapsels
-Status: in review. Ideeën van spelers via De raad (2026-10-28).
+Status: in review (PR #57). Ideeën van spelers via De raad (2026-10-28).
 
 - [x] Een chat in het dorp, voor de spelers onder elkaar. Gedaan: knop 💬
       rechtsonder (met het aantal ongelezen berichten), een venster met de

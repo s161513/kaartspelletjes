@@ -65,6 +65,7 @@ import {
   WALL_POINTS,
   durationText,
   eraGoals,
+  foodOverviewOf,
   fullRateOf,
   gatherable,
   gatheringOf,
@@ -404,6 +405,7 @@ export function createPanels(deps: PanelDeps): Panels {
   const boostBox = h("span");
   boostBox.style.display = "contents";
   const raidChip = h("span", "sx-hud-chip sx-hud-raid sx-hud-click");
+  const overviewChip = h("span", "sx-hud-chip sx-hud-click", "📋 Overzicht");
 
   /** Tooltips that change every tick flicker away under the mouse: only set them when the text really changes. */
   const setTitle = (el: HTMLElement, text: string) => {
@@ -421,6 +423,11 @@ export function createPanels(deps: PanelDeps): Panels {
   popChip.addEventListener("click", showAt(centerOf));
   happyChip.addEventListener("click", showAt(centerOf));
   raidChip.addEventListener("click", showAt(centerOf));
+  overviewChip.title = "wat er gebouwd is, de grondstoffen en het voedsel";
+  overviewChip.addEventListener("click", () => {
+    showAt(centerOf)();
+    inspectEl.scrollTop = 0;
+  });
 
   function renderHud(world: IdleWorld, now: number): void {
     if (hudEra !== world.era) {
@@ -438,7 +445,7 @@ export function createPanels(deps: PanelDeps): Panels {
         hud.append(chip);
         hudChips.set(r.id, { chip, text, fill });
       }
-      hud.append(popChip, happyChip, raidChip, boostBox);
+      hud.append(overviewChip, popChip, happyChip, raidChip, boostBox);
     }
     const rates = ratesOf(world);
     // "bij het Kampvuur", "bij De Senaat".
@@ -1062,9 +1069,9 @@ export function createPanels(deps: PanelDeps): Panels {
   function goalCard(g: GoalStatus): HTMLElement {
     const [icon, ...rest] = g.label.split(" ");
     const el = meter(icon, rest.join(" "), g.need > 1 ? `${fmt(g.have)}/${fmt(g.need)}` : "nog niet", g.need ? g.have / g.need : 1, g.done);
-    // What counts and what's missing, a line each, over the whole width while the goal isn't met.
+    // The overview (each food kind: ✅ what makes it, ❌ why not), a line each, over the whole width.
     if (g.note) el.querySelector(".sx-goal-text")!.append(...g.note.split(" · ").map((l) => h("div", "sx-store-sub", l)));
-    if (g.note && !g.done) el.classList.add("sx-goal-wide");
+    if (g.note) el.classList.add("sx-goal-wide");
     return el;
   }
 
@@ -1178,6 +1185,107 @@ export function createPanels(deps: PanelDeps): Panels {
    * Storage, one bar per resource: how full, how fast it fills, and what the
    * limit is made of. The center shows every resource, a storage building its own.
    */
+  /** Groups in the overview, in this order. */
+  const OVERVIEW_GROUPS: [string, string][] = [
+    ["center", "🔥 Centrum"],
+    ["work", "👷 Werk"],
+    ["house", "🛖 Wonen"],
+    ["storage", "📦 Opslag"],
+    ["shop", "🏪 Winkels"],
+    ["defense", "🛡️ Verdediging"],
+    ["decor", "🗿 Decoratie"],
+    ["wonder", "🏛️ Wereldwonder"],
+  ];
+
+  /** "3× Akker · 👷 5/6 · ⚠️ 1 zonder werkers": one line per kind of building the town has; click to go there. */
+  function builtLines(w: IdleWorld): { group: string; text: string; warn: boolean; at: PlacedBuilding }[] {
+    const { workers } = assignWorkers(w);
+    const byType = new Map<string, PlacedBuilding[]>();
+    for (const b of w.buildings) byType.set(b.type, [...(byType.get(b.type) ?? []), b]);
+    const out: { group: string; text: string; warn: boolean; at: PlacedBuilding }[] = [];
+    for (const [type, list] of byType) {
+      const t = buildingType(type);
+      if (!t) continue;
+      const parts = [`${t.emoji} ${list.length > 1 ? `${list.length}× ` : ""}${buildingName(type, w.era)}`];
+      const burning = list.filter((b) => b.damaged).length;
+      let idle = 0;
+      let empty = 0;
+      if (t.category === "work") {
+        const made = producesOf(list[0]);
+        const staff = list.reduce((a, b) => a + (workers[b.id] ?? 0), 0);
+        const slots = list.reduce((a, b) => a + slotsAt(w, b), 0);
+        parts.push(`👷 ${staff}/${slots}${made ? ` → ${resourceDef(made)?.emoji ?? ""}` : ""}${t.foodKind ? ` ${foodKindText(t.foodKind)}` : ""}`);
+        idle = list.filter((b) => !b.damaged && !workers[b.id]).length;
+        empty = list.filter((b) => {
+          const left = sourceLeft(w, b);
+          return left !== null && left.left <= 0.01 * Math.max(1, left.total);
+        }).length;
+      }
+      if (t.category === "house") parts.push(`🛏️ ${list.reduce((a, b) => a + (b.damaged ? 0 : housingOf(b.level)), 0)}`);
+      if (burning) parts.push(`🔥 ${burning} in brand`);
+      if (idle) parts.push(`⚠️ ${idle} zonder werkers`);
+      if (empty) parts.push(`⚠️ ${empty} zonder ${t.sparesSource ? "bos" : "grondstof"} in de buurt`);
+      out.push({ group: t.category, text: parts.join(" · "), warn: !!(burning || idle || empty), at: list[0] });
+    }
+    return out;
+  }
+
+  /** The town at a glance: what's in storage, what's built (and whether it works) and which food it makes. */
+  function overviewPanel(): () => void {
+    const res = h("div", "sx-overview");
+    const built = h("div", "sx-overview");
+    const food = h("div", "sx-overview");
+    insActions.append(
+      h("h4", "sx-h", "📋 Overzicht"),
+      h("div", "sx-store-sub", "Grondstoffen"),
+      res,
+      h("div", "sx-store-sub", "Gebouwd (klik om erheen te gaan)"),
+      built,
+      h("div", "sx-store-sub", "Voedsel"),
+      food,
+    );
+    let sig = "";
+    return () => {
+      const w = deps.world();
+      if (!w) return;
+      const now = deps.serverNow();
+      const rates = ratesOf(w);
+      const resLines = unlockedResources(w.era).map((id) => {
+        const have = w.resources[id] ?? 0;
+        const cap = capOf(w, id);
+        const rate = (rates[id] ?? 0) * multiplierAt(w, id, now);
+        const full = have >= cap;
+        return { text: `${resText(id)}: ${fmt(have)} / ${fmt(cap)}${full ? " · vol" : rate ? ` · ${rate > 0 ? "+" : "−"}${fmtRate(Math.abs(rate))}/s` : ""}`, warn: full };
+      });
+      const lines = builtLines(w);
+      const foodLines = foodOverviewOf(w).map((l) => ({ text: `${l.made ? "✅" : "❌"} ${foodKindText(l.kind)}: ${l.made ? l.from.join(", ") : l.why}`, warn: !l.made }));
+      const next = JSON.stringify([resLines, lines.map((l) => [l.text, l.at.id]), foodLines]);
+      if (next === sig) return;
+      sig = next;
+      const row = (l: { text: string; warn: boolean }) => h("div", l.warn ? "sx-overview-row sx-overview-warn" : "sx-overview-row", l.text);
+      res.replaceChildren(...resLines.map(row));
+      built.replaceChildren(
+        ...OVERVIEW_GROUPS.flatMap(([group, label]) => {
+          const mine = lines.filter((l) => l.group === group);
+          if (!mine.length) return [];
+          return [
+            h("div", "sx-overview-group", label),
+            ...mine.map((l) => {
+              const el = row(l);
+              el.classList.add("sx-overview-click");
+              el.addEventListener("click", () => {
+                inspect(l.at);
+                deps.lookAt(l.at.x, l.at.y);
+              });
+              return el;
+            }),
+          ];
+        }),
+      );
+      food.replaceChildren(...foodLines.map(row));
+    };
+  }
+
   function storagePanel(world: IdleWorld, only?: string): () => void {
     const ids = only ? [only] : unlockedResources(world.era);
     const rows = ids.map((id) => {
@@ -1604,12 +1712,14 @@ export function createPanels(deps: PanelDeps): Panels {
       insOffers = [];
       insLive = null;
       if (t.category === "center") {
+        const overview = overviewPanel();
         const era = eraPanel(world);
         const work = workPanel(world);
         const store = storagePanel(world);
         const defense = defensePanel(world);
         const council = councilPanel();
         insLive = () => {
+          overview();
           era();
           work();
           store();

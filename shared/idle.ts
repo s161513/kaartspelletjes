@@ -855,6 +855,8 @@ function regrow(used: Used, ms: number): Record<string, number> {
 interface Output {
   res: ResourceId;
   kind?: FoodKind;
+  /** The work building that makes it (none: the gatherers). */
+  building?: number;
   rate: number;
   src: Patch[] | null;
   drain: number;
@@ -890,11 +892,11 @@ function outputs(s: ToolTown & { nature?: Used }): Output[] {
     if (t.sparesSource) {
       // Hunters: as much as the forest around them still stands.
       const share = s.nature ? sourceShare(s.nature, src) : 1;
-      if (share > 0.001) out.push({ res, kind: t.foodKind, rate: rate * share, src: null, drain: 0 });
+      if (share > 0.001) out.push({ res, kind: t.foodKind, building: b.id, rate: rate * share, src: null, drain: 0 });
       continue;
     }
     if (!left(src)) continue;
-    out.push({ res, kind: t.foodKind, rate, src, drain: WORK_DRAIN, uses: t.consumes });
+    out.push({ res, kind: t.foodKind, building: b.id, rate, src, drain: WORK_DRAIN, uses: t.consumes });
   }
   const { chosen, auto } = gatheringOf(s);
   for (const res of gatherable(s.era)) {
@@ -922,6 +924,43 @@ export function foodKindsOf(s: Pick<IdleWorld, "buildings" | "perks" | "era" | "
   const out: Partial<Record<FoodKind, number>> = {};
   // What the town eats doesn't change while the food storage happens to be full.
   for (const { kind, rate } of outputs({ ...s, resources: undefined })) if (kind && rate > 0) out[kind] = (out[kind] ?? 0) + rate;
+  return out;
+}
+
+/** One line of the food overview: a kind, and what makes it or why nothing does. */
+export interface FoodLine {
+  kind: FoodKind;
+  made: boolean;
+  /** "Akker", "2× Jagerskamp", "plukkers": who makes it (when made). */
+  from: string[];
+  /** Why the town doesn't make it (when not made). */
+  why?: string;
+}
+
+/**
+ * Every kind of food the town can have now, in FOOD_KINDS order: made or not,
+ * by which buildings (or the pickers), and otherwise why not. Counts exactly
+ * like foodKindsOf, so the goal and this list never disagree.
+ */
+export function foodOverviewOf(s: Pick<IdleWorld, "buildings" | "perks" | "era" | "gatherers" | "population"> & { nature?: Used }): FoodLine[] {
+  const from: Partial<Record<FoodKind, Record<string, number>>> = {};
+  for (const o of outputs({ ...s, resources: undefined })) {
+    if (!o.kind || !(o.rate > 0)) continue;
+    const b = o.building === undefined ? undefined : s.buildings.find((x) => x.id === o.building);
+    const who = b ? buildingName(b.type, s.era) : "plukkers";
+    const list = (from[o.kind] ??= {});
+    list[who] = (list[who] ?? 0) + 1;
+  }
+  const missing = missingFoodOf(s);
+  const out: FoodLine[] = [];
+  for (const { id: kind } of FOOD_KINDS) {
+    const by = from[kind];
+    if (by) out.push({ kind, made: true, from: Object.entries(by).map(([who, n]) => (n > 1 ? `${n}× ${who}` : who)) });
+    else {
+      const m = missing.find((x) => x.kind === kind);
+      if (m) out.push({ kind, made: false, from: [], why: m.why });
+    }
+  }
   return out;
 }
 
@@ -1322,14 +1361,15 @@ export function eraGoals(s: IdleWorld): GoalStatus[] {
       return { goal, label: `😊 minstens ${goal.n}% geluk`, have, need: goal.n, done: have >= goal.n };
     }
     if (goal.kind === "foodKinds") {
-      const made = foodKindsOf(s);
-      const have = Object.keys(made).length;
-      const kinds = FOOD_KINDS.filter((k) => made[k.id]).map((k) => `${k.emoji} ${k.name}`);
-      const missing = have >= goal.n ? [] : missingFoodOf(s).map((m) => {
-        const k = FOOD_KINDS.find((f) => f.id === m.kind)!;
-        return `${k.emoji} ${k.name}: ${m.why}`;
-      });
-      const note = [kinds.length ? `nu: ${kinds.join(", ")}` : "nog geen voedsel", ...missing].join(" · ");
+      // Every kind on its own line: ✅ with what makes it, ❌ with why not.
+      const lines = foodOverviewOf(s);
+      const have = lines.filter((l) => l.made).length;
+      const note = lines
+        .map((l) => {
+          const k = FOOD_KINDS.find((f) => f.id === l.kind)!;
+          return `${l.made ? "✅" : "❌"} ${k.emoji} ${k.name}: ${l.made ? l.from.join(", ") : l.why}`;
+        })
+        .join(" · ");
       return { goal, label: `🍽️ ${goal.n} soorten voedsel`, have, need: goal.n, done: have >= goal.n, note };
     }
     if (goal.kind === "building") {

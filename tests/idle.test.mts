@@ -71,6 +71,7 @@ import {
   classicStreets,
   foodKindsOf,
   missingFoodOf,
+  foodOverviewOf,
   gatherable,
   gatherPatches,
   gatheringOf,
@@ -401,7 +402,8 @@ test("food: the goal says which kinds count and why one is missing (bug, Nathan 
     { kind: "fish", why: "bouw een Visstek" },
   ]);
   const goal = eraGoals(s).find((g) => g.goal.kind === "foodKinds")!;
-  assert.equal(goal.note, "nu: 🥩 vlees, 🫐 bessen · 🌾 graan: bouw een Akker · 🐟 vis: bouw een Visstek");
+  assert.equal(goal.note, "❌ 🌾 graan: bouw een Akker · ✅ 🥩 vlees: Jagerskamp · ❌ 🐟 vis: bouw een Visstek · ✅ 🫐 bessen: plukkers");
+  assert.equal(goal.have, 2);
 
   // A new work building takes the last pickers: the berries are gone.
   assert.equal(missingFoodOf(noGatherers(s)).find((m) => m.kind === "berries")?.why, "die plukken alleen inwoners zonder baan, en iedereen heeft er nu een");
@@ -413,9 +415,30 @@ test("food: the goal says which kinds count and why one is missing (bug, Nathan 
   assert.equal(missingFoodOf(bare).find((m) => m.kind === "meat")?.why, "het bos rond Jagerskamp is gekapt, dus geen wild");
   const burning = { ...s, buildings: s.buildings.map((b) => (b.type === "hunter" ? { ...b, damaged: true } : b)) };
   assert.equal(missingFoodOf(burning).find((m) => m.kind === "meat")?.why, "Jagerskamp staat in brand");
-  // Once the goal is met it only says what the town eats.
-  assert.equal(eraGoals(readyTown()).find((g) => g.goal.kind === "foodKinds")!.note?.startsWith("nu: "), true);
-  assert.equal(eraGoals(readyTown()).find((g) => g.goal.kind === "foodKinds")!.note?.includes("·"), false);
+  // Once the goal is met the overview stays, and it counts exactly what the goal counts.
+  const ready = readyTown();
+  const met = eraGoals(ready).find((g) => g.goal.kind === "foodKinds")!;
+  assert.equal(met.have, foodOverviewOf(ready).filter((l) => l.made).length);
+  assert.equal(met.have, Object.keys(foodKindsOf(ready)).length);
+});
+
+test("food: the overview names what makes each kind; hunters and ranches are both meat (Richard 2026-11-12)", () => {
+  // Three food buildings, two kinds: a ranch makes meat just like the hunters.
+  const s = noGatherers(rich(unlockEra(town(T0), 1)));
+  const spot = placeBuilding(s.buildings, "ranch")!;
+  const withRanch = { ...s, population: s.population + 2, buildings: [...s.buildings, { id: 999, type: "ranch", x: spot.x, y: spot.y, level: 0 }] };
+  const meat = foodOverviewOf(withRanch).find((l) => l.kind === "meat")!;
+  assert.equal(meat.made, true);
+  assert.deepEqual(meat.from.slice().sort(), ["Jagershut", "Veekraal"].sort());
+  // Two buildings of one type are shown once, with how many.
+  const twoHunters = { ...s, population: s.population + 2, buildings: [...s.buildings, { ...s.buildings.find((b) => b.type === "hunter")!, id: 998 }] };
+  assert.equal(foodOverviewOf(twoHunters).find((l) => l.kind === "meat")!.from[0].startsWith("2× "), true);
+  // Nobody left to work at the hunters: meat says so, and the goal doesn't count it.
+  const empty = { ...s, population: 0 };
+  const line = foodOverviewOf(empty).find((l) => l.kind === "meat")!;
+  assert.equal(line.made, false);
+  assert.match(line.why!, /geen werkers/);
+  assert.match(eraGoals(empty).find((g) => g.goal.kind === "foodKinds")!.note!, /❌ 🥩 vlees: .* heeft geen werkers/);
 });
 
 test("mines: by the mountain, never run out, dig the ore the players vote for", () => {

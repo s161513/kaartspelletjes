@@ -13,7 +13,6 @@ import {
   goneTiles,
   patches,
   natureAt,
-  resourceDef,
   terrainAt,
   tileOf,
   type IdlePerson,
@@ -30,7 +29,6 @@ import {
   censor,
 } from "@app/shared/idle";
 import {
-  RESOURCE_COLORS,
   buildingBounds,
   drawBridge,
   drawBubble,
@@ -243,11 +241,6 @@ export function createWorld(opts: WorldOptions): TownWorld {
   }
 
   /** Nature was clicked: the villagers gather it, say so. */
-  function showNature(resource: ResourceId, x: number, y: number): void {
-    const p = toWorld(x + 0.5, y + 0.5);
-    floatText(p.x, p.y - 20, `${resourceDef(resource)?.emoji ?? ""} dorpelingen zonder werk verzamelen dit`, RESOURCE_COLORS[resource] ?? "#fff");
-  }
-
   // ---------- input ----------
 
   const pointers = new Map<number, { x: number; y: number }>();
@@ -438,9 +431,8 @@ export function createWorld(opts: WorldOptions): TownWorld {
     } else if (h.kind === "building") {
       select(h.b.id);
       opts.onSelect(h.b);
-    } else {
-      showNature(h.resource, h.x, h.y);
     }
+    // Trees, rocks and bushes aren't clickable (the cursor says so): nothing happens, no explanation.
   }
 
   // ---------- the land ----------

@@ -740,16 +740,27 @@ Status: gedaan (PR #50). Gekozen door De raad (2026-10-28: 3 stemmen, de rest 0)
       raad, "De characters glitchen door de muren")
 
 ### Update 26: Chat & kapsels
-Status: gepland. Ideeën van spelers via De raad (2026-10-28).
+Status: in review. Ideeën van spelers via De raad (2026-10-28).
 
-- [ ] Een chat in het dorp, voor de spelers onder elkaar. (bron: Nathan,
-      "ik mis een interne chat")
-- [ ] Kapsels voor de mannetjes, nu is iedereen kaal. Kaal blijft een
-      keuze, maar is niet meer verplicht. (bron: Soufiane, "Haarstijlen
-      toevoegen want nu is iedereen kaal xD" en 2026-10-29 "Kaal zijn moet
-      een optie zijn niet een verplichting!!")
-- [ ] Het woord "werk" gecensureerd als "w*rk". (bron: JJ, "het woord w*rk
-      censureren")
+- [x] Een chat in het dorp, voor de spelers onder elkaar. Gedaan: knop 💬
+      rechtsonder (met het aantal ongelezen berichten), een venster met de
+      laatste 50 berichten, Enter om te sturen. De server bewaart ze bij het
+      dorp (`chat` in de staat, ook na een herstart); wat je zegt staat ook
+      even in een wolkje boven je eigen NPC. Hooguit 200 tekens per bericht.
+      (bron: Nathan, "ik mis een interne chat")
+- [x] Kapsels voor de mannetjes, nu is iedereen kaal. Kaal blijft een
+      keuze, maar is niet meer verplicht. Gedaan: 8 kapsels (kaal, kort,
+      stekeltjes, lang, paardenstaart, knotje, krullen, hanenkam) en 10
+      haarkleuren, gratis, bij 🧍 Jouw NPC → Haar. Wie al een NPC had, krijgt
+      een kapsel dat bij zijn id hoort (`defaultHair`); de gewone inwoners
+      ook. Onder een hoed zie je alleen wat eronder uitsteekt. Getekend als
+      vormen die net als de rest tot pixels gebakken worden. (bron:
+      Soufiane, "Haarstijlen toevoegen want nu is iedereen kaal xD" en
+      2026-10-29 "Kaal zijn moet een optie zijn niet een verplichting!!")
+- [x] Het woord "werk" gecensureerd als "w*rk". Gedaan: overal op de pagina
+      (ook in werkers, bewerken, ...) en in de wolkjes boven de mannetjes
+      (`censor`). Wat je typt, blijft zoals je het typt; in de chat staat
+      het daarna ook als w*rk. (bron: JJ, "het woord w*rk censureren")
 
 ### Update 15: Liefde & trouwen
 Status: gepland. Steunt op update 14. Beide spelers moeten zelf ja zeggen
